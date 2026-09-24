@@ -15,8 +15,10 @@ import ddddocr
 
 from recognizer import CardRecognizer
 from poker_core import calculate_best, JOKER_ID
-from strategy_runtime import StrategySession, StableNumber
-from high_low_strategy import TARGET, DAILY_CAP
+from settlement import SettlementReader
+from reward_vision import read_challenge_number
+from challenge_reward import ChallengeRewardReader
+from phased_strategy import PhasedStrategy
 
 try:
     # Windows source-mode runs otherwise inherit a legacy console encoding and
@@ -104,7 +106,7 @@ HIGH_LOW_SEARCH_ZONE = (42, 358, 1256, 451)
 REWARD_ZONE = (606, 389, 870, 253)
 
 # 💰 结算蓝字 OCR 识别区 (已保留你量好的数据)
-RESULT_REWARD_ZONE = (1044, 337, 450, 97)
+RESULT_REWARD_ZONE = (990, 290, 600, 150)
 
 upcoming_card_val = None
 
@@ -346,8 +348,6 @@ def _bring_game_to_front(hwnd):
 
 
 def safe_click(rel_x, rel_y, win_left, win_top):
-    if not bot_running:
-        return False
     if not _capture_context:
         print("[警告] 尚未取得有效游戏窗口，取消点击。")
         return False
@@ -397,10 +397,23 @@ def find_and_click_icon(screen_bgr, tpl_path, win_left, win_top, threshold=0.80)
     if max_val >= threshold:
         h, w = tpl_img.shape
         print(f"👉 成功触发点击: {os.path.basename(tpl_path)} (匹配度: {max_val:.2f} >= {threshold})")
-        return safe_click(max_loc[0] + w // 2, max_loc[1] + h // 2, win_left, win_top)
+        safe_click(max_loc[0] + w // 2, max_loc[1] + h // 2, win_left, win_top)
+        return True
     else:
-        print(f"⚠️ 放弃点击: {os.path.basename(tpl_path)} (当前匹配度仅 {max_val:.2f}，达不到 {threshold})")
         return False
+
+
+def is_success_prompt(screen_bgr):
+    gray = cv2.cvtColor(screen_bgr, cv2.COLOR_BGR2GRAY)
+    for path in ICON_TEMPLATES['ASK_CHALLENGE']:
+        if 'success_' not in os.path.basename(path):
+            continue
+        template = cv2.imdecode(np.frombuffer(Path(path).read_bytes(), dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+        if template is not None and template.shape[0] <= gray.shape[0] and template.shape[1] <= gray.shape[1]:
+            score = cv2.minMaxLoc(cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED))[1]
+            if score >= .85:
+                return True
+    return False
 
 
 def detect_game_state(screen_bgr):
@@ -441,57 +454,7 @@ def find_all_card_rects(img, search_zone):
 # OCR 引擎 1：用于提取浅紫底色上的黄色数字 (加入强制纠偏机制)
 # ---------------------------------------------------------
 def read_screen_number(img, search_zone):
-    sx, sy, sw, sh = search_zone
-    if sw == 0 or sh == 0:
-        return 0
-
-    roi = img[sy:sy + sh, sx:sx + sw]
-
-    # 1. 提取黄色区域
-    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-    lower_yellow = np.array([15, 50, 50])
-    upper_yellow = np.array([45, 255, 255])
-    yellow_mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
-
-    # 🚀 核心修复：在超大搜索框中自动捕捉黄色像素的真实边界（紧致裁切）
-    points = cv2.findNonZero(yellow_mask)
-    if points is None:
-        return 0  # 画面中完全没有黄色元素
-
-    x, y, w, h = cv2.boundingRect(points)
-
-    # 过滤微小的噪点颗粒（至少要像个数字的宽高）
-    if w < 10 or h < 10:
-        return 0
-
-    # 留 8 像素的外边距，避免贴边裁剪损伤字形
-    pad = 8
-    x1 = max(0, x - pad)
-    y1 = max(0, y - pad)
-    x2 = min(yellow_mask.shape[1], x + w + pad)
-    y2 = min(yellow_mask.shape[0], y + h + pad)
-
-    cropped_mask = yellow_mask[y1:y2, x1:x2]
-
-    # 2. 颜色反转（变为白底黑字）并放大到 OCR 最适宜的尺寸
-    perfect_img = cv2.bitwise_not(cropped_mask)
-    perfect_img = cv2.resize(perfect_img, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
-
-    _, img_bytes = cv2.imencode('.png', perfect_img)
-    text = ocr.classification(img_bytes.tobytes())
-
-    # 3. 强制字符纠偏
-    text = text.upper()
-    text = text.replace('O', '0').replace('Q', '0').replace('D', '0').replace('U', '0')
-    text = text.replace('I', '1').replace('L', '1')
-    text = text.replace('S', '5')
-    text = text.replace('Z', '2')
-    text = text.replace('B', '8')
-
-    try:
-        return int(''.join(filter(str.isdigit, text)))
-    except ValueError:
-        return 0
+    return read_challenge_number(img, search_zone, ocr)
 
 # ---------------------------------------------------------
 # OCR 引擎 2：用于纯白底浅蓝字 (最终 RESULT 结算界面的 Coins)
@@ -527,306 +490,372 @@ def load_daily_data():
     return 0, 0
 
 
-def save_daily_data(coins, fails):
-    with open(DATA_FILE, 'w', encoding='utf-8') as f:
-        json.dump({"coins": coins, "fails": fails, "date": time.strftime("%Y-%m-%d")}, f)
+def load_daily_stage():
+    if not Path(DATA_FILE).exists():
+        return 0
+    with open(DATA_FILE, encoding='utf-8') as f:
+        data = json.load(f)
+    stage = data.get('phased_stage', 0) if data.get('date') == time.strftime('%Y-%m-%d') else 0
+    if type(stage) is not int or not 0 <= stage <= 3:
+        raise ValueError('保存的策略阶段无效，请检查 daily_coins.json')
+    return stage
 
 
-def auto_play_loop(mode=None):
-    """Shared recognition/execution loop; policy choice is the only A/B change."""
-    global upcoming_card_val, bot_running
-    session = StrategySession(APP_DIR, RESOURCE_DIR, mode)
-    ledger = session.ledger
+def save_daily_data(coins, fails, stage=None):
+    # Save coins and stage together; legacy mode preserves the saved stage.
+    if stage is None:
+        stage = load_daily_stage()
+    temporary = Path(DATA_FILE).with_suffix('.tmp')
+    with temporary.open('w', encoding='utf-8') as f:
+        json.dump({"coins": coins, "fails": fails, "date": time.strftime("%Y-%m-%d"),
+                   "phased_stage": stage}, f)
+    os.replace(temporary, DATA_FILE)
+
+
+def auto_play_loop(mode='legacy'):
+    global upcoming_card_val
+    if mode not in ('legacy', 'phased'):
+        raise ValueError('Unknown strategy mode')
+    phased = PhasedStrategy(load_daily_stage()) if mode == 'phased' else None
+    if phased is not None and phased.complete:
+        print('[三阶段] 今日三个目标均已完成，停止挂机。')
+        return
     counter = HighLowCounter()
     card_rec = CardRecognizer(TEMPLATE_DIR)
-    reward_reader, result_reader = StableNumber(), StableNumber()
-    seen_ids = set()
-    round_active = False
-    hold_done = False
-    result_done = fail_done = False
-    last_guess = None
-    ask_clicked = None
-    first_cash = last_cash = 0
-    best_doubles = 0
-    last_state = None
-    state_since = time.monotonic()
-    last_action = 0.0
-    unknown_since = None
-    last_decision_key = None
-    decision = None
+    daily_coins, daily_fails = load_daily_data()
+    net_profit = daily_coins - (daily_fails * 50)
+    print(f"开始自动挂机... 当日累计代币: {daily_coins} | 累计失败: {daily_fails} 次 | 今日净利润: {net_profit}")
 
-    def stats():
-        d = ledger.data
-        print(f"当日累计代币: {d['coins']} | 累计失败: {d['fails']} 次 | 今日净利润: {d['coins'] - d['fails'] * 50}")
+    has_tallied = False
+    settlement_reader = SettlementReader()
+    reward_reader = ChallengeRewardReader()
+    expected_cashout = None
+    has_recorded_fail = False  # 防止在 FAIL 动画期间重复扣除门票
 
-    def observe(card):
-        if card.card_id != JOKER_ID and card.card_id not in seen_ids:
-            counter.remove_cards([get_real_card_value(card)])
-            seen_ids.add(card.card_id)
+    def request_cashout(frame, left, top, cash):
+        nonlocal expected_cashout
+        if find_and_click_icon(frame, TPL_CROSS, left, top):
+            expected_cashout = cash
+            return True
+        return False
 
-    def trusted(card):
-        return card.rank_score >= .55 and card.suit_score >= .62 and card.rank_margin >= .055
-
-    def check_button(img, left, top):
-        return find_and_click_icon(img, TPL_CHECK, left, top, threshold=.80)
-
-    print(f"[策略] {session.mode} | 每日目标 19,800；达标后持续翻倍至游戏上限")
-    print("[账目] 净利润栏沿用旧版失败门票估算；目标按已结算奖励计算。")
-    stats()
-    while bot_running and ledger.data['coins'] < DAILY_CAP:
-        # Use the day of actual settlement. Reset at a configured LOCAL hour.
-        if ledger.rollover():
-            session.event('daily_reset', date=ledger.data['date'])
-            stats()
+    while daily_coins < 20000 and bot_running :
         img, win_left, win_top = capture_game_window()
         if img is None:
-            time.sleep(.5)
+            print("未找到游戏窗口，请确保游戏没有被完全最小化...")
+            time.sleep(1)
             continue
-        state = detect_game_state(img)
-        if state != last_state:
-            state_since = time.monotonic()
-            session.event('state', previous=last_state, state=state)
-            if state != 'ASK_CHALLENGE':
-                reward_reader.reset()
-            if state != 'RESULT':
-                result_reader.reset()
-            last_state = state
-        elif time.monotonic() - state_since > 45:
-            print(f'[暂停] {state} 画面 45 秒未推进，请核对识别结果。')
-            session.event('recognition_pause', reason='state_timeout', state=state)
-            break
-        if state == 'UNKNOWN':
-            unknown_since = unknown_since or time.monotonic()
-            if time.monotonic() - unknown_since > 30:
-                print('[暂停] 画面连续 30 秒无法识别，请核对游戏状态。')
-                session.event('recognition_pause', reason='unknown_state')
-                break
-            time.sleep(.2)
+
+        current_state = detect_game_state(img)
+
+        # Only a new round resets accounting; UNKNOWN may be a result flicker.
+        if current_state in ("START_BET", "HOLD_CARDS"):
+            has_tallied = False
+            settlement_reader.reset()
+            reward_reader.reset_round()
+            expected_cashout = None
+            if phased is not None:
+                phased.reset_round()
+        elif current_state in ('HIGH_LOW', 'FAIL', 'RESULT'):
+            reward_reader.reset_prompt()
+        if current_state != "FAIL":
+            has_recorded_fail = False
+
+        # === 实时渲染 GUI 画面 ===
+        display_img = img.copy()
+        cv2.putText(display_img, f"State: {current_state}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
+        cv2.putText(display_img, f"Coins: {daily_coins} / {TARGET_LIMIT}", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.2,
+                    (0, 255, 255), 3)
+        if current_state == "UNKNOWN":
+            cv2.putText(display_img, "Waiting for match...", (20, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+        #cv2.imshow("Auto Bot GUI", display_img)
+
+        #if cv2.waitKey(1) & 0xFF == ord('q'):
+            #print("收到退出指令，结束挂机。")
+            #break
+        # =========================
+
+        if current_state == "UNKNOWN":
+            time.sleep(0.5)
             continue
-        unknown_since = None
 
-        if state == 'FULL':
-            print('[完成] 游戏显示每日上限/结束状态，停止挂机。')
-            session.event('game_limit', coins=ledger.data['coins'])
-            break
-
-        if state == 'START_BET':
-            if time.monotonic() - last_action < 2:
-                time.sleep(.1)
-                continue
-            for tpl in ICON_TEMPLATES['START_BET']:
-                if find_and_click_icon(img, tpl, win_left, win_top):
-                    last_action = time.monotonic()
-                    round_active = False
-                    break
-            time.sleep(.4)
-
-        elif state == 'HOLD_CARDS':
-            cards, rects = card_rec.recognize(img)
-            if len(cards) != 5 or any(c.card_id != JOKER_ID and not trusted(c) for c in cards):
-                time.sleep(.2)
-                continue
-            if not round_active:
-                counter.reset()
-                seen_ids.clear()
-                upcoming_card_val = None
-                result_done = fail_done = hold_done = False
-                last_guess = ask_clicked = last_decision_key = None
-                first_cash = last_cash = best_doubles = 0
-                decision = None
-                round_active = True
-                ledger.data['rounds'] += 1
-                ledger.save()
-                session.event('round_start', round=ledger.data['rounds'])
-            if not hold_done:
-                for c in cards:
-                    observe(c)
-                best, _ = calculate_best([c.card_id for c in cards], 'standard')
-                for idx in best.held_indices:
-                    if not bot_running:
-                        break
-                    x, y, w, h = rects[idx]
-                    if not safe_click(x+w//2, y+h//2, win_left, win_top):
-                        raise RuntimeError('Hold click failed; pause to avoid toggling cards twice')
-                    time.sleep(.10)
-                hold_done = True
-                session.event('hold', cards=[c.card_id for c in cards], held=list(best.held_indices))
-            if time.monotonic() - last_action >= 1:
-                if find_and_click_icon(img, TPL_REPLACE, win_left, win_top):
-                    last_action = time.monotonic()
-            time.sleep(.4)
-
-        elif state == 'TAP_TO_PROCEED':
-            # Account for replacement cards too, once per physical card ID.
-            cards, _ = card_rec.recognize(img)
-            for card in cards:
-                if trusted(card):
-                    observe(card)
-            if time.monotonic() - last_action >= .7:
-                h, w = img.shape[:2]
-                safe_click(w//2, h//2, win_left, win_top)
-                last_action = time.monotonic()
-            time.sleep(.2)
-
-        elif state == 'ASK_CHALLENGE':
-            round_active = True
-            next_reward = read_screen_number(img, REWARD_ZONE)
-            if not reward_reader.accept(next_reward):
-                time.sleep(.15)
-                continue
-            if next_reward % 2 or next_reward > 2**40:
-                raise RuntimeError('Invalid reward OCR; please inspect the game')
-            cash = next_reward // 2
-            if first_cash == 0:
-                first_cash = cash
-            # Count only completed reward doublings, never attempted guesses.
-            ratio = cash // first_cash if first_cash else 0
-            if cash >= first_cash and cash % first_cash == 0 and ratio and ratio & (ratio-1) == 0:
-                best_doubles = max(best_doubles, ratio.bit_length()-1)
-            ledger.data['best_doubles'] = max(ledger.data['best_doubles'], best_doubles)
-            last_cash = cash
-            key = (ledger.data['coins'], cash, upcoming_card_val, tuple(counter.deck.values()))
-            if key != last_decision_key:
-                decision = session.decide(ledger.data['coins'], cash, counter.deck, upcoming_card_val)
-                last_decision_key = key
-                print(f"[决策 {session.mode}] 已入账 {ledger.data['coins']} | 在手 {cash} | 成功翻倍 {best_doubles} 次 | {decision.action}: {decision.reason}")
-                if decision.cashout_seconds is not None and decision.challenge_seconds is not None:
-                    print(f"[模型] 收手剩余约 {decision.cashout_seconds:.1f}s；挑战剩余约 {decision.challenge_seconds:.1f}s")
-            if ask_clicked == key and time.monotonic() - last_action < 3:
-                time.sleep(.15)
-                continue
-            if decision.action == 'cashout':
-                clicked = find_and_click_icon(img, TPL_CROSS, win_left, win_top)
-            elif decision.action == 'challenge':
-                clicked = check_button(img, win_left, win_top)
-            else:
-                clicked = False
-            if clicked:
-                ask_clicked = key
-                last_action = time.monotonic()
-            time.sleep(.35)
-
-        elif state == 'HIGH_LOW':
-            round_active = True
-            ask_clicked = None
-            rects = find_all_card_rects(img, HIGH_LOW_SEARCH_ZONE)
-            if not rects:
-                time.sleep(.15)
-                continue
-            rects.sort(key=lambda r: r[0])
-            rect = rects[-1]
-            card = card_rec.recognize_card(img, rect)
-            if card.card_id == JOKER_ID:
-                print('[暂停] 翻倍阶段出现百搭王，其处理规则尚未确认。')
-                session.event('recognition_pause', reason='high_low_joker')
-                break
-            if not trusted(card):
-                time.sleep(.15)
-                continue
-            # Read every exposed card, including ties skipped by flip capture.
-            for visible_rect in rects:
-                visible = card_rec.recognize_card(img, visible_rect)
-                if trusted(visible):
-                    observe(visible)
-            signature = (card.card_id, round(rect[0]/20), last_cash)
-            if signature == last_guess:
-                if time.monotonic() - last_action > 15:
-                    print('[暂停] 同一猜牌画面未推进，避免重复点击/重复记牌。')
-                    break
-                time.sleep(.15)
-                continue
-            current = get_real_card_value(card)
-            observe(card)
-            choice, rate = counter.get_best_choice_and_rate(current)
-            print(f"[猜牌] {card.rank}: {choice.upper()} | 排除同点后的胜率 {rate:.2%}")
-            if not find_and_click_icon(img, TPL_HIGH if choice == 'high' else TPL_LOW, win_left, win_top):
-                time.sleep(.2)
-                continue
-            last_guess = signature
-            last_action = time.monotonic()
-            session.event('guess', rank=current, choice=choice, conditional_win_rate=rate, cash=last_cash)
+        if current_state == "START_BET":
+            print("\n[状态] 初始下注")
+            counter.reset()
             upcoming_card_val = None
-            previous_candidate = None
-            # Require two agreeing frames; animation fragments are not cards.
-            for _ in range(25):
-                if not bot_running:
+
+            # 遍历尝试点击当前语言的 Start 图标
+            for tpl in ICON_TEMPLATES["START_BET"]:
+                if find_and_click_icon(img, tpl, win_left, win_top):
                     break
-                time.sleep(.04)
-                flip_img, _, _ = capture_game_window()
-                if flip_img is None:
-                    continue
-                new_rects = find_all_card_rects(flip_img, HIGH_LOW_SEARCH_ZONE)
-                if not new_rects:
-                    continue
-                newest = max(new_rects, key=lambda r: r[0])
-                if newest[0] <= rect[0] + 50:
-                    continue
-                try:
-                    revealed = card_rec.recognize_card(flip_img, newest)
-                    if revealed.card_id == JOKER_ID or not trusted(revealed):
+            time.sleep(1)
+
+        elif current_state == "HOLD_CARDS":
+            print("\n[状态] 留牌阶段")
+            recognized_cards, rects = card_rec.recognize(img)
+            if len(recognized_cards) == 5:
+                hand_ids = [c.card_id for c in recognized_cards]
+                card_values = [get_real_card_value(c) for c in recognized_cards if c.card_id != JOKER_ID]
+                counter.remove_cards(card_values)
+
+                best, _ = calculate_best(hand_ids, "standard")
+
+                for idx in best.held_indices:
+                    x, y, w_box, h_box = rects[idx]
+                    safe_click(x + w_box // 2, y + h_box // 2, win_left, win_top)
+                    time.sleep(0.15)
+
+                time.sleep(0.3)
+                find_and_click_icon(img, TPL_REPLACE, win_left, win_top)
+                time.sleep(1)
+
+        elif current_state == "TAP_TO_PROCEED":
+            h, w = img.shape[:2]
+            safe_click(w // 2, h // 2, win_left, win_top)
+            time.sleep(0.6)
+
+
+
+
+
+
+
+
+        elif current_state == "ASK_CHALLENGE":
+
+            if phased is not None:
+                if phased.base_cash is None:
+                    if is_success_prompt(img):
+                        raise RuntimeError('当前已在翻倍途中，无法恢复本局成功次数。请从新一局开始。')
+                    real_reward = read_screen_number(img, REWARD_ZONE)
+                    next_reward = reward_reader.observe(real_reward, time.monotonic())
+                    if next_reward is None:
+                        time.sleep(.25)
                         continue
-                    if previous_candidate == revealed.card_id:
-                        observe(revealed)
-                        upcoming_card_val = get_real_card_value(revealed)
-                        break
-                    previous_candidate = revealed.card_id
-                except (ValueError, RuntimeError):
-                    continue
-            if upcoming_card_val is None:
-                print('[预判] 未确认下一张牌；新策略按未知牌分布估计。')
-            time.sleep(.2)
+                    phased.start_round(next_reward // 2, daily_coins)
+                elif is_success_prompt(img):
+                    phased.confirm_success()
+                action = phased.decide()
+                goal = ('游戏自动结算' if phased.target_wins is None
+                        else f'{phased.target_wins} 次成功')
+                print(f'[三阶段] 第 {phased.stage + 1}/3 阶段 | '
+                      f'已成功 {phased.successes} 次 | 目标: {goal} | '
+                      + ('收手入账' if action == 'cashout' else '继续翻倍'))
+                if action == 'cashout':
+                    request_cashout(img, win_left, win_top, phased.expected_cash)
+                else:
+                    find_and_click_icon(img, TPL_CHECK, win_left, win_top, threshold=.55)
+                time.sleep(.6)
+                continue
 
-        elif state == 'FAIL':
-            if not fail_done:
-                if round_active:
-                    ledger.data['fails'] += 1
-                    ledger.save()
-                    session.event('round_fail', best_doubles=best_doubles)
-                fail_done = True
-                round_active = False
-                stats()
-            if time.monotonic() - last_action >= 1.5:
-                if check_button(img, win_left, win_top):
-                    last_action = time.monotonic()
-            time.sleep(.3)
+            real_reward = read_screen_number(img, REWARD_ZONE)
+            next_reward = reward_reader.observe(real_reward, time.monotonic())
+            if next_reward is None:
+                time.sleep(.25)
+                continue
+            current_cashout = next_reward // 2
+            print(f"\n[账房] 当前在手现金: {current_cashout} | 挑战成功后将变为: {next_reward}")
 
-        elif state == 'RESULT':
-            if not round_active and not result_done:
-                # Starting on a settlement screen must not credit the old
-                # executable's already-booked award a second time.
-                print('[账目] 接管已有结算画面，跳过旧结算；可在停止后校正今日累计。')
-                session.event('existing_settlement_skipped')
-                result_done = True
-            if not result_done:
-                earned = read_result_number(img, RESULT_REWARD_ZONE)
-                if not result_reader.accept(earned):
+            if upcoming_card_val is not None:
+
+                _, win_rate = counter.get_best_choice_and_rate(upcoming_card_val)
+
+                print(f"[风控] 基于预判，下一轮真实胜率为: {win_rate:.2%}")
+
+            else:
+
+                win_rate = 1.0
+
+                print("[风控] 第一轮或盲盒状态，默认直接挑战！")
+
+            # === 终极风控：智能垫刀 / 极限冲刺 ===
+
+            # 【规则 1：冲刺期】账户金币已达 19800，目标是实际到手现金 >= 10000
+
+            if daily_coins >= 19800:
+
+                if current_cashout >= 10000:
+
+                    print(f"🎉 终极目标达成！在手奖金已达 {current_cashout} (超1w)，安全提现大丰收！")
+
+                    request_cashout(img, win_left, win_top, current_cashout)
+
+                else:
+
+                    print(f"🚀 冲刺期继续追击（无视胜率，目标在手1w）！当前在手仅 {current_cashout}，冲刺 {next_reward}！")
+
+                    find_and_click_icon(img, TPL_CHECK, win_left, win_top, threshold=0.55)
+
+
+            # 【规则 2：平稳垫刀期】总金币未达到 19800，严格控分慢慢垫
+
+            else:
+
+                # 1. 核心修复：当前这笔在安全线内，但再翻倍就会爆破 19800 -> 立即刹车提现垫刀！
+
+                if daily_coins + current_cashout <= 19800 and daily_coins + next_reward > 19800:
+
+                    print(
+                        f"🛑 警报：提现(+{current_cashout})在安全线内，但再翻倍(+{next_reward})总额将达 {daily_coins + next_reward} 提前破限！果断收手垫刀！")
+
+                    request_cashout(img, win_left, win_top, current_cashout)
+
+
+                # 2. 如果当前现金已经不慎超过了 19800（极端天胡开局）
+
+                elif daily_coins + current_cashout > 19800:
+
+                    if current_cashout >= 10000:
+
+                        print(f"🎉 意外天胡！垫刀途中在手直接达 {current_cashout} (超1w)，直接收手大丰收！")
+
+                        request_cashout(img, win_left, win_top, current_cashout)
+
+                    else:
+
+                        print(
+                            f"⚠️ 提现此笔(+{current_cashout})总额将达 {daily_coins + current_cashout} 破限且未破万！拒绝提现，强行搏翻倍！")
+
+                        find_and_click_icon(img, TPL_CHECK, win_left, win_top, threshold=0.55)
+
+
+                # 3. 正常发育，胜率低见好就收
+
+                elif win_rate < 0.60:
+
+                    print(f"🛑 发育局胜率太低 ({win_rate:.2%})，提现 {current_cashout} 垫刀！")
+
+                    request_cashout(img, win_left, win_top, current_cashout)
+
+
+                # 4. 利润安全且下一把翻倍仍在安全线内，继续追击
+
+                else:
+
+                    print(f"🔥 利润安全且再翻倍不会超限，普通局继续追击翻倍！")
+
+                    find_and_click_icon(img, TPL_CHECK, win_left, win_top, threshold=0.55)
+
+            time.sleep(0.6)
+        elif current_state == "HIGH_LOW":
+            if phased is not None and phased.base_cash is None:
+                raise RuntimeError('当前已在翻倍途中，无法恢复本局成功次数。请从新一局开始。')
+            try:
+                # 1. 用新引擎搜出所有白色卡牌
+                rects = find_all_card_rects(img, HIGH_LOW_SEARCH_ZONE)
+
+                if rects:
+                    # 按 X 坐标排序，拿到最右侧的一张明牌
+                    rects.sort(key=lambda r: r[0])
+                    current_rect = rects[-1]
+
+                    old_right_x = current_rect[0]
+
+                    single_card = card_rec.recognize_card(img, current_rect)
+                    if single_card.card_id != JOKER_ID:
+                        current_card_val = get_real_card_value(single_card)
+                        counter.remove_cards([current_card_val])
+                        best_choice, rate = counter.get_best_choice_and_rate(current_card_val)
+
+                        print(f"\n明牌: {single_card.rank}, 选: {best_choice.upper()} (胜率: {rate:.2%})")
+
+                        if best_choice == "high":
+                            guessed = find_and_click_icon(img, TPL_HIGH, win_left, win_top)
+                        else:
+                            guessed = find_and_click_icon(img, TPL_LOW, win_left, win_top)
+                        if phased is not None and guessed:
+                            phased.guess_clicked()
+
+                        # === 2. 状态对比追踪连拍 ===
+                        print("[预判] 启动多帧对比追踪...")
+                        upcoming_card_val = None
+                        DEBUG_DIR.mkdir(exist_ok=True)
+
+                        for i in range(25):
+                            time.sleep(0.04)
+                            flip_img, _, _ = capture_game_window()
+
+                            if flip_img is not None:
+                                try:
+                                    new_rects = find_all_card_rects(flip_img, HIGH_LOW_SEARCH_ZONE)
+                                    if new_rects:
+                                        # 拿到连拍画面中最右侧的白牌
+                                        new_rects.sort(key=lambda r: r[0])
+                                        newest_rect = new_rects[-1]
+
+                                        # 核心判定：如果新画面最右边白牌的 X 坐标，比明牌突增了 50 个像素以上
+                                        # 证明有新卡翻过来变白了
+                                        if newest_rect[0] > old_right_x + 50:
+                                            newest_card = card_rec.recognize_card(flip_img, newest_rect)
+                                            if newest_card.card_id != JOKER_ID:
+                                                upcoming_card_val = get_real_card_value(newest_card)
+                                                print(
+                                                    f"[预判] 第 {i + 1} 帧追踪到新卡牌！下一张将是: {newest_card.rank}")
+
+                                                cx, cy, cw, ch = newest_rect
+                                                cv2.imwrite(str(DEBUG_DIR / "2_next_card.png"),
+                                                            flip_img[max(0, cy - 40):cy + ch + 40,
+                                                            max(0, cx - 40):cx + cw + 40])
+                                                break
+                                except Exception:
+                                    continue
+
+                        if upcoming_card_val is None:
+                            print("[预判] 连拍追踪超时，未能看清下一张牌。")
+
+                        time.sleep(0.6)
+                else:
+                    print("\n[警告] 画面中未识别到任何白色卡牌，请确认画面处于 HIGH_LOW 状态且搜索区正常。")
+            except Exception as e:
+                print(f"\n[异常] 猜高低逻辑崩溃: {e}")
+
+        elif current_state == "FAIL":
+            if not has_recorded_fail:
+                daily_fails += 1
+                net_profit = daily_coins - (daily_fails * 50)
+                save_daily_data(daily_coins, daily_fails)
+                print(
+                    f"\n💔 对局失败！累计失败: {daily_fails} 次 (门票损失: {daily_fails * 50}) | 今日净利润: {net_profit}")
+                has_recorded_fail = True
+
+            time.sleep(0.8)
+            find_and_click_icon(img, TPL_CHECK, win_left, win_top, threshold=0.55)
+            time.sleep(1)
+
+        elif current_state == "RESULT":
+            if not has_tallied:
+                if settlement_reader.started is None:
+                    print("\n[状态] 结算界面，等待金额稳定后核对账目...")
+                if phased is not None:
+                    phased.begin_settlement(expected_cashout is not None)
+                    if phased.expected_cash is None:
+                        raise RuntimeError('缺少本局翻倍记录，无法核对入账。请手动核对后开始新一局。')
+                    expected_cashout = phased.expected_cash
+                amount = read_result_number(img, RESULT_REWARD_ZONE)
+                earned = settlement_reader.observe(amount, time.monotonic(), expected_cashout)
+                if earned is None:
                     time.sleep(.2)
                     continue
-                if earned > 2**40:
-                    raise RuntimeError('Implausible settlement OCR')
-                # A requested cashout must settle the amount used to decide.
-                if decision is not None and decision.action == 'cashout' and last_cash and earned != last_cash:
-                    raise RuntimeError(f'Settlement mismatch: expected {last_cash}, OCR {earned}; daily ledger unchanged')
-                before = ledger.data['coins']
-                ledger.data['coins'] += earned
-                ledger.data['target_reached'] = ledger.data['coins'] >= TARGET
-                ledger.save()
-                session.event('settlement', earned=earned, coins=ledger.data['coins'], best_doubles=best_doubles)
-                if before < TARGET <= ledger.data['coins']:
-                    session.event('target_reached', coins=ledger.data['coins'], final_round_available=ledger.data['coins'] < DAILY_CAP)
-                    print('[达标] 已结算奖励达到 19,800；后续解除止盈，挑战游戏最大翻倍次数。')
-                result_done = True
-                round_active = False
-                stats()
-            if time.monotonic() - last_action >= 1.5:
-                if check_button(img, win_left, win_top):
-                    last_action = time.monotonic()
-            time.sleep(.3)
-    ledger.save()
-    session.event('session_end', coins=ledger.data['coins'], best_doubles=ledger.data['best_doubles'])
-    bot_running = False
+                daily_coins += earned
+                net_profit = daily_coins - (daily_fails * 50)
+                print(
+                    f"💰 成功入账: {earned} ! 当前总金币: {daily_coins} | 累计失败: {daily_fails} 次 | 今日净利润: {net_profit}")
+
+                if phased is not None:
+                    next_stage = phased.stage_after_credit(earned)
+                    save_daily_data(daily_coins, daily_fails, next_stage)
+                    phased.stage = next_stage
+                else:
+                    save_daily_data(daily_coins, daily_fails)
+                has_tallied = True
+
+            time.sleep(0.8)
+            find_and_click_icon(img, TPL_CHECK, win_left, win_top, threshold=0.55)
+            time.sleep(1)
+            if phased is not None and phased.complete:
+                print('[三阶段] 三个目标均已成功入账，停止挂机。')
+                break
 
 
-if __name__ == '__main__':
-    bot_running = True
+if __name__ == "__main__":
     auto_play_loop()
