@@ -11,10 +11,36 @@ An automated assistant and decision-making bot for the casino mini-game in *Holo
 - **Smart Risk Control & Sprint Modes**:
   - **Staging Phase**: Automatically drops/cashes out when odds are unfavorable to steadily build bankroll.
   - **Sprint Phase**: Unlocks aggressive play once total coins reach 19,800, pushing for 10,000+ coins in a single run.
-- **Three-Stage Doubling Strategy**: Supports customizable progression where stages cash out based on confirmed win counts rather than unstable readings. See [Three-Stage Doubling Strategy Guide](THREE_STAGE.md).
+- **Three-Stage Doubling Strategy**: Supports customizable progression where stages cash out based on confirmed win counts rather than unstable readings. See [Three-Stage Doubling Strategy Guide](docs/THREE_STAGE.md).
+- **Custom Backgrounds**: Drop any `.png`, `.jpg`, or `.webp` into `backgrounds/`. The bot auto-detects them and lets you cycle through them directly from the UI.
 - **Extensible Multilingual Support**: Built-in support for English, Simplified Chinese, Traditional Chinese, and Japanese. Custom translation files can be dropped directly into `locales/`.
 - **Profit & Loss Tracking**: Tracks failed runs and ticket fees (50 coins/entry), calculating net profit in real time.
 - **Global Stop Hotkey**: Supports customizable hotkeys (default `INSERT`) to safely halt automation at any time.
+
+---
+
+## 📁 Project Structure
+
+```text
+├── main_ui.py                 # Main application graphical launcher
+├── requirements.txt           # Python dependencies
+├── Hololive Dreams-Auto.spec  # PyInstaller packaging configuration
+├── src/                       # Core engine and decision-making logic
+│   ├── auto_bot.py            # Main automation loop and game control
+│   ├── localization.py        # Dynamic language registry and translation helper
+│   ├── poker_core.py          # Numba JIT accelerated hand strategy solver
+│   ├── recognizer.py          # OpenCV card and template recognition
+│   ├── phased_strategy.py     # Multi-stage doubling strategy implementation
+│   ├── challenge_reward.py    # Hand payout vision and OCR
+│   ├── settlement.py          # Settlement balance verification
+│   └── reward_vision.py       # Ongoing reward OCR
+├── backgrounds/               # Drop custom background images here (.png, .jpg, etc.)
+├── assets/                    # Application icons and static assets
+├── locales/                   # External JSON translations (en.json, zh.json, etc.)
+├── templates/                 # Game recognition templates
+├── docs/                      # Documentation and detailed strategy guides
+└── tests/                     # Unit test suite
+```
 
 ---
 
@@ -40,7 +66,16 @@ python -m pip install -r requirements.txt pyinstaller
 python -m PyInstaller -y "Hololive Dreams-Auto.spec"
 ```
 
-The output will be created in `dist/Hololive Dreams-Auto/`. Keep the entire folder together (including the `_internal/` directory and `locales/` folder); do not move the `.exe` alone.
+The output will be created in `dist/Hololive Dreams-Auto/`. Keep the entire folder together (including `_internal/`, `backgrounds/`, `assets/`, and `locales/`); do not move the `.exe` alone.
+
+---
+
+## 🎨 Custom Backgrounds
+
+To customize the interface appearance:
+1. Drop your favorite image (`.png`, `.jpg`, `.jpeg`, `.bmp`, or `.webp`) into the `backgrounds/` folder.
+2. Launch the application.
+3. If multiple images exist, clicking the **"Background"** button in the UI cycles through each image or turns off the background.
 
 ---
 

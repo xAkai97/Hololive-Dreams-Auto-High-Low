@@ -28,9 +28,9 @@ def get_lang() -> str:
 
 
 def get_locales_dir() -> Path:
-    app_dir = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+    app_dir = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
     resource_dir = Path(getattr(sys, "_MEIPASS", app_dir)).resolve()
-    for candidate in [app_dir / "locales", resource_dir / "locales", Path("locales").resolve()]:
+    for candidate in [app_dir / "locales", resource_dir / "locales", Path(__file__).resolve().parent / "locales", Path("locales").resolve()]:
         if candidate.exists() and candidate.is_dir():
             return candidate
     return app_dir / "locales"

@@ -12,11 +12,17 @@ from tkinter import ttk
 import threading
 import sys
 import os
+from pathlib import Path
 import json
 import time
 import re
 from PIL import Image, ImageTk
 import keyboard
+
+# Ensure src directory is accessible when running from source or bundle
+SRC_DIR = Path(__file__).resolve().parent / "src"
+if SRC_DIR.exists() and str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
 import auto_bot
 import localization
@@ -101,19 +107,24 @@ class HololiveBotUI(tk.Tk):
         self.current_coins, self.current_fails, self.current_profit = get_local_data()
 
         self.title(TRANSLATIONS[self.current_lang]["title"])
-        # 🚀 替换这里的两行：优先加载 PNG 图标，任务栏永不退化为白纸
+        # 🚀 优先加载 PNG 图标，任务栏永不退化为白纸
         try:
-            transparent_icon = auto_bot.RESOURCE_DIR / "icon_transparent.png"
-            png_icon = auto_bot.RESOURCE_DIR / "icon.png"
-            ico_icon = auto_bot.RESOURCE_DIR / "icon.ico"
-            if transparent_icon.exists():
-                self._app_icon = ImageTk.PhotoImage(file=str(transparent_icon))
-                self.iconphoto(True, self._app_icon)
-            elif png_icon.exists():
-                self._app_icon = ImageTk.PhotoImage(file=str(png_icon))
-                self.iconphoto(True, self._app_icon)
-            elif ico_icon.exists():
-                self.iconbitmap(str(ico_icon))
+            icon_candidates = [
+                auto_bot.RESOURCE_DIR / "assets" / "icons" / "icon_transparent.png",
+                auto_bot.RESOURCE_DIR / "icon_transparent.png",
+                auto_bot.RESOURCE_DIR / "assets" / "icons" / "icon.png",
+                auto_bot.RESOURCE_DIR / "icon.png",
+                auto_bot.RESOURCE_DIR / "assets" / "icons" / "icon.ico",
+                auto_bot.RESOURCE_DIR / "icon.ico",
+            ]
+            for candidate in icon_candidates:
+                if candidate.exists():
+                    if candidate.suffix.lower() == ".ico":
+                        self.iconbitmap(str(candidate))
+                    else:
+                        self._app_icon = ImageTk.PhotoImage(file=str(candidate))
+                        self.iconphoto(True, self._app_icon)
+                    break
         except Exception as e:
             print(f"[Warning] Failed to load application icon: {e}")
 
@@ -126,12 +137,10 @@ class HololiveBotUI(tk.Tk):
         self.canvas = tk.Canvas(self, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
 
-        self.bg_image_path = auto_bot.RESOURCE_DIR / "background.png"
-        if self.bg_image_path.exists():
-            self.original_bg = Image.open(self.bg_image_path)
-        else:
-            self.original_bg = Image.new('RGB', (450, 800), color='#F0F0F0')
-            self.show_bg = False
+        self.bg_candidates = self._discover_backgrounds()
+        self.bg_index = 0 if self.bg_candidates else -1
+        self.original_bg = None
+        self._load_current_bg()
 
         self.bg_id = self.canvas.create_image(0, 0, anchor="nw")
 
@@ -342,8 +351,48 @@ class HololiveBotUI(tk.Tk):
         self.canvas.coords(self.scrollbar_win, w * 0.98, log_y)
         self.canvas.itemconfig(self.scrollbar_win, height=h * 0.45)
 
+    def _discover_backgrounds(self) -> list[Path]:
+        valid_exts = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
+        found: list[Path] = []
+        search_dirs = [auto_bot.APP_DIR / "backgrounds", auto_bot.RESOURCE_DIR / "backgrounds"]
+        for directory in search_dirs:
+            if directory.exists() and directory.is_dir():
+                for p in sorted(directory.iterdir()):
+                    if p.is_file() and p.suffix.lower() in valid_exts and p not in found:
+                        found.append(p)
+        legacy_bg = auto_bot.RESOURCE_DIR / "background.png"
+        if legacy_bg.exists() and legacy_bg not in found:
+            found.append(legacy_bg)
+        return found
+
+    def _load_current_bg(self):
+        if 0 <= self.bg_index < len(self.bg_candidates):
+            try:
+                self.original_bg = Image.open(self.bg_candidates[self.bg_index])
+                self.show_bg = True
+                return
+            except Exception as e:
+                print(f"[Warning] Failed to open background image {self.bg_candidates[self.bg_index]}: {e}")
+        self.original_bg = Image.new('RGB', (450, 800), color='#F0F0F0')
+        self.show_bg = False
+
     def toggle_bg(self):
-        self.show_bg = not self.show_bg
+        if not self.bg_candidates:
+            self.show_bg = not self.show_bg
+        else:
+            if not self.show_bg:
+                if self.bg_index < 0:
+                    self.bg_index = 0
+                self._load_current_bg()
+            elif len(self.bg_candidates) > 1:
+                self.bg_index += 1
+                if self.bg_index >= len(self.bg_candidates):
+                    self.bg_index = -1
+                    self.show_bg = False
+                else:
+                    self._load_current_bg()
+            else:
+                self.show_bg = not self.show_bg
         self.draw_ui(self.winfo_width(), self.winfo_height())
 
     def update_stats_display(self, coins=None, fails=None, profit=None):

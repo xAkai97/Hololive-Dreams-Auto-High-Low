@@ -11,15 +11,14 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 datas += [
     ('templates', 'templates'),
     ('locales', 'locales'),
-    ('background.png', '.'),
-    ('icon.ico', '.'),
-    ('icon_transparent.png', '.'),
+    ('backgrounds', 'backgrounds'),
+    ('assets', 'assets'),
 ]
 
 
 a = Analysis(
     ['main_ui.py'],
-    pathex=[],
+    pathex=['src'],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
@@ -48,7 +47,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['icon.ico'],
+    icon=['assets/icons/icon.ico'],
 )
 coll = COLLECT(
     exe,

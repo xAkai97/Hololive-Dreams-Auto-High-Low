@@ -1,3 +1,9 @@
+import sys
+from pathlib import Path
+SRC_DIR = Path(__file__).resolve().parents[1] / 'src'
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
 import ast
 import contextlib
 import io
@@ -14,7 +20,10 @@ class SettlementTests(unittest.TestCase):
     def replay(self, frames):
         # Execute the real accounting branches without importing Windows/OCR
         # dependencies or allowing mouse input and ledger file writes.
-        tree = ast.parse((Path(__file__).resolve().parents[1] / 'auto_bot.py').read_text(encoding='utf-8'))
+        auto_bot_path = Path(__file__).resolve().parents[1] / 'src' / 'auto_bot.py'
+        if not auto_bot_path.exists():
+            auto_bot_path = Path(__file__).resolve().parents[1] / 'auto_bot.py'
+        tree = ast.parse(auto_bot_path.read_text(encoding='utf-8'))
         loop = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'auto_play_loop')
         reset = next(n for n in ast.walk(loop) if isinstance(n, ast.If)
                      and ast.unparse(n.test) == "current_state in ('START_BET', 'HOLD_CARDS')")
