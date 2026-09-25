@@ -46,7 +46,8 @@ TEMPLATE_DIR = RESOURCE_DIR / "templates"
 BACKGROUNDS_DIR = APP_DIR / "backgrounds"
 ASSETS_DIR = RESOURCE_DIR / "assets"
 DEBUG_DIR = APP_DIR / "debug"
-DATA_FILE = APP_DIR / "daily_coins.json"
+DATA_FILE = APP_DIR / "config.json"
+LEGACY_DATA_FILE = APP_DIR / "daily_coins.json"
 
 # Icon templates and hard-coded recognition zones were captured at 1920x1080.
 # Every game frame is normalized to this size before matching/recognition, and
@@ -493,37 +494,52 @@ read_result_number = read_settlement_payout
 
 
 # ================= 3. Data & Main Loop =================
+def load_config() -> dict:
+    for target in (DATA_FILE, LEGACY_DATA_FILE):
+        if target.exists():
+            try:
+                with target.open('r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        return data
+            except Exception:
+                pass
+    return {}
+
+
 def load_daily_data():
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                if data.get("date") == time.strftime("%Y-%m-%d"):
-                    return data.get("coins", 0), data.get("fails", 0)
-        except Exception:
-            pass
+    data = load_config()
+    if data.get("date") == time.strftime("%Y-%m-%d"):
+        return data.get("coins", 0), data.get("fails", 0)
     return 0, 0
 
 
 def load_daily_stage():
-    if not Path(DATA_FILE).exists():
+    data = load_config()
+    if not data:
         return 0
-    with open(DATA_FILE, encoding='utf-8') as f:
-        data = json.load(f)
     stage = data.get('phased_stage', 0) if data.get('date') == time.strftime('%Y-%m-%d') else 0
     if type(stage) is not int or not 0 <= stage <= 3:
-        raise ValueError('Invalid strategy stage in daily_coins.json; please check file.')
+        raise ValueError('Invalid strategy stage in config.json; please check file.')
     return stage
 
 
-def save_daily_data(coins, fails, stage=None):
+def save_daily_data(coins, fails, stage=None, **settings):
     # Save coins and stage together; legacy mode preserves the saved stage.
     if stage is None:
         stage = load_daily_stage()
+    current = load_config()
+    current.update({
+        "coins": coins,
+        "fails": fails,
+        "date": time.strftime("%Y-%m-%d"),
+        "phased_stage": stage,
+    })
+    if settings:
+        current.update(settings)
     temporary = Path(DATA_FILE).with_suffix('.tmp')
     with temporary.open('w', encoding='utf-8') as f:
-        json.dump({"coins": coins, "fails": fails, "date": time.strftime("%Y-%m-%d"),
-                   "phased_stage": stage}, f)
+        json.dump(current, f, ensure_ascii=False, indent=2)
     os.replace(temporary, DATA_FILE)
 
 

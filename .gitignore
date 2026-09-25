@@ -22,6 +22,7 @@ _internal/
 
 # Runtime state & debug data
 daily_coins.json
+config.json
 debug/
 todo.md
 completed.md

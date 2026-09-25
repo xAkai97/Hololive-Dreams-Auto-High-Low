@@ -38,16 +38,11 @@ STRATEGY_LABELS = localization.STRATEGY_LABELS
 
 
 def load_saved_stats():
-    if auto_bot.DATA_FILE.exists():
-        try:
-            with auto_bot.DATA_FILE.open("r", encoding="utf-8") as f:
-                data = json.load(f)
-                if data.get("date") == time.strftime("%Y-%m-%d"):
-                    c = data.get("coins", 0)
-                    fl = data.get("fails", 0)
-                    return c, fl, c - (fl * 50)
-        except:
-            pass
+    data = auto_bot.load_config()
+    if data.get("date") == time.strftime("%Y-%m-%d"):
+        c = data.get("coins", 0)
+        fl = data.get("fails", 0)
+        return c, fl, c - (fl * 50)
     return 0, 0, 0
 
 
@@ -104,7 +99,9 @@ class HololiveBotUI(tk.Tk):
 
         self.bot_thread = None
         self.is_running = False
-        self.current_lang = localization.get_lang()
+        saved_config = auto_bot.load_config()
+        self.current_lang = saved_config.get("language", localization.get_lang())
+        localization.set_lang(self.current_lang)
         self.show_bg = True
 
         self.current_coins, self.current_fails, self.current_profit = load_saved_stats()
@@ -141,7 +138,8 @@ class HololiveBotUI(tk.Tk):
         self.canvas.pack(fill="both", expand=True)
 
         self.bg_candidates = self._discover_backgrounds()
-        self.bg_index = 0 if self.bg_candidates else -1
+        saved_bg = saved_config.get("background_index", 0)
+        self.bg_index = saved_bg if (-1 <= saved_bg < len(self.bg_candidates)) else (0 if self.bg_candidates else -1)
         self.original_bg = None
         self._load_current_bg()
 
@@ -166,7 +164,8 @@ class HololiveBotUI(tk.Tk):
         self.combo_window = self.canvas.create_window(0, 0, window=self.combo_lang, anchor="e")
 
         self.hotkey_label_id = self.canvas.create_text(0, 0, font=font_normal, fill="#111111", anchor="w")
-        self.current_hotkey = "INSERT"
+        saved_hotkey = saved_config.get("hotkey", "INSERT")
+        self.current_hotkey = saved_hotkey if saved_hotkey else "INSERT"
         self.is_listening = False
 
         self.btn_hotkey = ttk.Button(self, text=self.current_hotkey, command=self.start_listen_hotkey)
@@ -216,9 +215,12 @@ class HololiveBotUI(tk.Tk):
 
         self.combo_strategy = ttk.Combobox(self, state='readonly',
                                            values=STRATEGY_LABELS[self.current_lang])
-        self.combo_strategy.current(0)
+        saved_strat = saved_config.get("strategy_index", 0)
+        initial_strat = saved_strat if (isinstance(saved_strat, int) and 0 <= saved_strat <= 1) else 0
+        self.combo_strategy.current(initial_strat)
+        self.combo_strategy.bind("<<ComboboxSelected>>", self.on_strategy_change)
         self.strategy_window = self.canvas.create_window(0, 0, window=self.combo_strategy, anchor='nw')
-        self.active_mode = 'legacy'
+        self.active_mode = 'phased' if initial_strat == 1 else 'legacy'
 
         self.sys_redirector = RedirectText(self)
         self.original_stdout = sys.stdout
@@ -267,6 +269,7 @@ class HololiveBotUI(tk.Tk):
             self.current_hotkey = "F11"
             keyboard.add_hotkey(self.current_hotkey, lambda: self.after(0, self.stop_bot))
             self.btn_hotkey.configure(text=self.current_hotkey)
+        self.save_settings()
 
     def on_mouse_wheel(self, event):
         direction = -1 if event.delta > 0 else 1
@@ -457,6 +460,22 @@ class HololiveBotUI(tk.Tk):
             else:
                 self.show_bg = not self.show_bg
         self.draw_ui(self.winfo_width(), self.winfo_height())
+        self.save_settings()
+
+    def on_strategy_change(self, event=None):
+        idx = self.combo_strategy.current()
+        self.active_mode = 'phased' if idx == 1 else 'legacy'
+        self.save_settings()
+
+    def save_settings(self):
+        auto_bot.save_daily_data(
+            self.current_coins,
+            self.current_fails,
+            language=self.current_lang,
+            hotkey=self.current_hotkey,
+            background_index=self.bg_index,
+            strategy_index=self.combo_strategy.current(),
+        )
 
     def on_stats_manual_edit(self, event=None):
         if self.is_running:
@@ -469,7 +488,7 @@ class HololiveBotUI(tk.Tk):
             self.current_coins = new_coins
             self.current_fails = new_fails
             self.current_profit = self.current_coins - (self.current_fails * 50)
-            auto_bot.save_daily_data(self.current_coins, self.current_fails)
+            self.save_settings()
             self.update_stats_display()
         except ValueError:
             self.update_stats_display()
@@ -542,6 +561,7 @@ class HololiveBotUI(tk.Tk):
         self.current_lang = self.lang_keys[idx]
         localization.set_lang(self.current_lang)
         self.refresh_texts()
+        self.save_settings()
 
     def start_bot(self):
         self.active_mode = 'phased' if self.combo_strategy.current() == 1 else 'legacy'
