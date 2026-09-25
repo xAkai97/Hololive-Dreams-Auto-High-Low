@@ -6,13 +6,13 @@ import os
 import sys
 from pathlib import Path
 
-DEFAULT_LANG = "zh"
+DEFAULT_LANG = "en"
 _current_lang = DEFAULT_LANG
 
 LANGUAGE_NAMES: dict[str, str] = {
+    "en": "English",
     "zh": "简体中文",
     "tw": "繁體中文",
-    "en": "English",
     "ja": "日本語",
 }
 
@@ -76,7 +76,7 @@ def load_external_locales(locales_dir: Path | str | None = None) -> list[tuple[s
 
 def get_available_languages() -> list[tuple[str, str]]:
     """Return sorted list of (lang_code, display_name) with built-in languages first."""
-    builtin_order = ["zh", "tw", "en", "ja"]
+    builtin_order = ["en", "zh", "tw", "ja"]
     result = []
     for code in builtin_order:
         if code in TRANSLATIONS:
@@ -104,6 +104,42 @@ def tr(_key: str, _lang: str | None = None, **kwargs) -> str:
 
 
 ERROR_TRANSLATIONS: dict[str, dict[str, str]] = {
+    "Settlement amount could not be confirmed": {
+        "en": "Settlement amount could not be reliably confirmed.",
+        "zh": "结算金额未能稳定确认，已停止且未将此笔入账。",
+        "tw": "結算金額未能穩定確認，已停止且未將此筆入帳。",
+        "ja": "精算金額を安定して確認できませんでした。",
+    },
+    "Challenge payout cannot be confirmed": {
+        "en": "Challenge payout could not be confirmed.",
+        "zh": "挑战奖金无法确认，已停止。",
+        "tw": "挑戰獎金無法確認，已停止。",
+        "ja": "挑戦賞金を確認できませんでした。",
+    },
+    "Currently mid-doubling": {
+        "en": "Currently mid-challenge; cannot recover round count. Please restart from a fresh round.",
+        "zh": "当前已在翻倍途中，无法恢复本局成功次数。请从新一局开始。",
+        "tw": "當前已在翻倍途中，無法恢復本局成功次數。請從新一局開始。",
+        "ja": "現在ダブルアップの途中のため、成功回数を復元できません。新しい対局からやり直してください。",
+    },
+    "Missing doubling history": {
+        "en": "Missing doubling history for this round. Please check manually.",
+        "zh": "缺少本局翻倍记录，无法核对入账。请手动核对后开始新一局。",
+        "tw": "缺少本局翻倍紀錄，無法核對入帳。請手動核對後開始新一局。",
+        "ja": "本局のダブルアップ記録がないため照合できません。手動で確認してください。",
+    },
+    "Initial payout for this round cannot reserve cap room": {
+        "en": "Initial prize cannot preserve the 3rd stage, please handle manually.",
+        "zh": "本局起手奖金已无法保留第三阶段，请手动处理。",
+        "tw": "本局起手獎金已無法保留第三階段，請手動處理。",
+        "ja": "本局の初期賞金では第3段階を保持できません。手動で対応してください。",
+    },
+    "Unexpected game client area size": {
+        "en": "Unexpected game client dimensions.",
+        "zh": "游戏客户区尺寸异常。",
+        "tw": "遊戲客戶區尺寸異常。",
+        "ja": "ゲームクライアントのサイズが異常です。",
+    },
     "结算金额未能稳定确认": {
         "en": "Settlement amount could not be stably confirmed.",
         "ja": "精算金額を安定して確認できませんでした。",
@@ -134,8 +170,6 @@ ERROR_TRANSLATIONS: dict[str, dict[str, str]] = {
 def format_error(error: Exception | str, lang: str | None = None) -> str:
     err_str = str(error)
     active_lang = lang or _current_lang
-    if active_lang in ("zh", "tw"):
-        return err_str
     for pattern, mapping in ERROR_TRANSLATIONS.items():
         if pattern in err_str:
             return mapping.get(active_lang, mapping.get("en", err_str))

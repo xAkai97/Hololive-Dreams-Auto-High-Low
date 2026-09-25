@@ -26,5 +26,5 @@ class SettlementReader:
         if self.samples >= 3 and now - self.since >= .6:
             return self.candidate
         if now - self.started >= 8:
-            raise RuntimeError('结算金额未能稳定确认，已停止且未将此笔入账。请核对结算画面与今日累计。')
+            raise RuntimeError('Settlement amount could not be confirmed reliably; stopped and excluded from ledger. Please check the settlement screen and daily balance.')
         return None

@@ -27,7 +27,7 @@ if SRC_DIR.exists() and str(SRC_DIR) not in sys.path:
 import auto_bot
 import localization
 
-# 🚀 必须在窗口创建前执行：通知 Windows 这是一个独立应用，强制任务栏绑定自身图标
+# Must be executed before window creation: Notify Windows this is an independent app to bind its taskbar icon
 try:
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("hololive.dreams.autobot.v1")
 except Exception:
@@ -51,7 +51,7 @@ def get_local_data():
     return 0, 0, 0
 
 
-# ================= 拦截底层输出，虚拟滚动核心引擎 =================
+# ================= Output Interceptor & Virtual Scrolling Engine =================
 class RedirectText:
     def __init__(self, ui):
         self.ui = ui
@@ -107,7 +107,7 @@ class HololiveBotUI(tk.Tk):
         self.current_coins, self.current_fails, self.current_profit = get_local_data()
 
         self.title(TRANSLATIONS[self.current_lang]["title"])
-        # 🚀 优先加载 PNG 图标，任务栏永不退化为白纸
+        # Prefer PNG icon so taskbar icon never falls back to blank placeholder
         try:
             icon_candidates = [
                 auto_bot.RESOURCE_DIR / "assets" / "icons" / "icon_transparent.png",
@@ -176,7 +176,7 @@ class HololiveBotUI(tk.Tk):
 
         self.log_text_id = self.canvas.create_text(0, 0, font=font_log, fill="#000000", anchor="nw", justify="left")
         self.log_lines = []
-        # 🚀 修改 1：因为长文字折行后会占用两行的空间，把最大行数稍微调小（从 16 降到 13），防止底部文字被截断
+        # Long text wrapping takes 2 lines; adjust max lines slightly to prevent clipping
         self.log_max_lines = 13
         self.log_view_start = 0
 
@@ -345,7 +345,7 @@ class HololiveBotUI(tk.Tk):
         log_y = h * 0.50
         self.canvas.coords(self.log_text_id, log_x, log_y)
 
-        # 🚀 修改 2：给日志文字设定最大物理宽度。当碰到距离右侧 15% 的边界时，强行折行！
+        # Set max physical width for log text to wrap at 15% margin from right boundary
         self.canvas.itemconfig(self.log_text_id, width=w * 0.85)
 
         self.canvas.coords(self.scrollbar_win, w * 0.98, log_y)

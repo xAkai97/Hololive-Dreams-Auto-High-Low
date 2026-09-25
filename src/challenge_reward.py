@@ -36,5 +36,5 @@ class ChallengeRewardReader:
             self.last = value
             return value
         if now - self.started >= 8:
-            raise RuntimeError('挑战奖金无法确认，已停止。不会用错误金额或默认金额决定翻倍，请核对游戏画面。')
+            raise RuntimeError('Challenge payout cannot be confirmed; stopped. Will not use inaccurate or fallback payout to decide doubling. Please check the game screen.')
         return None

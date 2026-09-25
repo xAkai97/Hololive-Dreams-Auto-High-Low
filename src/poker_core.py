@@ -9,23 +9,23 @@ from numba import njit
 ENTRY_FEE = 50.0
 ENGINE_VERSION = "1.0.0"
 CATEGORY_NAMES = (
-    "未中奖／一对",
-    "两对",
-    "三条",
-    "顺子",
-    "同花",
-    "葫芦",
-    "四条",
-    "同花顺",
-    "五条",
-    "皇家同花顺",
+    "No Win / One Pair",
+    "Two Pair",
+    "Three of a Kind",
+    "Straight",
+    "Flush",
+    "Full House",
+    "Four of a Kind",
+    "Straight Flush",
+    "Five of a Kind",
+    "Royal Flush",
 )
 PRIZES = np.array([0, 200, 200, 400, 700, 800, 1500, 3000, 7000, 10000], dtype=np.int64)
 RANK_LABELS = ("2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A")
 SUIT_SYMBOLS = ("♠", "♥", "♦", "♣")
-SUIT_NAMES = ("黑桃", "红桃", "方块", "梅花")
+SUIT_NAMES = ("Spades", "Hearts", "Diamonds", "Clubs")
 
-# 0..51：普通牌，点数优先、花色次序 ♠♥♦♣；52：王。
+# 0..51: Standard cards, rank primary, suit order ♠♥♦♣; 52: Joker.
 JOKER_ID = 52
 
 
@@ -52,7 +52,7 @@ def card_id(rank: str, suit: str) -> int:
 
 def card_text(cid: int) -> str:
     if cid == JOKER_ID:
-        return "王"
+        return "JOKER"
     return f"{SUIT_SYMBOLS[cid % 4]}{RANK_LABELS[cid // 4]}"
 
 
@@ -286,13 +286,13 @@ def _all_strategies(initial: np.ndarray, standard_mode: bool):
 
 def calculate_best(cards: Sequence[int], draw_mode: str = "standard") -> tuple[StrategyResult, list[StrategyResult]]:
     if len(cards) != 5:
-        raise ValueError("必须正好输入5张牌。")
+        raise ValueError("Must provide exactly 5 cards.")
     if len(set(cards)) != 5:
-        raise ValueError("检测到重复牌。")
+        raise ValueError("Duplicate cards detected.")
     if sum(1 for c in cards if c == JOKER_ID) > 1:
-        raise ValueError("这套规则只有1张王。")
+        raise ValueError("Game rules only allow 1 Joker.")
     if any(c < 0 or c > 52 for c in cards):
-        raise ValueError("牌ID超出范围。")
+        raise ValueError("Card ID out of range.")
 
     initial = np.asarray(cards, dtype=np.int16)
     standard_mode = draw_mode.lower() == "standard"
@@ -346,16 +346,16 @@ def verify_engine() -> None:
             key=lambda r: (r.expected_payout, r.win_probability, -len(r.held_indices)),
         )
         if best != independently_best:
-            raise RuntimeError("策略排序自检失败：返回结果不是最高数学期望。")
+            raise RuntimeError("Strategy sorting self-check failed: result does not have the highest mathematical expectation.")
         if best.held_indices != expected_hold:
             raise RuntimeError(
-                f"策略引擎自检失败：{tuple(card_text(c) for c in cards)} "
-                f"应保留{expected_hold}，实际为{best.held_indices}。"
+                f"Strategy engine self-check failed: {tuple(card_text(c) for c in cards)} "
+                f"expected to hold {expected_hold}, got {best.held_indices}."
             )
         if abs(best.expected_payout - expected_payout) > 1e-9:
             raise RuntimeError(
-                f"策略引擎自检失败：期望返奖应为{expected_payout:.12f}，"
-                f"实际为{best.expected_payout:.12f}。"
+                f"Strategy engine self-check failed: expected payout was {expected_payout:.12f}, "
+                f"got {best.expected_payout:.12f}."
             )
 
     # Explicitly verify that the zero-card hold (replace all five cards) is
@@ -368,13 +368,13 @@ def verify_engine() -> None:
     _, audit_results = calculate_best(audit_hand, "standard")
     all_change = next((r for r in audit_results if r.mask == 0), None)
     if all_change is None:
-        raise RuntimeError("策略引擎自检失败：32种方案中缺少‘全部更换’。")
+        raise RuntimeError("Strategy engine self-check failed: 'Replace All' missing among 32 combinations.")
     if all_change.held_indices != () or all_change.discarded_indices != (0, 1, 2, 3, 4):
-        raise RuntimeError("策略引擎自检失败：‘全部更换’的留牌索引错误。")
+        raise RuntimeError("Strategy engine self-check failed: incorrect hold indices for 'Replace All'.")
     if all_change.total_outcomes != 1712304:
         raise RuntimeError(
-            f"策略引擎自检失败：‘全部更换’应枚举1712304种结果，"
-            f"实际为{all_change.total_outcomes}。"
+            f"Strategy engine self-check failed: 'Replace All' should enumerate 1,712,304 outcomes, "
+            f"got {all_change.total_outcomes}."
         )
 
 

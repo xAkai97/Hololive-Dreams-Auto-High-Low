@@ -40,20 +40,20 @@ class CardRecognizer:
         self.joker_corner = self._load_mask(template_dir / "joker_corner.png")
         self.joker_card = self._read_image(template_dir / "joker_card.png", cv2.IMREAD_GRAYSCALE)
         if not self.rank_templates or len(self.suit_templates) != 4 or self.joker_card is None:
-            raise RuntimeError("模板文件不完整。")
+            raise RuntimeError("Template files are incomplete.")
 
     @staticmethod
     def _read_image(path: Path, flags: int) -> np.ndarray:
-        """Read an image from a Windows path that may contain Chinese characters."""
+        """Read an image from a Windows path that may contain non-ASCII characters."""
         try:
             encoded = np.fromfile(str(path), dtype=np.uint8)
         except OSError as exc:
-            raise RuntimeError(f"无法读取模板文件：{path}（{exc}）") from exc
+            raise RuntimeError(f"Cannot read template file: {path} ({exc})") from exc
         if encoded.size == 0:
-            raise RuntimeError(f"模板文件为空或不存在：{path}")
+            raise RuntimeError(f"Template file is empty or missing: {path}")
         image = cv2.imdecode(encoded, flags)
         if image is None:
-            raise RuntimeError(f"无法解码模板：{path}")
+            raise RuntimeError(f"Cannot decode template image: {path}")
         return image
 
     @staticmethod

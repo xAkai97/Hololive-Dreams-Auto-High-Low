@@ -29,7 +29,7 @@ class PhasedStrategy:
         if self.stage == 1:
             candidates = [n for n in range(32) if coins + base_cash * 2**n < 20000]
             if not candidates:
-                raise RuntimeError('本局起手奖金已无法保留第三阶段，请手动处理。')
+                raise RuntimeError('Initial payout for this round cannot reserve cap room for Stage 3; please handle manually.')
             self.target_wins = min(candidates, key=lambda n: (abs(base_cash * 2**n - 6400), n))
 
     @property
@@ -38,7 +38,7 @@ class PhasedStrategy:
 
     def guess_clicked(self):
         if self.base_cash is None:
-            raise RuntimeError('尚未确认本局起手奖励，无法安全计数。请从新一局开始。')
+            raise RuntimeError('Initial hand payout not yet confirmed; cannot safely count wins. Please start from a fresh round.')
         self.pending_guess = True
 
     def confirm_success(self):
@@ -58,7 +58,7 @@ class PhasedStrategy:
         if self.complete:
             return 'stop'
         if self.base_cash is None:
-            raise RuntimeError('尚未确认本局起手奖励。')
+            raise RuntimeError('Initial hand payout not yet confirmed.')
         if self.stage == 1 and self.successes >= self.target_wins:
             return 'cashout'
         return 'challenge'

@@ -29,11 +29,11 @@ try:
 except Exception:
     pass
 
-# 直接全局初始化 OCR 引擎
+# Directly initialize OCR engine globally
 ocr = ddddocr.DdddOcr(show_ad=False)
 
 bot_running = False
-# ================= 全局配置与常量 =================
+# ================= Global Configuration & Constants =================
 GAME_TITLE = "hololive-Dreams"
 TARGET_LIMIT = 19800
 
@@ -100,21 +100,21 @@ _gdi32.GetBitmapBits.restype = wintypes.LONG
 _gdi32.DeleteObject.argtypes = [wintypes.HGDIOBJ]
 _gdi32.DeleteDC.argtypes = [wintypes.HDC]
 
-# === 动态寻框参数 ===
+# === Dynamic Bounding Box Parameters ===
 CARD_WIDTH = 260
-# 超大搜索区，覆盖整个屏幕中段，彻底杜绝漏抓
+# Large search area covering middle screen to prevent missing detections
 HIGH_LOW_SEARCH_ZONE = (42, 358, 1256, 451)
 
-# 💰 奖金黄字 OCR 识别区 (!!! 必须用 get_coords.py 重新量取你的黄色数字坐标 !!!)
+# Yellow bonus payout OCR detection zone
 REWARD_ZONE = (606, 389, 870, 253)
 
-# 💰 结算蓝字 OCR 识别区 (已保留你量好的数据)
+# Blue settlement text OCR detection zone
 RESULT_REWARD_ZONE = (990, 290, 600, 150)
 
 upcoming_card_val = None
 
 
-# === 真实点数映射表 ===
+# === Card Value Mapping ===
 def get_real_card_value(card):
     if card.card_id == JOKER_ID:
         return 0
@@ -142,7 +142,7 @@ def get_real_card_value(card):
     if raw in robust_map:
         return robust_map[raw]
 
-    print(f"[警告] 识别器输出了无法解析的 Rank: '{raw}', ID: {card.card_id}")
+    print(f"[Warning] Recognizer output unparseable rank: '{raw}', ID: {card.card_id}")
     return 8
 
 
@@ -202,7 +202,7 @@ TPL_CHECK = resource_path("templates", "icons", "tpl_check.png")
 TPL_CROSS = resource_path("templates", "icons", "tpl_cross.png")
 
 
-# ================= 1. 核心算法：高低记牌器 =================
+# ================= 1. Core Algorithm: High-Low Counter =================
 class HighLowCounter:
     def __init__(self):
         self.deck = {i: 4 for i in range(2, 15)}
@@ -232,7 +232,7 @@ class HighLowCounter:
             return "low", low_rate
 
 
-# ================= 2. 视觉识别与控制 =================
+# ================= 2. Vision Recognition & Control =================
 def find_game_window():
     """Return the real game window using an exact title match.
 
@@ -314,7 +314,7 @@ def capture_game_window():
     try:
         left, top, width, height = _get_client_geometry(hwnd)
         if width < 640 or height < 360:
-            raise RuntimeError(f"游戏客户区尺寸异常: {width}x{height}")
+            raise RuntimeError(f"Unexpected game client area size: {width}x{height}")
         img = _capture_client_with_printwindow(hwnd, width, height)
     except Exception as exc:
         # Fallback for Windows versions/drivers where PrintWindow is disabled.
@@ -440,27 +440,27 @@ def find_all_card_rects(img, search_zone):
     roi = img[sy:sy + sh, sx:sx + sw]
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
 
-    # 提取所有纯白色区域（利用暗牌是紫黑色的特点主动忽略暗牌）
+    # Extract all pure white regions (utilize purple-black face-down cards to ignore them)
     white_mask = cv2.inRange(hsv, (0, 0, 180), (180, 60, 255))
 
     contours, _ = cv2.findContours(white_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     rects = []
     for cnt in contours:
         x, y, w, h = cv2.boundingRect(cnt)
-        # 尺寸过滤：只保留像卡牌那么大的白块
+        # Size filter: only keep card-sized blocks
         if w > 100 and h > 150:
             rects.append((sx + x, sy + y, w, h))
     return rects
 
 
 # ---------------------------------------------------------
-# OCR 引擎 1：用于提取浅紫底色上的黄色数字 (加入强制纠偏机制)
+# OCR Engine 1: extract yellow digits on light purple background
 # ---------------------------------------------------------
 def read_screen_number(img, search_zone):
     return read_challenge_number(img, search_zone, ocr)
 
 # ---------------------------------------------------------
-# OCR 引擎 2：用于纯白底浅蓝字 (最终 RESULT 结算界面的 Coins)
+# OCR Engine 2: pure white background light blue text (RESULT settlement screen Coins)
 # ---------------------------------------------------------
 def read_result_number(img, search_zone):
     sx, sy, sw, sh = search_zone
@@ -480,7 +480,7 @@ def read_result_number(img, search_zone):
         return 0
 
 
-# ================= 3. 数据与主循环 =================
+# ================= 3. Data & Main Loop =================
 def load_daily_data():
     if os.path.exists(DATA_FILE):
         try:
@@ -500,7 +500,7 @@ def load_daily_stage():
         data = json.load(f)
     stage = data.get('phased_stage', 0) if data.get('date') == time.strftime('%Y-%m-%d') else 0
     if type(stage) is not int or not 0 <= stage <= 3:
-        raise ValueError('保存的策略阶段无效，请检查 daily_coins.json')
+        raise ValueError('Invalid strategy stage in daily_coins.json; please check file.')
     return stage
 
 
@@ -537,7 +537,7 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
     settlement_reader = SettlementReader()
     reward_reader = ChallengeRewardReader()
     expected_cashout = None
-    has_recorded_fail = False  # 防止在 FAIL 动画期间重复扣除门票
+    has_recorded_fail = False  # Prevent duplicate fee deduction during FAIL animation
 
     def request_cashout(frame, left, top, cash):
         nonlocal expected_cashout
@@ -568,7 +568,7 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
         if current_state != "FAIL":
             has_recorded_fail = False
 
-        # === 实时渲染 GUI 画面 ===
+        # === Real-time GUI frame rendering ===
         display_img = img.copy()
         cv2.putText(display_img, f"State: {current_state}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
         cv2.putText(display_img, f"Coins: {daily_coins} / {TARGET_LIMIT}", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.2,
@@ -578,7 +578,7 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
         #cv2.imshow("Auto Bot GUI", display_img)
 
         #if cv2.waitKey(1) & 0xFF == ord('q'):
-            #print("收到退出指令，结束挂机。")
+            #print("Received exit command, stopping bot.")
             #break
         # =========================
 
@@ -591,7 +591,7 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
             counter.reset()
             upcoming_card_val = None
 
-            # 遍历尝试点击当前语言的 Start 图标
+            # Try clicking Start icon for current language
             for tpl in ICON_TEMPLATES["START_BET"]:
                 if find_and_click_icon(img, tpl, win_left, win_top):
                     break
@@ -633,7 +633,7 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
             if phased is not None:
                 if phased.base_cash is None:
                     if is_success_prompt(img):
-                        raise RuntimeError('当前已在翻倍途中，无法恢复本局成功次数。请从新一局开始。')
+                        raise RuntimeError('Currently mid-doubling, cannot recover win count. Please start from a fresh round.')
                     real_reward = read_screen_number(img, REWARD_ZONE)
                     next_reward = reward_reader.observe(real_reward, time.monotonic())
                     if next_reward is None:
@@ -669,7 +669,7 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
                 win_rate = 1.0
                 print(tr('risk_blind'))
 
-            # === 终极风控：智能垫刀 / 极限冲刺 ===
+            # === Risk Control: Staging / Sprint Mode ===
             if daily_coins >= 19800:
                 if current_cashout >= 10000:
                     print(tr('target_achieved', cashout=current_cashout))
@@ -698,13 +698,13 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
             time.sleep(0.6)
         elif current_state == "HIGH_LOW":
             if phased is not None and phased.base_cash is None:
-                raise RuntimeError('当前已在翻倍途中，无法恢复本局成功次数。请从新一局开始。')
+                raise RuntimeError('Currently mid-doubling, cannot recover win count. Please start from a fresh round.')
             try:
-                # 1. 用新引擎搜出所有白色卡牌
+                # 1. Detect all white face-up cards with new engine
                 rects = find_all_card_rects(img, HIGH_LOW_SEARCH_ZONE)
 
                 if rects:
-                    # 按 X 坐标排序，拿到最右侧的一张明牌
+                    # Sort by X coordinate to get the rightmost face-up card
                     rects.sort(key=lambda r: r[0])
                     current_rect = rects[-1]
 
@@ -725,7 +725,7 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
                         if phased is not None and guessed:
                             phased.guess_clicked()
 
-                        # === 2. 状态对比追踪连拍 ===
+                        # === 2. Continuous State Tracking & Burst Capture ===
                         print(tr('tracking_start'))
                         upcoming_card_val = None
                         DEBUG_DIR.mkdir(exist_ok=True)
@@ -738,12 +738,12 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
                                 try:
                                     new_rects = find_all_card_rects(flip_img, HIGH_LOW_SEARCH_ZONE)
                                     if new_rects:
-                                        # 拿到连拍画面中最右侧的白牌
+                                        # Get rightmost white card from burst frames
                                         new_rects.sort(key=lambda r: r[0])
                                         newest_rect = new_rects[-1]
 
-                                        # 核心判定：如果新画面最右边白牌的 X 坐标，比明牌突增了 50 个像素以上
-                                        # 证明有新卡翻过来变白了
+                                        # Core check: if rightmost card X increases by > 50px,
+                                        # indicates a new card flipped face-up
                                         if newest_rect[0] > old_right_x + 50:
                                             newest_card = card_rec.recognize_card(flip_img, newest_rect)
                                             if newest_card.card_id != JOKER_ID:
@@ -788,7 +788,7 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
                 if phased is not None:
                     phased.begin_settlement(expected_cashout is not None)
                     if phased.expected_cash is None:
-                        raise RuntimeError('缺少本局翻倍记录，无法核对入账。请手动核对后开始新一局。')
+                        raise RuntimeError('Missing doubling history for this round; cannot verify settlement. Please verify manually and start a new round.')
                     expected_cashout = phased.expected_cash
                 amount = read_result_number(img, RESULT_REWARD_ZONE)
                 earned = settlement_reader.observe(amount, time.monotonic(), expected_cashout)
