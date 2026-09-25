@@ -7,7 +7,7 @@ import unittest
 
 from settlement import SettlementReader
 from challenge_reward import ChallengeRewardReader
-from i18n import tr
+from localization import tr
 
 
 class SettlementTests(unittest.TestCase):

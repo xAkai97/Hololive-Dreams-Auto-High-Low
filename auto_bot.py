@@ -19,7 +19,7 @@ from settlement import SettlementReader
 from reward_vision import read_challenge_number
 from challenge_reward import ChallengeRewardReader
 from phased_strategy import PhasedStrategy
-from i18n import tr, set_lang
+from localization import tr, set_lang
 
 try:
     # Windows source-mode runs otherwise inherit a legacy console encoding and

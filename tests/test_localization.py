@@ -5,22 +5,22 @@ from unittest.mock import patch, MagicMock
 import contextlib
 import io
 
-import i18n
+import localization
 import auto_bot as bot
 from main_ui import RedirectText
 
 
 class I18nTests(unittest.TestCase):
     def test_all_languages_have_identical_keys(self):
-        languages = list(i18n.TRANSLATIONS.keys())
+        languages = list(localization.TRANSLATIONS.keys())
         self.assertIn("zh", languages)
         self.assertIn("tw", languages)
         self.assertIn("en", languages)
         self.assertIn("ja", languages)
 
-        base_keys = set(i18n.TRANSLATIONS["zh"].keys())
+        base_keys = set(localization.TRANSLATIONS["zh"].keys())
         for lang in ("tw", "en", "ja"):
-            lang_keys = set(i18n.TRANSLATIONS[lang].keys())
+            lang_keys = set(localization.TRANSLATIONS[lang].keys())
             missing = base_keys - lang_keys
             extra = lang_keys - base_keys
             self.assertEqual(missing, set(), f"{lang} missing keys: {missing}")
@@ -53,28 +53,28 @@ class I18nTests(unittest.TestCase):
             "path": "templates/icon.png",
         }
         for lang in ("zh", "tw", "en", "ja"):
-            for key in i18n.TRANSLATIONS[lang]:
-                rendered = i18n.tr(key, lang=lang, **sample_params)
+            for key in localization.TRANSLATIONS[lang]:
+                rendered = localization.tr(key, lang=lang, **sample_params)
                 self.assertIsInstance(rendered, str)
                 self.assertNotIn("KeyError", rendered)
 
     def test_language_switching(self):
-        i18n.set_lang("en")
-        self.assertEqual(i18n.get_lang(), "en")
-        self.assertIn("Hololive Dreams Auto Bot", i18n.tr("title"))
+        localization.set_lang("en")
+        self.assertEqual(localization.get_lang(), "en")
+        self.assertIn("Hololive Dreams Auto Bot", localization.tr("title"))
 
-        i18n.set_lang("ja")
-        self.assertEqual(i18n.get_lang(), "ja")
-        self.assertIn("Hololive Dreams 自動Bot", i18n.tr("title"))
+        localization.set_lang("ja")
+        self.assertEqual(localization.get_lang(), "ja")
+        self.assertIn("Hololive Dreams 自動Bot", localization.tr("title"))
 
-        i18n.set_lang("zh")
-        self.assertEqual(i18n.get_lang(), "zh")
-        self.assertIn("Hololive Dreams 自动猜高低", i18n.tr("title"))
+        localization.set_lang("zh")
+        self.assertEqual(localization.get_lang(), "zh")
+        self.assertIn("Hololive Dreams 自动猜高低", localization.tr("title"))
 
     def test_strategy_labels_exist_for_all_languages(self):
         for lang in ("zh", "tw", "en", "ja"):
-            self.assertIn(lang, i18n.STRATEGY_LABELS)
-            self.assertEqual(len(i18n.STRATEGY_LABELS[lang]), 2)
+            self.assertIn(lang, localization.STRATEGY_LABELS)
+            self.assertEqual(len(localization.STRATEGY_LABELS[lang]), 2)
 
     def test_redirect_text_regex_matches_all_languages(self):
         class DummyUI:
@@ -126,7 +126,7 @@ class I18nTests(unittest.TestCase):
             bot.bot_running = False
             bot.auto_play_loop(mode='legacy', on_stats_update=on_stats, lang='en')
 
-        self.assertEqual(i18n.get_lang(), 'en')
+        self.assertEqual(localization.get_lang(), 'en')
         self.assertEqual(stats_calls, [(500, 1, 450)])
         self.assertIn("Starting bot... Today's coins: 500 | Fails: 1 | Net profit: 450", buf.getvalue())
 
@@ -147,16 +147,16 @@ class I18nTests(unittest.TestCase):
             }
             (tmp_path / "eo.json").write_text(json.dumps(custom_locale), encoding="utf-8")
 
-            languages = i18n.load_external_locales(tmp_path)
+            languages = localization.load_external_locales(tmp_path)
             lang_codes = [code for code, _ in languages]
             self.assertIn("eo", lang_codes)
-            self.assertEqual(i18n.LANGUAGE_NAMES.get("eo"), "Esperanto")
+            self.assertEqual(localization.LANGUAGE_NAMES.get("eo"), "Esperanto")
 
-            i18n.set_lang("eo")
-            self.assertEqual(i18n.tr("title"), "Hololive Dreams Aŭtomata")
-            self.assertEqual(i18n.tr("start_bot", coins=100), "Komencante roboton... Moneroj: 100")
+            localization.set_lang("eo")
+            self.assertEqual(localization.tr("title"), "Hololive Dreams Aŭtomata")
+            self.assertEqual(localization.tr("start_bot", coins=100), "Komencante roboton... Moneroj: 100")
             # Fallback for untranslated keys
-            self.assertEqual(i18n.tr("status_idle"), "Status: Idle")
+            self.assertEqual(localization.tr("status_idle"), "Status: Idle")
 
     def test_logs_match_selected_display_language(self):
         for lang, expected_token in [

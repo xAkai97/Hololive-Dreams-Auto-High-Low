@@ -19,7 +19,7 @@ from PIL import Image, ImageTk
 import keyboard
 
 import auto_bot
-import i18n
+import localization
 
 # 🚀 必须在窗口创建前执行：通知 Windows 这是一个独立应用，强制任务栏绑定自身图标
 try:
@@ -27,8 +27,8 @@ try:
 except Exception:
     pass
 
-TRANSLATIONS = i18n.TRANSLATIONS
-STRATEGY_LABELS = i18n.STRATEGY_LABELS
+TRANSLATIONS = localization.TRANSLATIONS
+STRATEGY_LABELS = localization.STRATEGY_LABELS
 
 
 def get_local_data():
@@ -142,14 +142,14 @@ class HololiveBotUI(tk.Tk):
         self.title_id = self.canvas.create_text(0, 0, font=font_title, fill="#111111")
 
         self.lang_label_id = self.canvas.create_text(0, 0, font=font_normal, fill="#111111", anchor="w")
-        available_langs = i18n.load_external_locales()
+        available_langs = localization.load_external_locales()
         self.lang_keys = [code for code, _ in available_langs]
         lang_values = [name for _, name in available_langs]
         self.combo_lang = ttk.Combobox(self, values=lang_values, state="readonly")
         initial_idx = self.lang_keys.index(self.current_lang) if self.current_lang in self.lang_keys else 0
         self.combo_lang.current(initial_idx)
         self.current_lang = self.lang_keys[initial_idx]
-        i18n.set_lang(self.current_lang)
+        localization.set_lang(self.current_lang)
         self.combo_lang.bind("<<ComboboxSelected>>", self.change_language)
         self.combo_window = self.canvas.create_window(0, 0, window=self.combo_lang, anchor="e")
 
@@ -205,8 +205,8 @@ class HololiveBotUI(tk.Tk):
             return
 
         self.is_listening = True
-        self.btn_hotkey.configure(text=i18n.tr("hotkey_listening", self.current_lang))
-        print(i18n.tr("hotkey_prompt", self.current_lang))
+        self.btn_hotkey.configure(text=localization.tr("hotkey_listening", self.current_lang))
+        print(localization.tr("hotkey_prompt", self.current_lang))
 
         threading.Thread(target=self._listen_worker, daemon=True).start()
 
@@ -231,9 +231,9 @@ class HololiveBotUI(tk.Tk):
         try:
             keyboard.add_hotkey(self.current_hotkey, lambda: self.after(0, self.stop_bot))
             self.btn_hotkey.configure(text=self.current_hotkey)
-            print(i18n.tr("hotkey_success", self.current_lang, key=self.current_hotkey))
+            print(localization.tr("hotkey_success", self.current_lang, key=self.current_hotkey))
         except Exception as e:
-            print(i18n.tr("hotkey_fallback", self.current_lang, key=new_key))
+            print(localization.tr("hotkey_fallback", self.current_lang, key=new_key))
             self.current_hotkey = "F11"
             keyboard.add_hotkey(self.current_hotkey, lambda: self.after(0, self.stop_bot))
             self.btn_hotkey.configure(text=self.current_hotkey)
@@ -351,42 +351,42 @@ class HololiveBotUI(tk.Tk):
         if fails is not None: self.current_fails = fails
         if profit is not None: self.current_profit = profit
 
-        base_text = i18n.tr("coins_prefix", self.current_lang, coins=self.current_coins)
-        profit_text = i18n.tr("net_profit_prefix", self.current_lang, profit=self.current_profit)
-        fails_text = i18n.tr("fails_prefix", self.current_lang, fails=self.current_fails)
+        base_text = localization.tr("coins_prefix", self.current_lang, coins=self.current_coins)
+        profit_text = localization.tr("net_profit_prefix", self.current_lang, profit=self.current_profit)
+        fails_text = localization.tr("fails_prefix", self.current_lang, fails=self.current_fails)
         display_str = f"{base_text}\n{profit_text} | {fails_text}"
         self.canvas.itemconfig(self.coins_id, text=display_str)
 
     def refresh_texts(self):
         selected_strategy = self.combo_strategy.current()
-        self.combo_strategy.configure(values=i18n.STRATEGY_LABELS[self.current_lang],
+        self.combo_strategy.configure(values=localization.STRATEGY_LABELS[self.current_lang],
                                       state='disabled' if self.is_running else 'readonly')
         self.combo_strategy.current(max(0, selected_strategy))
-        title = i18n.tr("title", self.current_lang)
+        title = localization.tr("title", self.current_lang)
         self.title(title)
         self.canvas.itemconfig(self.title_id, text=title)
-        self.canvas.itemconfig(self.lang_label_id, text=i18n.tr("lang_label", self.current_lang))
-        self.canvas.itemconfig(self.hotkey_label_id, text=i18n.tr("hotkey_label", self.current_lang))
+        self.canvas.itemconfig(self.lang_label_id, text=localization.tr("lang_label", self.current_lang))
+        self.canvas.itemconfig(self.hotkey_label_id, text=localization.tr("hotkey_label", self.current_lang))
 
-        self.btn_bg.configure(text=i18n.tr("btn_bg", self.current_lang))
-        self.btn_exit.configure(text=i18n.tr("btn_exit", self.current_lang))
+        self.btn_bg.configure(text=localization.tr("btn_bg", self.current_lang))
+        self.btn_exit.configure(text=localization.tr("btn_exit", self.current_lang))
 
         self.update_stats_display()
 
         if not self.is_running:
-            self.canvas.itemconfig(self.status_id, text=i18n.tr("status_idle", self.current_lang), fill="#111111")
-            self.btn_next.configure(text=i18n.tr("btn_start", self.current_lang), state="normal")
-            self.btn_stop.configure(text=i18n.tr("btn_stop", self.current_lang), state="disabled")
+            self.canvas.itemconfig(self.status_id, text=localization.tr("status_idle", self.current_lang), fill="#111111")
+            self.btn_next.configure(text=localization.tr("btn_start", self.current_lang), state="normal")
+            self.btn_stop.configure(text=localization.tr("btn_stop", self.current_lang), state="disabled")
             self.btn_hotkey.configure(state="normal")
         else:
-            self.btn_next.configure(text=i18n.tr("btn_running", self.current_lang), state="disabled")
-            self.btn_stop.configure(text=i18n.tr("btn_stop", self.current_lang), state="normal")
+            self.btn_next.configure(text=localization.tr("btn_running", self.current_lang), state="disabled")
+            self.btn_stop.configure(text=localization.tr("btn_stop", self.current_lang), state="normal")
             self.btn_hotkey.configure(state="disabled")
 
     def change_language(self, event=None):
         idx = self.combo_lang.current()
         self.current_lang = self.lang_keys[idx]
-        i18n.set_lang(self.current_lang)
+        localization.set_lang(self.current_lang)
         self.refresh_texts()
 
     def start_bot(self):
@@ -394,7 +394,7 @@ class HololiveBotUI(tk.Tk):
         self.is_running = True
         self.refresh_texts()
         self.canvas.itemconfig(self.status_id,
-                               text=i18n.tr("status_running", self.current_lang),
+                               text=localization.tr("status_running", self.current_lang),
                                fill="green")
 
         self.sys_redirector.clear()
@@ -406,11 +406,11 @@ class HololiveBotUI(tk.Tk):
     def stop_bot(self):
         if not self.is_running: return
 
-        print(i18n.tr("system_stopping", self.current_lang))
+        print(localization.tr("system_stopping", self.current_lang))
         auto_bot.bot_running = False
         self.btn_stop.configure(state="disabled")
         self.canvas.itemconfig(self.status_id,
-                               text=i18n.tr("status_stopping", self.current_lang),
+                               text=localization.tr("status_stopping", self.current_lang),
                                fill="orange")
 
     def run_bot(self):
@@ -421,14 +421,14 @@ class HololiveBotUI(tk.Tk):
                 lang=self.current_lang,
             )
         except Exception as e:
-            err_msg = i18n.format_error(e, self.current_lang)
-            print(i18n.tr("system_crash", self.current_lang, error=err_msg))
-            self.canvas.itemconfig(self.status_id, text=i18n.tr("status_crashed", self.current_lang), fill="red")
+            err_msg = localization.format_error(e, self.current_lang)
+            print(localization.tr("system_crash", self.current_lang, error=err_msg))
+            self.canvas.itemconfig(self.status_id, text=localization.tr("status_crashed", self.current_lang), fill="red")
         finally:
             self.is_running = False
             auto_bot.bot_running = False
             self.refresh_texts()
-            print(i18n.tr("system_stopped", self.current_lang))
+            print(localization.tr("system_stopped", self.current_lang))
 
     def destroy(self):
         sys.stdout = self.original_stdout
