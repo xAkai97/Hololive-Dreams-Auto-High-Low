@@ -65,11 +65,12 @@
     "warn_background_capture_fail": "[警告] 後台視窗截圖失敗，切換到前台截圖: {error}"
   },
   "error_translations": {
-    "Settlement amount could not be confirmed": "結算金額未能穩定確認，已停止且未將此筆入帳。",
-    "Challenge payout cannot be confirmed": "挑戰獎金無法確認，已停止。",
+    "Settlement amount could not be confirmed": "結算金額未能穩定確認，已停止且未將此筆入帳。請手動核對結算畫面與今日帳目。",
+    "Challenge payout cannot be confirmed": "挑戰獎金無法確認，已停止。不會使用不準確或兜底獎金做翻倍決策，請檢查遊戲畫面。",
     "Currently mid-doubling": "當前已在翻倍途中，無法恢復本局成功次數。請從新一局開始。",
     "Missing doubling history": "缺少本局翻倍紀錄，無法核對入帳。請手動核對後開始新一局。",
-    "Initial payout for this round cannot reserve cap room": "本局起手獎金已無法保留第三階段，請手動處理。",
-    "Unexpected game client area size": "遊戲客戶區尺寸異常。"
+    "Initial payout for this round cannot reserve cap room": "本局起手獎金已無法為第三階段保留額度，請手動處理。",
+    "Initial hand payout not yet confirmed": "初始手牌獎金尚未確認，無法安全計次。請從新一局開始。",
+    "Unexpected game client area size": "遊戲客戶區尺寸異常，請確保遊戲視窗解析度處於支援範圍。"
   }
 }

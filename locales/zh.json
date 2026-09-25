@@ -65,11 +65,12 @@
     "warn_background_capture_fail": "[警告] 后台窗口截图失败，切换到前台截图: {error}"
   },
   "error_translations": {
-    "Settlement amount could not be confirmed": "结算金额未能稳定确认，已停止且未将此笔入账。",
-    "Challenge payout cannot be confirmed": "挑战奖金无法确认，已停止。",
+    "Settlement amount could not be confirmed": "结算金额未能稳定确认，已停止且未将此笔入账。请手动核对结算画面与今日账目。",
+    "Challenge payout cannot be confirmed": "挑战奖金无法确认，已停止。不会使用不准确或兜底奖金做翻倍决策，请检查游戏画面。",
     "Currently mid-doubling": "当前已在翻倍途中，无法恢复本局成功次数。请从新一局开始。",
     "Missing doubling history": "缺少本局翻倍记录，无法核对入账。请手动核对后开始新一局。",
-    "Initial payout for this round cannot reserve cap room": "本局起手奖金已无法保留第三阶段，请手动处理。",
-    "Unexpected game client area size": "游戏客户区尺寸异常。"
+    "Initial payout for this round cannot reserve cap room": "本局起手奖金已无法为第三阶段保留额度，请手动处理。",
+    "Initial hand payout not yet confirmed": "初始手牌奖金尚未确认，无法安全计次。请从新一局开始。",
+    "Unexpected game client area size": "游戏客户区尺寸异常，请确保游戏窗口分辨率处于支持范围。"
   }
 }

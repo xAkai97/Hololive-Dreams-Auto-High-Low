@@ -65,11 +65,12 @@
     "warn_background_capture_fail": "[Warning] Background capture failed, falling back to foreground: {error}"
   },
   "error_translations": {
-    "Settlement amount could not be confirmed": "Settlement amount could not be reliably confirmed.",
-    "Challenge payout cannot be confirmed": "Challenge payout could not be confirmed.",
-    "Currently mid-doubling": "Currently mid-challenge; cannot recover round count. Please restart from a fresh round.",
-    "Missing doubling history": "Missing doubling history for this round. Please check manually.",
-    "Initial payout for this round cannot reserve cap room": "Initial prize cannot preserve the 3rd stage, please handle manually.",
-    "Unexpected game client area size": "Unexpected game client dimensions."
+    "Settlement amount could not be confirmed": "Settlement amount could not be confirmed reliably; stopped and excluded from ledger. Please check the settlement screen and daily balance.",
+    "Challenge payout cannot be confirmed": "Challenge payout cannot be confirmed; stopped. Will not use inaccurate or fallback payout to decide doubling. Please check the game screen.",
+    "Currently mid-doubling": "Currently mid-challenge; cannot recover round win count. Please restart from a fresh round.",
+    "Missing doubling history": "Missing doubling history for this round; cannot verify settlement. Please verify manually and start a new round.",
+    "Initial payout for this round cannot reserve cap room": "Initial payout for this round cannot reserve cap room for Stage 3; please handle manually.",
+    "Initial hand payout not yet confirmed": "Initial hand payout not yet confirmed; cannot safely count wins. Please start from a fresh round.",
+    "Unexpected game client area size": "Unexpected game client dimensions. Please ensure game window is in supported resolution."
   }
 }

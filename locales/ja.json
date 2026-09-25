@@ -65,11 +65,12 @@
     "warn_background_capture_fail": "[警告] バックグラウンドキャプチャ失敗、フォアグラウンドに切替: {error}"
   },
   "error_translations": {
-    "Settlement amount could not be confirmed": "精算金額を安定して確認できませんでした。",
-    "Challenge payout cannot be confirmed": "挑戦賞金を確認できませんでした。",
+    "Settlement amount could not be confirmed": "精算金額を安定して確認できなかったため、停止しました（未記帳）。画面と残高を確認してください。",
+    "Challenge payout cannot be confirmed": "挑戦賞金を確認できなかったため停止しました。不正確な賞金で続行しません。画面を確認してください。",
     "Currently mid-doubling": "現在ダブルアップの途中のため、成功回数を復元できません。新しい対局からやり直してください。",
-    "Missing doubling history": "本局のダブルアップ記録がないため照合できません。手動で確認してください。",
-    "Initial payout for this round cannot reserve cap room": "本局の初期賞金では第3段階を保持できません。手動で対応してください。",
-    "Unexpected game client area size": "ゲームクライアントのサイズが異常です。"
+    "Missing doubling history": "本局のダブルアップ記録がないため照合できません。手動で確認して新局を開始してください。",
+    "Initial payout for this round cannot reserve cap room": "本局の初期賞金では第3段階の枠を確保できません。手動で対応してください。",
+    "Initial hand payout not yet confirmed": "初期手札賞金が未確認のため、安全にカウントできません。新局からやり直してください。",
+    "Unexpected game client area size": "ゲーム画面サイズが異常です。対応する解像度であることを確認してください。"
   }
 }
