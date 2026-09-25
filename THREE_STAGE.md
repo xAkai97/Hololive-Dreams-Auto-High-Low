@@ -36,3 +36,10 @@ In the strategy dropdown menu, select **"3 stages: Max → Win count → Max"** 
 - Daily coins and stage progress are persisted in `daily_coins.json`. Progress is preserved across restarts on the same day and automatically resets when the date changes.
 - Mid-round bot restarts stop and request a fresh round to prevent inaccurate win-count guesses.
 - Automation safely stops once Stage 3 completes.
+
+---
+
+## Credits
+
+- Strategy design and original implementation by [harrykuang-dev](https://github.com/harrykuang-dev).
+
