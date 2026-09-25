@@ -507,8 +507,13 @@ class HololiveBotUI(tk.Tk):
             print(localization.tr("system_stopped", self.current_lang))
 
     def destroy(self):
+        self.is_running = False
+        auto_bot.bot_running = False
         sys.stdout = self.original_stdout
-        keyboard.unhook_all()
+        try:
+            keyboard.unhook_all()
+        except Exception:
+            pass
         super().destroy()
 
 

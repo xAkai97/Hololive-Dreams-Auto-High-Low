@@ -1,4 +1,15 @@
+# Environments & Virtualenvs
 .venv/
+venv/
+env/
+
+# Python cache & artifacts
+__pycache__/
+*.py[cod]
+*.class
+.pytest_cache/
+
+# Build & packaging outputs
 build/
 dist/
 Release/
@@ -7,8 +18,16 @@ _internal/
 *.dll
 *.pyd
 *.onnx
+*.spec.bak
+
+# Runtime state & debug data
 daily_coins.json
-__pycache__/
-test/
-新建文件夹/
 debug/
+todo.md
+completed.md
+
+# IDE configurations
+.idea/
+.vscode/
+*.swp
+*.swo
