@@ -10,6 +10,7 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 # Bundle runtime assets so no manual post-build copy step is required.
 datas += [
     ('templates', 'templates'),
+    ('locales', 'locales'),
     ('background.png', '.'),
     ('icon.ico', '.'),
     ('icon_transparent.png', '.'),

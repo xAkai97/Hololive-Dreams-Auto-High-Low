@@ -7,6 +7,7 @@ import unittest
 
 from settlement import SettlementReader
 from challenge_reward import ChallengeRewardReader
+from i18n import tr
 
 
 class SettlementTests(unittest.TestCase):
@@ -27,6 +28,7 @@ class SettlementTests(unittest.TestCase):
                    reward_reader=ChallengeRewardReader(), phased=None, expected_cashout=None,
                    img=None, RESULT_REWARD_ZONE=None, TPL_CHECK=None,
                    win_left=0, win_top=0,
+                   tr=tr, on_stats_update=None,
                    save_daily_data=lambda c, f: writes.append(c),
                    find_and_click_icon=lambda *a, **kw: clicks.append(True))
         env['read_result_number'] = lambda *a: env['amount']

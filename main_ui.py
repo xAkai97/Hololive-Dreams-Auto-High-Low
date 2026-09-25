@@ -19,6 +19,7 @@ from PIL import Image, ImageTk
 import keyboard
 
 import auto_bot
+import i18n
 
 # 🚀 必须在窗口创建前执行：通知 Windows 这是一个独立应用，强制任务栏绑定自身图标
 try:
@@ -26,65 +27,8 @@ try:
 except Exception:
     pass
 
-# ================= 多语言翻译字典 =================
-TRANSLATIONS = {
-    "zh": {
-        "title": "Hololive Dreams 自动猜高低",
-        "lang_label": "界面语言",
-        "hotkey_label": "停止快捷键",
-        "status_idle": "状态：等待启动",
-        "coins_prefix": "金币：{coins} / 20000",
-        "btn_exit": "退出",
-        "btn_start": "启动挂机",
-        "btn_stop": "停止挂机",
-        "btn_bg": "切换背景",
-        "btn_running": "运行中..."
-    },
-    "tw": {
-        "title": "Hololive Dreams 自動猜高低",
-        "lang_label": "介面語言",
-        "hotkey_label": "停止快捷鍵",
-        "status_idle": "狀態：等待啟動",
-        "coins_prefix": "金幣：{coins} / 20000",
-        "btn_exit": "退出",
-        "btn_start": "啟動掛機",
-        "btn_stop": "停止掛機",
-        "btn_bg": "切換背景",
-        "btn_running": "運行中..."
-    },
-    "en": {
-        "title": "Hololive Dreams Auto Bot",
-        "lang_label": "Language",
-        "hotkey_label": "Stop Hotkey",
-        "status_idle": "Status: Waiting",
-        "coins_prefix": "Coins: {coins} / 20000",
-        "btn_exit": "Exit",
-        "btn_start": "Start Bot",
-        "btn_stop": "Stop Bot",
-        "btn_bg": "Toggle BG",
-        "btn_running": "Running..."
-    },
-    "ja": {
-        "title": "Hololive Dreams 自動Bot",
-        "lang_label": "言語",
-        "hotkey_label": "停止ショートカット",
-        "status_idle": "ステータス: 待機中",
-        "coins_prefix": "コイン: {coins} / 20000",
-        "btn_exit": "終了",
-        "btn_start": "起動",
-        "btn_stop": "停止",
-        "btn_bg": "背景切替",
-        "btn_running": "実行中..."
-    }
-}
-
-
-STRATEGY_LABELS = {
-    'zh': ('1.0.1 原版', '三阶段：最大 → 计次 → 最大'),
-    'tw': ('1.0.1 原版', '三階段：最大 → 計次 → 最大'),
-    'en': ('1.0.1 Legacy', '3 stages: Max → Win count → Max'),
-    'ja': ('1.0.1 従来モード', '3段階：最大 → 成功回数 → 最大'),
-}
+TRANSLATIONS = i18n.TRANSLATIONS
+STRATEGY_LABELS = i18n.STRATEGY_LABELS
 
 
 def get_local_data():
@@ -114,11 +58,11 @@ class RedirectText:
         if not string: return
         self.raw_text += string
 
-        if "今日净利润:" in string:
-            m_profit = re.search(r"今日净利润:\s*([+-]?\d+)", string)
-            m_fails = re.search(r"累计失败:\s*(\d+)", string)
-            m_coins = re.search(r"当前总金币:\s*(\d+)", string) or re.search(r"当日累计代币:\s*(\d+)", string)
+        m_profit = re.search(r"(?:今日净利润|今日淨利潤|Net profit|Net|純利益):\s*([+-]?\d+)", string, re.I)
+        m_fails = re.search(r"(?:累计失败|累計失敗|Fails|失敗):\s*(\d+)", string, re.I)
+        m_coins = re.search(r"(?:当前总金币|當前總金幣|当日累计代币|當日累計代幣|Total coins|Coins|現在のコイン|獲得コイン):\s*(\d+)", string, re.I)
 
+        if m_profit or m_fails or m_coins:
             coins = int(m_coins.group(1)) if m_coins else self.ui.current_coins
             fails = int(m_fails.group(1)) if m_fails else self.ui.current_fails
             profit = int(m_profit.group(1)) if m_profit else self.ui.current_profit
@@ -171,7 +115,7 @@ class HololiveBotUI(tk.Tk):
             elif ico_icon.exists():
                 self.iconbitmap(str(ico_icon))
         except Exception as e:
-            print(f"[警告] 图标加载失败: {e}")
+            print(f"[Warning] Failed to load application icon: {e}")
 
         self.geometry("450x800")
         self.minsize(360, 640)
@@ -198,9 +142,14 @@ class HololiveBotUI(tk.Tk):
         self.title_id = self.canvas.create_text(0, 0, font=font_title, fill="#111111")
 
         self.lang_label_id = self.canvas.create_text(0, 0, font=font_normal, fill="#111111", anchor="w")
-        self.lang_keys = ["zh", "tw", "en", "ja"]
-        self.combo_lang = ttk.Combobox(self, values=["简体中文", "繁體中文", "English", "日本語"], state="readonly")
-        self.combo_lang.current(0)
+        available_langs = i18n.load_external_locales()
+        self.lang_keys = [code for code, _ in available_langs]
+        lang_values = [name for _, name in available_langs]
+        self.combo_lang = ttk.Combobox(self, values=lang_values, state="readonly")
+        initial_idx = self.lang_keys.index(self.current_lang) if self.current_lang in self.lang_keys else 0
+        self.combo_lang.current(initial_idx)
+        self.current_lang = self.lang_keys[initial_idx]
+        i18n.set_lang(self.current_lang)
         self.combo_lang.bind("<<ComboboxSelected>>", self.change_language)
         self.combo_window = self.canvas.create_window(0, 0, window=self.combo_lang, anchor="e")
 
@@ -256,8 +205,8 @@ class HololiveBotUI(tk.Tk):
             return
 
         self.is_listening = True
-        self.btn_hotkey.configure(text="[按键...]")
-        print("\n[系统] 请点击键盘上想要切换的键...")
+        self.btn_hotkey.configure(text=i18n.tr("hotkey_listening", self.current_lang))
+        print(i18n.tr("hotkey_prompt", self.current_lang))
 
         threading.Thread(target=self._listen_worker, daemon=True).start()
 
@@ -282,9 +231,9 @@ class HololiveBotUI(tk.Tk):
         try:
             keyboard.add_hotkey(self.current_hotkey, lambda: self.after(0, self.stop_bot))
             self.btn_hotkey.configure(text=self.current_hotkey)
-            print(f"[系统] 停止快捷键已成功更换为: {self.current_hotkey}\n")
+            print(i18n.tr("hotkey_success", self.current_lang, key=self.current_hotkey))
         except Exception as e:
-            print(f"[系统] 无法绑定按键 '{new_key}'，已自动恢复默认 F11\n")
+            print(i18n.tr("hotkey_fallback", self.current_lang, key=new_key))
             self.current_hotkey = "F11"
             keyboard.add_hotkey(self.current_hotkey, lambda: self.after(0, self.stop_bot))
             self.btn_hotkey.configure(text=self.current_hotkey)
@@ -402,40 +351,42 @@ class HololiveBotUI(tk.Tk):
         if fails is not None: self.current_fails = fails
         if profit is not None: self.current_profit = profit
 
-        t = TRANSLATIONS[self.current_lang]
-        base_text = t["coins_prefix"].replace("{coins}", str(self.current_coins))
-        display_str = f"{base_text}\n净利: {self.current_profit:+d} | 失败: {self.current_fails}"
+        base_text = i18n.tr("coins_prefix", self.current_lang, coins=self.current_coins)
+        profit_text = i18n.tr("net_profit_prefix", self.current_lang, profit=self.current_profit)
+        fails_text = i18n.tr("fails_prefix", self.current_lang, fails=self.current_fails)
+        display_str = f"{base_text}\n{profit_text} | {fails_text}"
         self.canvas.itemconfig(self.coins_id, text=display_str)
 
     def refresh_texts(self):
-        t = TRANSLATIONS[self.current_lang]
         selected_strategy = self.combo_strategy.current()
-        self.combo_strategy.configure(values=STRATEGY_LABELS[self.current_lang],
+        self.combo_strategy.configure(values=i18n.STRATEGY_LABELS[self.current_lang],
                                       state='disabled' if self.is_running else 'readonly')
         self.combo_strategy.current(max(0, selected_strategy))
-        self.title(t["title"])
-        self.canvas.itemconfig(self.title_id, text=t["title"])
-        self.canvas.itemconfig(self.lang_label_id, text=t["lang_label"])
-        self.canvas.itemconfig(self.hotkey_label_id, text=t["hotkey_label"])
+        title = i18n.tr("title", self.current_lang)
+        self.title(title)
+        self.canvas.itemconfig(self.title_id, text=title)
+        self.canvas.itemconfig(self.lang_label_id, text=i18n.tr("lang_label", self.current_lang))
+        self.canvas.itemconfig(self.hotkey_label_id, text=i18n.tr("hotkey_label", self.current_lang))
 
-        self.btn_bg.configure(text=t["btn_bg"])
-        self.btn_exit.configure(text=t["btn_exit"])
+        self.btn_bg.configure(text=i18n.tr("btn_bg", self.current_lang))
+        self.btn_exit.configure(text=i18n.tr("btn_exit", self.current_lang))
 
         self.update_stats_display()
 
         if not self.is_running:
-            self.canvas.itemconfig(self.status_id, text=t["status_idle"], fill="#111111")
-            self.btn_next.configure(text=t["btn_start"], state="normal")
-            self.btn_stop.configure(text=t["btn_stop"], state="disabled")
+            self.canvas.itemconfig(self.status_id, text=i18n.tr("status_idle", self.current_lang), fill="#111111")
+            self.btn_next.configure(text=i18n.tr("btn_start", self.current_lang), state="normal")
+            self.btn_stop.configure(text=i18n.tr("btn_stop", self.current_lang), state="disabled")
             self.btn_hotkey.configure(state="normal")
         else:
-            self.btn_next.configure(text=t["btn_running"], state="disabled")
-            self.btn_stop.configure(text=t["btn_stop"], state="normal")
+            self.btn_next.configure(text=i18n.tr("btn_running", self.current_lang), state="disabled")
+            self.btn_stop.configure(text=i18n.tr("btn_stop", self.current_lang), state="normal")
             self.btn_hotkey.configure(state="disabled")
 
     def change_language(self, event=None):
         idx = self.combo_lang.current()
         self.current_lang = self.lang_keys[idx]
+        i18n.set_lang(self.current_lang)
         self.refresh_texts()
 
     def start_bot(self):
@@ -443,7 +394,7 @@ class HololiveBotUI(tk.Tk):
         self.is_running = True
         self.refresh_texts()
         self.canvas.itemconfig(self.status_id,
-                               text="状态：运行中..." if self.current_lang in ["zh", "tw"] else "Status: Running...",
+                               text=i18n.tr("status_running", self.current_lang),
                                fill="green")
 
         self.sys_redirector.clear()
@@ -455,24 +406,29 @@ class HololiveBotUI(tk.Tk):
     def stop_bot(self):
         if not self.is_running: return
 
-        print(f"\n[系统] 收到停止指令 (或按下了快捷键)，正在等待当前动作完成并安全退出...")
+        print(i18n.tr("system_stopping", self.current_lang))
         auto_bot.bot_running = False
         self.btn_stop.configure(state="disabled")
         self.canvas.itemconfig(self.status_id,
-                               text="状态：正在停止..." if self.current_lang in ["zh", "tw"] else "Status: Stopping...",
+                               text=i18n.tr("status_stopping", self.current_lang),
                                fill="orange")
 
     def run_bot(self):
         try:
-            auto_bot.auto_play_loop(self.active_mode)
+            auto_bot.auto_play_loop(
+                self.active_mode,
+                on_stats_update=lambda c, f, p: self.after(0, self.update_stats_display, c, f, p),
+                lang=self.current_lang,
+            )
         except Exception as e:
-            print(f"崩溃异常: {e}")
-            self.canvas.itemconfig(self.status_id, text="状态：崩溃异常", fill="red")
+            err_msg = i18n.format_error(e, self.current_lang)
+            print(i18n.tr("system_crash", self.current_lang, error=err_msg))
+            self.canvas.itemconfig(self.status_id, text=i18n.tr("status_crashed", self.current_lang), fill="red")
         finally:
             self.is_running = False
             auto_bot.bot_running = False
             self.refresh_texts()
-            print("\n[系统] 挂机已完全停止。")
+            print(i18n.tr("system_stopped", self.current_lang))
 
     def destroy(self):
         sys.stdout = self.original_stdout
