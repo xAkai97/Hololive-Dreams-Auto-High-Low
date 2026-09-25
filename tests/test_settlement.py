@@ -35,12 +35,13 @@ class SettlementTests(unittest.TestCase):
         env = dict(frames=frames, daily_coins=360, daily_fails=0,
                    has_tallied=False, settlement_reader=SettlementReader(),
                    reward_reader=ChallengeRewardReader(), phased=None, expected_cashout=None,
-                   img=None, RESULT_REWARD_ZONE=None, TPL_CHECK=None,
+                   img=None, RESULT_REWARD_ZONE=None, TPL_CHECK=None, TPL_CONFIRM_DOUBLE=None,
                    win_left=0, win_top=0,
                    tr=tr, on_stats_update=None,
                    save_daily_data=lambda c, f: writes.append(c),
                    find_and_click_icon=lambda *a, **kw: clicks.append(True))
         env['read_result_number'] = lambda *a: env['amount']
+        env['read_settlement_payout'] = env['read_result_number']
         env['time'] = types.SimpleNamespace(monotonic=lambda: env['now'], sleep=lambda _: None)
         with contextlib.redirect_stdout(io.StringIO()):
             exec(compile(ast.fix_missing_locations(runner), '<accounting>', 'exec'), env)

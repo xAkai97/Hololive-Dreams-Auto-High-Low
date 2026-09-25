@@ -37,7 +37,7 @@ TRANSLATIONS = localization.TRANSLATIONS
 STRATEGY_LABELS = localization.STRATEGY_LABELS
 
 
-def get_local_data():
+def load_saved_stats():
     if auto_bot.DATA_FILE.exists():
         try:
             with auto_bot.DATA_FILE.open("r", encoding="utf-8") as f:
@@ -49,6 +49,9 @@ def get_local_data():
         except:
             pass
     return 0, 0, 0
+
+
+get_local_data = load_saved_stats
 
 
 # ================= Output Interceptor & Virtual Scrolling Engine =================
@@ -104,7 +107,7 @@ class HololiveBotUI(tk.Tk):
         self.current_lang = localization.get_lang()
         self.show_bg = True
 
-        self.current_coins, self.current_fails, self.current_profit = get_local_data()
+        self.current_coins, self.current_fails, self.current_profit = load_saved_stats()
 
         self.title(TRANSLATIONS.get(self.current_lang, {}).get("title", "Hololive Dreams Auto Bot"))
         # Prefer PNG icon so taskbar icon never falls back to blank placeholder
@@ -184,12 +187,12 @@ class HololiveBotUI(tk.Tk):
         self.scrollbar_win = self.canvas.create_window(0, 0, window=self.scrollbar, anchor="ne")
         self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
 
-        self.btn_next = ttk.Button(self, command=self.start_bot)
+        self.btn_start = ttk.Button(self, command=self.start_bot)
         self.btn_stop = ttk.Button(self, command=self.stop_bot, state="disabled")
         self.btn_bg = ttk.Button(self, command=self.toggle_bg)
         self.btn_exit = ttk.Button(self, command=self.destroy)
 
-        self.btn_next_win = self.canvas.create_window(0, 0, window=self.btn_next)
+        self.btn_start_win = self.canvas.create_window(0, 0, window=self.btn_start)
         self.btn_stop_win = self.canvas.create_window(0, 0, window=self.btn_stop)
         self.btn_bg_win = self.canvas.create_window(0, 0, window=self.btn_bg)
         self.btn_exit_win = self.canvas.create_window(0, 0, window=self.btn_exit)
@@ -341,8 +344,8 @@ class HololiveBotUI(tk.Tk):
         btn_left_center = pad_x + btn_w / 2
         btn_right_center = pad_x + btn_w + btn_gap + btn_w / 2
 
-        self.canvas.coords(self.btn_next_win, btn_left_center, btn_row1_y)
-        self.canvas.itemconfig(self.btn_next_win, width=btn_w, height=btn_h)
+        self.canvas.coords(self.btn_start_win, btn_left_center, btn_row1_y)
+        self.canvas.itemconfig(self.btn_start_win, width=btn_w, height=btn_h)
 
         self.canvas.coords(self.btn_stop_win, btn_right_center, btn_row1_y)
         self.canvas.itemconfig(self.btn_stop_win, width=btn_w, height=btn_h)
@@ -448,11 +451,11 @@ class HololiveBotUI(tk.Tk):
 
         if not self.is_running:
             self.canvas.itemconfig(self.status_id, text=localization.tr("status_idle", self.current_lang), fill="#111111")
-            self.btn_next.configure(text=localization.tr("btn_start", self.current_lang), state="normal")
+            self.btn_start.configure(text=localization.tr("btn_start", self.current_lang), state="normal")
             self.btn_stop.configure(text=localization.tr("btn_stop", self.current_lang), state="disabled")
             self.btn_hotkey.configure(state="normal")
         else:
-            self.btn_next.configure(text=localization.tr("btn_running", self.current_lang), state="disabled")
+            self.btn_start.configure(text=localization.tr("btn_running", self.current_lang), state="disabled")
             self.btn_stop.configure(text=localization.tr("btn_stop", self.current_lang), state="normal")
             self.btn_hotkey.configure(state="disabled")
 

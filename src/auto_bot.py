@@ -115,7 +115,7 @@ upcoming_card_val = None
 
 
 # === Card Value Mapping ===
-def get_real_card_value(card):
+def get_card_point_value(card):
     if card.card_id == JOKER_ID:
         return 0
 
@@ -144,6 +144,9 @@ def get_real_card_value(card):
 
     print(f"[Warning] Recognizer output unparseable rank: '{raw}', ID: {card.card_id}")
     return 8
+
+
+get_real_card_value = get_card_point_value
 
 
 ICON_TEMPLATES = {
@@ -198,8 +201,10 @@ ICON_TEMPLATES = {
 TPL_REPLACE = resource_path("templates", "icons", "tpl_replace.png")
 TPL_HIGH = resource_path("templates", "icons", "tpl_high.png")
 TPL_LOW = resource_path("templates", "icons", "tpl_low.png")
-TPL_CHECK = resource_path("templates", "icons", "tpl_check.png")
-TPL_CROSS = resource_path("templates", "icons", "tpl_cross.png")
+TPL_CONFIRM_DOUBLE = resource_path("templates", "icons", "tpl_check.png")
+TPL_CASHOUT = resource_path("templates", "icons", "tpl_cross.png")
+TPL_CHECK = TPL_CONFIRM_DOUBLE
+TPL_CROSS = TPL_CASHOUT
 
 
 # ================= 1. Core Algorithm: High-Low Counter =================
@@ -456,13 +461,17 @@ def find_all_card_rects(img, search_zone):
 # ---------------------------------------------------------
 # OCR Engine 1: extract yellow digits on light purple background
 # ---------------------------------------------------------
-def read_screen_number(img, search_zone):
+def read_challenge_payout(img, search_zone):
     return read_challenge_number(img, search_zone, ocr)
+
+
+read_screen_number = read_challenge_payout
+
 
 # ---------------------------------------------------------
 # OCR Engine 2: pure white background light blue text (RESULT settlement screen Coins)
 # ---------------------------------------------------------
-def read_result_number(img, search_zone):
+def read_settlement_payout(img, search_zone):
     sx, sy, sw, sh = search_zone
     if sw == 0 or sh == 0:
         return 0
@@ -478,6 +487,9 @@ def read_result_number(img, search_zone):
         return int(''.join(filter(str.isdigit, text)))
     except ValueError:
         return 0
+
+
+read_result_number = read_settlement_payout
 
 
 # ================= 3. Data & Main Loop =================
@@ -541,7 +553,7 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
 
     def request_cashout(frame, left, top, cash):
         nonlocal expected_cashout
-        if find_and_click_icon(frame, TPL_CROSS, left, top):
+        if find_and_click_icon(frame, TPL_CASHOUT, left, top):
             expected_cashout = cash
             return True
         return False
@@ -602,7 +614,7 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
             recognized_cards, rects = card_rec.recognize(img)
             if len(recognized_cards) == 5:
                 hand_ids = [c.card_id for c in recognized_cards]
-                card_values = [get_real_card_value(c) for c in recognized_cards if c.card_id != JOKER_ID]
+                card_values = [get_card_point_value(c) for c in recognized_cards if c.card_id != JOKER_ID]
                 counter.remove_cards(card_values)
 
                 best, _ = calculate_best(hand_ids, "standard")
@@ -634,7 +646,7 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
                 if phased.base_cash is None:
                     if is_success_prompt(img):
                         raise RuntimeError('Currently mid-doubling, cannot recover win count. Please start from a fresh round.')
-                    real_reward = read_screen_number(img, REWARD_ZONE)
+                    real_reward = read_challenge_payout(img, REWARD_ZONE)
                     next_reward = reward_reader.observe(real_reward, time.monotonic())
                     if next_reward is None:
                         time.sleep(.25)
@@ -650,11 +662,11 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
                 if action == 'cashout':
                     request_cashout(img, win_left, win_top, phased.expected_cash)
                 else:
-                    find_and_click_icon(img, TPL_CHECK, win_left, win_top, threshold=.55)
+                    find_and_click_icon(img, TPL_CONFIRM_DOUBLE, win_left, win_top, threshold=.55)
                 time.sleep(.6)
                 continue
 
-            real_reward = read_screen_number(img, REWARD_ZONE)
+            real_reward = read_challenge_payout(img, REWARD_ZONE)
             next_reward = reward_reader.observe(real_reward, time.monotonic())
             if next_reward is None:
                 time.sleep(.25)
@@ -676,7 +688,7 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
                     request_cashout(img, win_left, win_top, current_cashout)
                 else:
                     print(tr('sprint_continue', cashout=current_cashout, reward=next_reward))
-                    find_and_click_icon(img, TPL_CHECK, win_left, win_top, threshold=0.55)
+                    find_and_click_icon(img, TPL_CONFIRM_DOUBLE, win_left, win_top, threshold=0.55)
             else:
                 if daily_coins + current_cashout <= 19800 and daily_coins + next_reward > 19800:
                     print(tr('cushion_warning', cashout=current_cashout, reward=next_reward, total=daily_coins + next_reward))
@@ -687,13 +699,13 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
                         request_cashout(img, win_left, win_top, current_cashout)
                     else:
                         print(tr('force_double', cashout=current_cashout, total=daily_coins + current_cashout))
-                        find_and_click_icon(img, TPL_CHECK, win_left, win_top, threshold=0.55)
+                        find_and_click_icon(img, TPL_CONFIRM_DOUBLE, win_left, win_top, threshold=0.55)
                 elif win_rate < 0.60:
                     print(tr('low_rate_cashout', rate=win_rate, cashout=current_cashout))
                     request_cashout(img, win_left, win_top, current_cashout)
                 else:
                     print(tr('safe_continue'))
-                    find_and_click_icon(img, TPL_CHECK, win_left, win_top, threshold=0.55)
+                    find_and_click_icon(img, TPL_CONFIRM_DOUBLE, win_left, win_top, threshold=0.55)
 
             time.sleep(0.6)
         elif current_state == "HIGH_LOW":
@@ -712,7 +724,7 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
 
                     single_card = card_rec.recognize_card(img, current_rect)
                     if single_card.card_id != JOKER_ID:
-                        current_card_val = get_real_card_value(single_card)
+                        current_card_val = get_card_point_value(single_card)
                         counter.remove_cards([current_card_val])
                         best_choice, rate = counter.get_best_choice_and_rate(current_card_val)
 
@@ -747,7 +759,7 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
                                         if newest_rect[0] > old_right_x + 50:
                                             newest_card = card_rec.recognize_card(flip_img, newest_rect)
                                             if newest_card.card_id != JOKER_ID:
-                                                upcoming_card_val = get_real_card_value(newest_card)
+                                                upcoming_card_val = get_card_point_value(newest_card)
                                                 print(tr('tracking_found', frame=i + 1, rank=newest_card.rank))
 
                                                 cx, cy, cw, ch = newest_rect
@@ -778,7 +790,7 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
                 has_recorded_fail = True
 
             time.sleep(0.8)
-            find_and_click_icon(img, TPL_CHECK, win_left, win_top, threshold=0.55)
+            find_and_click_icon(img, TPL_CONFIRM_DOUBLE, win_left, win_top, threshold=0.55)
             time.sleep(1)
 
         elif current_state == "RESULT":
@@ -790,7 +802,7 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
                     if phased.expected_cash is None:
                         raise RuntimeError('Missing doubling history for this round; cannot verify settlement. Please verify manually and start a new round.')
                     expected_cashout = phased.expected_cash
-                amount = read_result_number(img, RESULT_REWARD_ZONE)
+                amount = read_settlement_payout(img, RESULT_REWARD_ZONE)
                 earned = settlement_reader.observe(amount, time.monotonic(), expected_cashout)
                 if earned is None:
                     time.sleep(.2)
@@ -810,7 +822,7 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
                 has_tallied = True
 
             time.sleep(0.8)
-            find_and_click_icon(img, TPL_CHECK, win_left, win_top, threshold=0.55)
+            find_and_click_icon(img, TPL_CONFIRM_DOUBLE, win_left, win_top, threshold=0.55)
             time.sleep(1)
             if phased is not None and phased.complete:
                 print(tr('phased_all_done'))

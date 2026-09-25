@@ -150,7 +150,9 @@ class StrategyTests(unittest.TestCase):
              patch.object(bot, 'CardRecognizer', return_value=SimpleNamespace(recognize_card=lambda *a: SimpleNamespace(card_id=20, rank='7'))), \
              patch.object(bot, 'find_all_card_rects', return_value=[(50, 400, 200, 300)]), \
              patch.object(bot, 'is_success_prompt', side_effect=lambda _: current[0] == 'SUCCESS'), \
+             patch.object(bot, 'read_challenge_payout', side_effect=read_initial), \
              patch.object(bot, 'read_screen_number', side_effect=read_initial), \
+             patch.object(bot, 'read_settlement_payout', side_effect=lambda *a: current[1]), \
              patch.object(bot, 'read_result_number', side_effect=lambda *a: current[1]), \
              patch.object(bot, 'find_and_click_icon', side_effect=click), \
              patch.object(bot, 'load_daily_data', return_value=(0, 0)), \
