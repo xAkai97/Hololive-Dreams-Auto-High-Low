@@ -101,12 +101,12 @@ class HololiveBotUI(tk.Tk):
 
         self.bot_thread = None
         self.is_running = False
-        self.current_lang = "zh"
+        self.current_lang = localization.get_lang()
         self.show_bg = True
 
         self.current_coins, self.current_fails, self.current_profit = get_local_data()
 
-        self.title(TRANSLATIONS[self.current_lang]["title"])
+        self.title(TRANSLATIONS.get(self.current_lang, {}).get("title", "Hololive Dreams Auto Bot"))
         # Prefer PNG icon so taskbar icon never falls back to blank placeholder
         try:
             icon_candidates = [
@@ -131,8 +131,8 @@ class HololiveBotUI(tk.Tk):
         self.geometry("450x800")
         self.minsize(360, 640)
 
-        self.last_w = 450
-        self.last_h = 800
+        self.last_w = 0
+        self.last_h = 0
 
         self.canvas = tk.Canvas(self, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
@@ -208,6 +208,7 @@ class HololiveBotUI(tk.Tk):
         self.resize_after_id = None
 
         self.refresh_texts()
+        self.draw_ui(450, 800)
 
     def start_listen_hotkey(self):
         if self.is_listening or self.is_running:
