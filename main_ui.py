@@ -278,34 +278,22 @@ class HololiveBotUI(tk.Tk):
         self.canvas.itemconfig(self.log_text_id, text='\n'.join(visible))
 
     def on_resize(self, event):
-        if event.widget != self.canvas: return
-        w, h = event.width, event.height
-        if w <= 10 or h <= 10: return
-
-        target_h = int(w * 16 / 9)
-        target_w = int(h * 9 / 16)
-
-        if abs(h - target_h) <= 2:
-            self.last_w, self.last_h = w, h
-            self.draw_ui(w, h)
+        if event.widget != self.canvas:
             return
-
-        delta_w = abs(w - self.last_w)
-        delta_h = abs(h - self.last_h)
-
-        if delta_w > delta_h / (16 / 9):
-            new_w = w
-            new_h = target_h
-        else:
-            new_w = target_w
-            new_h = h
+        w, h = event.width, event.height
+        if w <= 50 or h <= 50:
+            return
+        if w == self.last_w and h == self.last_h:
+            return
+        self.last_w, self.last_h = w, h
 
         if self.resize_after_id:
             self.after_cancel(self.resize_after_id)
-        self.resize_after_id = self.after(20, lambda: self.geometry(f"{new_w}x{new_h}"))
+        self.resize_after_id = self.after(10, lambda: self.draw_ui(w, h))
 
     def draw_ui(self, w, h):
-        if self.show_bg:
+        # 1. Background image
+        if self.show_bg and self.original_bg:
             img = self.original_bg.resize((w, h), Image.Resampling.LANCZOS)
         else:
             img = Image.new('RGB', (w, h), color='#FFFFFF')
@@ -313,43 +301,78 @@ class HololiveBotUI(tk.Tk):
         self.bg_photo = ImageTk.PhotoImage(img)
         self.canvas.itemconfig(self.bg_id, image=self.bg_photo)
 
-        self.canvas.coords(self.title_id, w / 2, h * 0.05)
+        # 2. Responsive layout dimensions
+        pad_x = max(16, int(w * 0.06))
+        content_w = w - 2 * pad_x
 
-        self.canvas.coords(self.lang_label_id, w * 0.08, h * 0.10)
-        self.canvas.coords(self.combo_window, w * 0.92, h * 0.10)
-        self.canvas.itemconfig(self.combo_window, width=w * 0.25)
+        # Title (centered at top)
+        title_y = max(24, int(h * 0.04))
+        self.canvas.coords(self.title_id, w / 2, title_y)
 
-        self.canvas.coords(self.hotkey_label_id, w * 0.08, h * 0.15)
-        self.canvas.coords(self.hotkey_window, w * 0.92, h * 0.15)
-        self.canvas.itemconfig(self.hotkey_window, width=w * 0.25)
+        # Row 1: Language
+        row1_y = max(58, int(h * 0.09))
+        combo_w = max(130, min(220, int(content_w * 0.42)))
+        self.canvas.coords(self.lang_label_id, pad_x, row1_y)
+        self.canvas.coords(self.combo_window, w - pad_x, row1_y)
+        self.canvas.itemconfig(self.combo_window, width=combo_w)
 
-        self.canvas.coords(self.status_id, w * 0.08, h * 0.21)
-        self.canvas.coords(self.coins_id, w * 0.08, h * 0.27)
+        # Row 2: Hotkey
+        row2_y = row1_y + max(34, int(h * 0.052))
+        self.canvas.coords(self.hotkey_label_id, pad_x, row2_y)
+        self.canvas.coords(self.hotkey_window, w - pad_x, row2_y)
+        self.canvas.itemconfig(self.hotkey_window, width=combo_w)
 
-        btn_w = w * 0.38
-        btn_h = h * 0.045
+        # Status & Coin Stats
+        status_y = row2_y + max(34, int(h * 0.055))
+        self.canvas.coords(self.status_id, pad_x, status_y)
 
-        self.canvas.coords(self.btn_next_win, w * 0.28, h * 0.34)
+        coins_y = status_y + max(28, int(h * 0.052))
+        self.canvas.coords(self.coins_id, pad_x, coins_y)
+
+        # 2x2 Action Buttons
+        btn_gap = 10
+        btn_w = (content_w - btn_gap) / 2
+        btn_h = max(28, min(40, int(h * 0.048)))
+
+        btn_row1_y = coins_y + max(38, int(h * 0.065))
+        btn_row2_y = btn_row1_y + btn_h + 8
+
+        btn_left_center = pad_x + btn_w / 2
+        btn_right_center = pad_x + btn_w + btn_gap + btn_w / 2
+
+        self.canvas.coords(self.btn_next_win, btn_left_center, btn_row1_y)
         self.canvas.itemconfig(self.btn_next_win, width=btn_w, height=btn_h)
-        self.canvas.coords(self.btn_stop_win, w * 0.72, h * 0.34)
+
+        self.canvas.coords(self.btn_stop_win, btn_right_center, btn_row1_y)
         self.canvas.itemconfig(self.btn_stop_win, width=btn_w, height=btn_h)
 
-        self.canvas.coords(self.btn_bg_win, w * 0.28, h * 0.40)
+        self.canvas.coords(self.btn_bg_win, btn_left_center, btn_row2_y)
         self.canvas.itemconfig(self.btn_bg_win, width=btn_w, height=btn_h)
-        self.canvas.coords(self.btn_exit_win, w * 0.72, h * 0.40)
+
+        self.canvas.coords(self.btn_exit_win, btn_right_center, btn_row2_y)
         self.canvas.itemconfig(self.btn_exit_win, width=btn_w, height=btn_h)
 
-        log_x = w * 0.06
-        self.canvas.coords(self.strategy_window, w * .06, h * .445)
-        self.canvas.itemconfig(self.strategy_window, width=w * .88)
-        log_y = h * 0.50
-        self.canvas.coords(self.log_text_id, log_x, log_y)
+        # Strategy Dropdown (full width across content area)
+        strategy_y = btn_row2_y + btn_h / 2 + 14
+        self.canvas.coords(self.strategy_window, pad_x, strategy_y)
+        self.canvas.itemconfig(self.strategy_window, width=content_w)
 
-        # Set max physical width for log text to wrap at 15% margin from right boundary
-        self.canvas.itemconfig(self.log_text_id, width=w * 0.85)
+        # Log Text Box & Scrollbar (fills remaining vertical space)
+        log_y = strategy_y + 36
+        log_bottom = h - max(16, int(h * 0.025))
+        log_h = max(70, log_bottom - log_y)
+        scrollbar_w = 16
 
-        self.canvas.coords(self.scrollbar_win, w * 0.98, log_y)
-        self.canvas.itemconfig(self.scrollbar_win, height=h * 0.45)
+        self.canvas.coords(self.log_text_id, pad_x, log_y)
+        self.canvas.itemconfig(self.log_text_id, width=content_w - scrollbar_w - 8)
+
+        self.canvas.coords(self.scrollbar_win, w - pad_x, log_y)
+        self.canvas.itemconfig(self.scrollbar_win, height=log_h)
+
+        # Dynamically scale visible lines based on actual available log height
+        line_height = 22
+        self.log_max_lines = max(5, int(log_h / line_height))
+        self.update_log_view()
 
     def _discover_backgrounds(self) -> list[Path]:
         valid_exts = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
