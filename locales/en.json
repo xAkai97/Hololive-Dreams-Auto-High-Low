@@ -62,7 +62,9 @@
     "warn_no_window": "[Warning] Valid game window not captured. Click cancelled.",
     "warn_window_lost": "[Warning] Game window lost. Click cancelled.",
     "warn_cannot_read_coords": "[Warning] Unable to get game window coordinates: {error}",
-    "warn_background_capture_fail": "[Warning] Background capture failed, falling back to foreground: {error}"
+    "warn_background_capture_fail": "[Warning] Background capture failed, falling back to foreground: {error}",
+    "coins_label": "Coins:",
+    "fails_label": "Fails:"
   },
   "error_translations": {
     "Settlement amount could not be confirmed": "Settlement amount could not be confirmed reliably; stopped and excluded from ledger. Please check the settlement screen and daily balance.",

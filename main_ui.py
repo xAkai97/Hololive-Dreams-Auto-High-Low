@@ -175,7 +175,24 @@ class HololiveBotUI(tk.Tk):
         keyboard.add_hotkey(self.current_hotkey, lambda: self.after(0, self.stop_bot))
 
         self.status_id = self.canvas.create_text(0, 0, font=font_normal, fill="#111111", anchor="w")
-        self.coins_id = self.canvas.create_text(0, 0, font=font_normal, fill="#111111", anchor="w")
+
+        # Row 1: Coins
+        self.coins_label_id = self.canvas.create_text(0, 0, font=font_normal, fill="#111111", anchor="w")
+        self.entry_coins = ttk.Entry(self, width=8, justify="center", font=("Microsoft YaHei", 10, "bold"))
+        self.entry_coins.insert(0, str(self.current_coins))
+        self.entry_coins.bind("<FocusOut>", self.on_stats_manual_edit)
+        self.entry_coins.bind("<Return>", self.on_stats_manual_edit)
+        self.entry_coins_win = self.canvas.create_window(0, 0, window=self.entry_coins, anchor="w")
+        self.coins_max_id = self.canvas.create_text(0, 0, font=font_normal, fill="#111111", anchor="w", text="/ 20000")
+
+        # Row 2: Fails & Net Profit
+        self.fails_label_id = self.canvas.create_text(0, 0, font=font_normal, fill="#111111", anchor="w")
+        self.entry_fails = ttk.Entry(self, width=5, justify="center", font=("Microsoft YaHei", 10, "bold"))
+        self.entry_fails.insert(0, str(self.current_fails))
+        self.entry_fails.bind("<FocusOut>", self.on_stats_manual_edit)
+        self.entry_fails.bind("<Return>", self.on_stats_manual_edit)
+        self.entry_fails_win = self.canvas.create_window(0, 0, window=self.entry_fails, anchor="w")
+        self.profit_id = self.canvas.create_text(0, 0, font=font_normal, fill="#111111", anchor="w")
 
         self.log_text_id = self.canvas.create_text(0, 0, font=font_log, fill="#000000", anchor="nw", justify="left")
         self.log_lines = []
@@ -330,15 +347,34 @@ class HololiveBotUI(tk.Tk):
         status_y = row2_y + max(34, int(h * 0.055))
         self.canvas.coords(self.status_id, pad_x, status_y)
 
-        coins_y = status_y + max(28, int(h * 0.052))
-        self.canvas.coords(self.coins_id, pad_x, coins_y)
+        coins_y = status_y + max(26, int(h * 0.046))
+        fails_y = coins_y + max(26, int(h * 0.044))
+        field_h = max(22, min(28, int(h * 0.038)))
+
+        # Position Coins Row
+        self.canvas.coords(self.coins_label_id, pad_x, coins_y)
+        coins_lbl_box = self.canvas.bbox(self.coins_label_id)
+        coins_lbl_w = (coins_lbl_box[2] - coins_lbl_box[0]) if coins_lbl_box else 50
+        entry_coins_x = pad_x + coins_lbl_w + 6
+        self.canvas.coords(self.entry_coins_win, entry_coins_x, coins_y)
+        self.canvas.itemconfig(self.entry_coins_win, width=76, height=field_h)
+        self.canvas.coords(self.coins_max_id, entry_coins_x + 76 + 8, coins_y)
+
+        # Position Fails & Net Profit Row
+        self.canvas.coords(self.fails_label_id, pad_x, fails_y)
+        fails_lbl_box = self.canvas.bbox(self.fails_label_id)
+        fails_lbl_w = (fails_lbl_box[2] - fails_lbl_box[0]) if fails_lbl_box else 50
+        entry_fails_x = pad_x + fails_lbl_w + 6
+        self.canvas.coords(self.entry_fails_win, entry_fails_x, fails_y)
+        self.canvas.itemconfig(self.entry_fails_win, width=50, height=field_h)
+        self.canvas.coords(self.profit_id, entry_fails_x + 50 + 8, fails_y)
 
         # 2x2 Action Buttons
         btn_gap = 10
         btn_w = (content_w - btn_gap) / 2
         btn_h = max(28, min(40, int(h * 0.048)))
 
-        btn_row1_y = coins_y + max(38, int(h * 0.065))
+        btn_row1_y = fails_y + max(28, int(h * 0.052))
         btn_row2_y = btn_row1_y + btn_h + 8
 
         btn_left_center = pad_x + btn_w / 2
@@ -422,16 +458,52 @@ class HololiveBotUI(tk.Tk):
                 self.show_bg = not self.show_bg
         self.draw_ui(self.winfo_width(), self.winfo_height())
 
+    def on_stats_manual_edit(self, event=None):
+        if self.is_running:
+            return
+        try:
+            raw_coins = self.entry_coins.get().strip()
+            raw_fails = self.entry_fails.get().strip()
+            new_coins = max(0, int(raw_coins)) if raw_coins else 0
+            new_fails = max(0, int(raw_fails)) if raw_fails else 0
+            self.current_coins = new_coins
+            self.current_fails = new_fails
+            self.current_profit = self.current_coins - (self.current_fails * 50)
+            auto_bot.save_daily_data(self.current_coins, self.current_fails)
+            self.update_stats_display()
+        except ValueError:
+            self.update_stats_display()
+
     def update_stats_display(self, coins=None, fails=None, profit=None):
         if coins is not None: self.current_coins = coins
         if fails is not None: self.current_fails = fails
-        if profit is not None: self.current_profit = profit
+        if profit is not None:
+            self.current_profit = profit
+        else:
+            self.current_profit = self.current_coins - (self.current_fails * 50)
 
-        base_text = localization.tr("coins_prefix", self.current_lang, coins=self.current_coins)
+        coins_str = str(self.current_coins)
+        if self.entry_coins.get() != coins_str:
+            prev_state = str(self.entry_coins.cget("state"))
+            if prev_state == "disabled":
+                self.entry_coins.configure(state="normal")
+            self.entry_coins.delete(0, "end")
+            self.entry_coins.insert(0, coins_str)
+            if prev_state == "disabled":
+                self.entry_coins.configure(state="disabled")
+
+        fails_str = str(self.current_fails)
+        if self.entry_fails.get() != fails_str:
+            prev_state = str(self.entry_fails.cget("state"))
+            if prev_state == "disabled":
+                self.entry_fails.configure(state="normal")
+            self.entry_fails.delete(0, "end")
+            self.entry_fails.insert(0, fails_str)
+            if prev_state == "disabled":
+                self.entry_fails.configure(state="disabled")
+
         profit_text = localization.tr("net_profit_prefix", self.current_lang, profit=self.current_profit)
-        fails_text = localization.tr("fails_prefix", self.current_lang, fails=self.current_fails)
-        display_str = f"{base_text}\n{profit_text} | {fails_text}"
-        self.canvas.itemconfig(self.coins_id, text=display_str)
+        self.canvas.itemconfig(self.profit_id, text=f"|  {profit_text}")
 
     def refresh_texts(self):
         selected_strategy = self.combo_strategy.current()
@@ -443,6 +515,8 @@ class HololiveBotUI(tk.Tk):
         self.canvas.itemconfig(self.title_id, text=title)
         self.canvas.itemconfig(self.lang_label_id, text=localization.tr("lang_label", self.current_lang))
         self.canvas.itemconfig(self.hotkey_label_id, text=localization.tr("hotkey_label", self.current_lang))
+        self.canvas.itemconfig(self.coins_label_id, text=localization.tr("coins_label", self.current_lang))
+        self.canvas.itemconfig(self.fails_label_id, text=localization.tr("fails_label", self.current_lang))
 
         self.btn_bg.configure(text=localization.tr("btn_bg", self.current_lang))
         self.btn_exit.configure(text=localization.tr("btn_exit", self.current_lang))
@@ -450,11 +524,15 @@ class HololiveBotUI(tk.Tk):
         self.update_stats_display()
 
         if not self.is_running:
+            self.entry_coins.configure(state="normal")
+            self.entry_fails.configure(state="normal")
             self.canvas.itemconfig(self.status_id, text=localization.tr("status_idle", self.current_lang), fill="#111111")
             self.btn_start.configure(text=localization.tr("btn_start", self.current_lang), state="normal")
             self.btn_stop.configure(text=localization.tr("btn_stop", self.current_lang), state="disabled")
             self.btn_hotkey.configure(state="normal")
         else:
+            self.entry_coins.configure(state="disabled")
+            self.entry_fails.configure(state="disabled")
             self.btn_start.configure(text=localization.tr("btn_running", self.current_lang), state="disabled")
             self.btn_stop.configure(text=localization.tr("btn_stop", self.current_lang), state="normal")
             self.btn_hotkey.configure(state="disabled")

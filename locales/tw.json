@@ -62,7 +62,9 @@
     "warn_no_window": "[警告] 尚未取得有效遊戲視窗，取消點擊。",
     "warn_window_lost": "[警告] 遊戲視窗已失效，取消點擊。",
     "warn_cannot_read_coords": "[警告] 無法讀取遊戲視窗座標，取消點擊: {error}",
-    "warn_background_capture_fail": "[警告] 後台視窗截圖失敗，切換到前台截圖: {error}"
+    "warn_background_capture_fail": "[警告] 後台視窗截圖失敗，切換到前台截圖: {error}",
+    "coins_label": "金幣:",
+    "fails_label": "失敗:"
   },
   "error_translations": {
     "Settlement amount could not be confirmed": "結算金額未能穩定確認，已停止且未將此筆入帳。請手動核對結算畫面與今日帳目。",

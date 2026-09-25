@@ -62,7 +62,9 @@
     "warn_no_window": "[警告] 有効なゲームウィンドウがないためクリックを中止しました。",
     "warn_window_lost": "[警告] ゲームウィンドウが無効になったためクリックを中止しました。",
     "warn_cannot_read_coords": "[警告] ウィンドウ座標を取得できません: {error}",
-    "warn_background_capture_fail": "[警告] バックグラウンドキャプチャ失敗、フォアグラウンドに切替: {error}"
+    "warn_background_capture_fail": "[警告] バックグラウンドキャプチャ失敗、フォアグラウンドに切替: {error}",
+    "coins_label": "コイン:",
+    "fails_label": "失敗:"
   },
   "error_translations": {
     "Settlement amount could not be confirmed": "精算金額を安定して確認できなかったため、停止しました（未記帳）。画面と残高を確認してください。",

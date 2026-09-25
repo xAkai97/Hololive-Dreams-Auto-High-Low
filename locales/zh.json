@@ -62,7 +62,9 @@
     "warn_no_window": "[警告] 尚未取得有效游戏窗口，取消点击。",
     "warn_window_lost": "[警告] 游戏窗口已失效，取消点击。",
     "warn_cannot_read_coords": "[警告] 无法读取游戏窗口坐标，取消点击: {error}",
-    "warn_background_capture_fail": "[警告] 后台窗口截图失败，切换到前台截图: {error}"
+    "warn_background_capture_fail": "[警告] 后台窗口截图失败，切换到前台截图: {error}",
+    "coins_label": "金币:",
+    "fails_label": "失败:"
   },
   "error_translations": {
     "Settlement amount could not be confirmed": "结算金额未能稳定确认，已停止且未将此笔入账。请手动核对结算画面与今日账目。",
