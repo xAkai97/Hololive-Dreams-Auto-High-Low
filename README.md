@@ -1,14 +1,5 @@
 # Hololive Dreams Auto Bot
 
-<p align="center">
-  <a href="README.md"><b>English</b></a> |
-  <a href="README.zh-CN.md"><b>简体中文</b></a> |
-  <a href="README.zh-TW.md"><b>繁體中文</b></a> |
-  <a href="README.ja.md"><b>日本語</b></a>
-</p>
-
----
-
 An automated assistant and decision-making bot for the casino mini-game in *Hololive Dreams*, featuring optimal poker-hand calculation, dynamic High-Low card counting, and an extensible multilingual GUI.
 
 ---
