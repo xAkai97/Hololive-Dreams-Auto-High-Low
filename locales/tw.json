@@ -70,12 +70,6 @@
     "Currently mid-doubling": "當前已在翻倍途中，無法恢復本局成功次數。請從新一局開始。",
     "Missing doubling history": "缺少本局翻倍紀錄，無法核對入帳。請手動核對後開始新一局。",
     "Initial payout for this round cannot reserve cap room": "本局起手獎金已無法保留第三階段，請手動處理。",
-    "Unexpected game client area size": "遊戲客戶區尺寸異常。",
-    "结算金额未能稳定确认": "Settlement amount could not be stably confirmed.",
-    "挑战奖金无法确认": "Challenge reward could not be confirmed.",
-    "当前已在翻倍途中": "Currently mid-challenge; cannot recover round count. Please restart from a fresh round.",
-    "缺少本局翻倍记录": "Missing doubling history for this round. Please check manually.",
-    "本局起手奖金已无法保留第三阶段": "Initial prize cannot preserve the 3rd stage, please handle manually.",
-    "游戏客户区尺寸异常": "Abnormal game client dimensions."
+    "Unexpected game client area size": "遊戲客戶區尺寸異常。"
   }
 }
