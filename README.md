@@ -11,7 +11,7 @@ An automated assistant and decision-making bot for the casino mini-game in *Holo
 - **Smart Risk Control & Sprint Modes**:
   - **Staging Phase**: Automatically drops/cashes out when odds are unfavorable to steadily build bankroll.
   - **Sprint Phase**: Unlocks aggressive play once total coins reach 19,800, pushing for 10,000+ coins in a single run.
-- **Three-Stage Doubling Strategy**: Supports customizable progression where stages cash out based on confirmed win counts rather than unstable readings. See [Three-Stage Doubling Strategy Guide](THREE_STAGE.md#en).
+- **Three-Stage Doubling Strategy**: Supports customizable progression where stages cash out based on confirmed win counts rather than unstable readings. See [Three-Stage Doubling Strategy Guide](THREE_STAGE.md).
 - **Extensible Multilingual Support**: Built-in support for English, Simplified Chinese, Traditional Chinese, and Japanese. Custom translation files can be dropped directly into `locales/`.
 - **Profit & Loss Tracking**: Tracks failed runs and ticket fees (50 coins/entry), calculating net profit in real time.
 - **Global Stop Hotkey**: Supports customizable hotkeys (default `INSERT`) to safely halt automation at any time.
