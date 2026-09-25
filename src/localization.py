@@ -18,6 +18,7 @@ LANGUAGE_NAMES: dict[str, str] = {
 
 STRATEGY_LABELS: dict[str, tuple[str, str]] = {}
 TRANSLATIONS: dict[str, dict[str, str]] = {}
+ERROR_TRANSLATIONS: dict[str, dict[str, str]] = {}
 
 
 def set_lang(lang: str) -> None:
@@ -42,9 +43,9 @@ def get_locales_dir() -> Path:
 def load_external_locales(locales_dir: Path | str | None = None) -> list[tuple[str, str]]:
     """Scan and load external JSON translation files.
 
-    Translations and strategy labels are loaded directly from JSON files in the 'locales'
-    directory (e.g. en.json, zh.json, tw.json, ja.json). Users can add new translations
-    or edit existing ones without touching Python code.
+    Translations, strategy labels, and error messages are loaded directly from JSON files
+    in the 'locales' directory (e.g. en.json, zh.json, tw.json, ja.json). Users can add new
+    translations or edit existing ones without touching Python code.
     """
     target_dir = Path(locales_dir) if locales_dir else get_locales_dir()
     if not target_dir.exists() or not target_dir.is_dir():
@@ -70,8 +71,15 @@ def load_external_locales(locales_dir: Path | str | None = None) -> list[tuple[s
             if lang_code not in TRANSLATIONS:
                 TRANSLATIONS[lang_code] = {}
             for k, v in translations.items():
-                if isinstance(v, str) and k != "language_name":
+                if isinstance(v, str) and k not in ("language_name", "strategy_labels", "error_translations"):
                     TRANSLATIONS[lang_code][k] = v
+
+            error_translations = data.get("error_translations")
+            if error_translations and isinstance(error_translations, dict):
+                for pattern, msg in error_translations.items():
+                    if pattern not in ERROR_TRANSLATIONS:
+                        ERROR_TRANSLATIONS[pattern] = {}
+                    ERROR_TRANSLATIONS[pattern][lang_code] = str(msg)
         except Exception as exc:
             print(f"[i18n] Failed to load locale {file_path.name}: {exc}")
 
@@ -105,70 +113,6 @@ def tr(_key: str, _lang: str | None = None, **kwargs) -> str:
         except Exception:
             return template
     return template
-
-
-ERROR_TRANSLATIONS: dict[str, dict[str, str]] = {
-    "Settlement amount could not be confirmed": {
-        "en": "Settlement amount could not be reliably confirmed.",
-        "zh": "结算金额未能稳定确认，已停止且未将此笔入账。",
-        "tw": "結算金額未能穩定確認，已停止且未將此筆入帳。",
-        "ja": "精算金額を安定して確認できませんでした。",
-    },
-    "Challenge payout cannot be confirmed": {
-        "en": "Challenge payout could not be confirmed.",
-        "zh": "挑战奖金无法确认，已停止。",
-        "tw": "挑戰獎金無法確認，已停止。",
-        "ja": "挑戦賞金を確認できませんでした。",
-    },
-    "Currently mid-doubling": {
-        "en": "Currently mid-challenge; cannot recover round count. Please restart from a fresh round.",
-        "zh": "当前已在翻倍途中，无法恢复本局成功次数。请从新一局开始。",
-        "tw": "當前已在翻倍途中，無法恢復本局成功次數。請從新一局開始。",
-        "ja": "現在ダブルアップの途中のため、成功回数を復元できません。新しい対局からやり直してください。",
-    },
-    "Missing doubling history": {
-        "en": "Missing doubling history for this round. Please check manually.",
-        "zh": "缺少本局翻倍记录，无法核对入账。请手动核对后开始新一局。",
-        "tw": "缺少本局翻倍紀錄，無法核對入帳。請手動核對後開始新一局。",
-        "ja": "本局のダブルアップ記録がないため照合できません。手動で確認してください。",
-    },
-    "Initial payout for this round cannot reserve cap room": {
-        "en": "Initial prize cannot preserve the 3rd stage, please handle manually.",
-        "zh": "本局起手奖金已无法保留第三阶段，请手动处理。",
-        "tw": "本局起手獎金已無法保留第三階段，請手動處理。",
-        "ja": "本局の初期賞金では第3段階を保持できません。手動で対応してください。",
-    },
-    "Unexpected game client area size": {
-        "en": "Unexpected game client dimensions.",
-        "zh": "游戏客户区尺寸异常。",
-        "tw": "遊戲客戶區尺寸異常。",
-        "ja": "ゲームクライアントのサイズが異常です。",
-    },
-    "结算金额未能稳定确认": {
-        "en": "Settlement amount could not be stably confirmed.",
-        "ja": "精算金額を安定して確認できませんでした。",
-    },
-    "挑战奖金无法确认": {
-        "en": "Challenge reward could not be confirmed.",
-        "ja": "挑戦賞金を確認できませんでした。",
-    },
-    "当前已在翻倍途中": {
-        "en": "Currently mid-challenge; cannot recover round count. Please restart from a fresh round.",
-        "ja": "現在ダブルアップの途中のため、成功回数を復元できません。新しい対局からやり直してください。",
-    },
-    "缺少本局翻倍记录": {
-        "en": "Missing doubling history for this round. Please check manually.",
-        "ja": "本局のダブルアップ記録がないため照合できません。手動で確認してください。",
-    },
-    "本局起手奖金已无法保留第三阶段": {
-        "en": "Initial prize cannot preserve the 3rd stage, please handle manually.",
-        "ja": "本局の初期賞金では第3段階を保持できません。手動で対応してください。",
-    },
-    "游戏客户区尺寸异常": {
-        "en": "Abnormal game client dimensions.",
-        "ja": "ゲームクライアントのサイズが異常です。",
-    },
-}
 
 
 def format_error(error: Exception | str, lang: str | None = None) -> str:

@@ -63,5 +63,19 @@
     "warn_window_lost": "[警告] ゲームウィンドウが無効になったためクリックを中止しました。",
     "warn_cannot_read_coords": "[警告] ウィンドウ座標を取得できません: {error}",
     "warn_background_capture_fail": "[警告] バックグラウンドキャプチャ失敗、フォアグラウンドに切替: {error}"
+  },
+  "error_translations": {
+    "Settlement amount could not be confirmed": "精算金額を安定して確認できませんでした。",
+    "Challenge payout cannot be confirmed": "挑戦賞金を確認できませんでした。",
+    "Currently mid-doubling": "現在ダブルアップの途中のため、成功回数を復元できません。新しい対局からやり直してください。",
+    "Missing doubling history": "本局のダブルアップ記録がないため照合できません。手動で確認してください。",
+    "Initial payout for this round cannot reserve cap room": "本局の初期賞金では第3段階を保持できません。手動で対応してください。",
+    "Unexpected game client area size": "ゲームクライアントのサイズが異常です。",
+    "结算金额未能稳定确认": "精算金額を安定して確認できませんでした。",
+    "挑战奖金无法确认": "挑戦賞金を確認できませんでした。",
+    "当前已在翻倍途中": "現在ダブルアップの途中のため、成功回数を復元できません。新しい対局からやり直してください。",
+    "缺少本局翻倍记录": "本局のダブルアップ記録がないため照合できません。手動で確認してください。",
+    "本局起手奖金已无法保留第三阶段": "本局の初期賞金では第3段階を保持できません。手動で対応してください。",
+    "游戏客户区尺寸异常": "ゲームクライアントのサイズが異常です。"
   }
 }
