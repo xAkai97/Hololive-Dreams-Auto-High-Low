@@ -48,6 +48,9 @@ An automated assistant and decision-making bot for the casino mini-game in *Holo
 │   ├── challenge_reward.py    # Hand payout vision and OCR
 │   ├── settlement.py          # Settlement balance verification
 │   └── reward_vision.py       # Ongoing reward OCR
+├── config.json                # User settings, window coordinates, and daily stats (auto-generated)
+├── log.txt                    # Active UI session log (auto-generated)
+├── logs/                      # Archived session logs rotated on launch (auto-generated)
 ├── backgrounds/               # Drop custom background images here (.png, .jpg, etc.)
 ├── assets/                    # Application icons and static assets
 ├── locales/                   # External JSON translations (en.json, zh.json, ja.json, tw.json)
@@ -103,6 +106,23 @@ To add a new language or modify existing strings:
 2. Copy an existing file (e.g. `en.json`) and name it with your locale code (e.g. `ko.json`, `es.json`).
 3. Set `"language_name"` (e.g. `"한국어"`) and translate the values.
 4. Restart the bot — the new language will automatically appear in the UI dropdown.
+
+---
+
+## 💾 Data & Storage Locations
+
+The application operates in **Portable Mode** by default and automatically falls back to **AppData** if running from a protected directory:
+
+| Mode | Location | When Used |
+| :--- | :--- | :--- |
+| **Portable Mode** *(Default)* | Application folder (`config.json`, `log.txt`, `logs/`) | Default behavior when the folder has write permissions (e.g. running from source or extracted portable `.exe`). |
+| **AppData Fallback** | `%APPDATA%\HololiveDreamsAuto\` | Automatically engaged if the application folder is write-protected or read-only (e.g. installed under `C:\Program Files\`). |
+
+### Generated Files & Folders
+- `config.json`: Stores user preferences (language, hotkeys, strategy selection, opportunistic doubling toggles, log retention settings, and daily coin stats).
+- `log.txt`: Active session execution log. You can view or export this from the **Logs** menu bar.
+- `logs/`: Timestamped archives of previous sessions (`log_YYYY-MM-DD_HH-MM-SS.txt`), automatically rotated on launch and pruned according to your configured retention settings (default: 14 days or 20 MB).
+- `debug/`: Debug screenshots captured during vision or OCR failures (when debug mode is active).
 
 ---
 

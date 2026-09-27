@@ -42,16 +42,37 @@ bot_running = False
 # ================= Global Configuration & Constants =================
 TARGET_LIMIT = 20000
 
-# All bundled assets are resolved relative to the executable/source directory.
-# The old code depended on the process working directory, so launching from a
-# shortcut or another folder made every template silently disappear.
-APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
-RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR)).resolve()
+def _resolve_app_dir() -> Path:
+    """Resolve the directory used for writable user data (config, logs, debug).
+
+    In portable mode (standard installation), files are saved directly in the
+    application directory. If that location is write-protected (e.g. Program Files
+    or read-only volume), it automatically falls back to %APPDATA%/HololiveDreamsAuto.
+    """
+    base = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
+    try:
+        test_file = base / f".write_test_{os.getpid()}"
+        test_file.touch()
+        test_file.unlink()
+        return base
+    except (OSError, PermissionError):
+        appdata = os.getenv("APPDATA")
+        if appdata:
+            fallback = Path(appdata) / "HololiveDreamsAuto"
+            fallback.mkdir(parents=True, exist_ok=True)
+            return fallback
+        return base
+
+
+INSTALL_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
+APP_DIR = _resolve_app_dir()
+RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", INSTALL_DIR)).resolve()
 TEMPLATE_DIR = RESOURCE_DIR / "templates"
 BACKGROUNDS_DIR = APP_DIR / "backgrounds"
 ASSETS_DIR = RESOURCE_DIR / "assets"
 DEBUG_DIR = APP_DIR / "debug"
 LOGS_DIR = APP_DIR / "logs"
+LOG_FILE = APP_DIR / "log.txt"
 DATA_FILE = APP_DIR / "config.json"
 
 

@@ -379,6 +379,24 @@ class TestGUISettingsAndMenus(unittest.TestCase):
                 self.assertEqual(remaining[0].name, "log_2026-09-22_00-00-00.txt")
 
 
+@unittest.skipUnless(HAVE_GUI, 'GUI dependencies not installed')
+class TestAppDirResolution(unittest.TestCase):
+    def test_resolve_app_dir_writable(self):
+        import auto_bot
+        # Under normal conditions, workspace is writable
+        res = auto_bot._resolve_app_dir()
+        self.assertTrue(res.exists())
+
+    def test_resolve_app_dir_fallback_on_permission_error(self):
+        import auto_bot
+        with tempfile.TemporaryDirectory() as fake_appdata:
+            with patch.dict(os.environ, {"APPDATA": fake_appdata}):
+                with patch.object(Path, "touch", side_effect=PermissionError("Read-only")):
+                    res = auto_bot._resolve_app_dir()
+                    self.assertEqual(res, Path(fake_appdata) / "HololiveDreamsAuto")
+                    self.assertTrue(res.exists())
+
+
 if __name__ == "__main__":
     unittest.main()
 
