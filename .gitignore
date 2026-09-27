@@ -12,6 +12,7 @@ __pycache__/
 # Build & packaging outputs
 build/
 dist/
+dist_release/
 Release/
 _internal/
 *.exe

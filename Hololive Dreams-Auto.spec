@@ -7,6 +7,9 @@ hiddenimports = []
 tmp_ret = collect_all('ddddocr')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
+pil_ret = collect_all('PIL')
+datas += pil_ret[0]; binaries += pil_ret[1]; hiddenimports += pil_ret[2]
+
 # Bundle runtime assets so no manual post-build copy step is required.
 datas += [
     ('templates', 'templates'),
@@ -16,6 +19,16 @@ datas += [
 ]
 
 hiddenimports += [
+    'PIL',
+    'PIL.Image',
+    'PIL.ImageTk',
+    'cv2',
+    'numpy',
+    'keyboard',
+    'pygetwindow',
+    'mss',
+    'pydirectinput',
+    'ddddocr',
     'strategies',
     'strategies.base',
     'strategies.legacy_101',
