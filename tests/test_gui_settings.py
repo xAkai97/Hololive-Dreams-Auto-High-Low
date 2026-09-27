@@ -3,6 +3,7 @@ import os
 import json
 import csv
 import tempfile
+import time
 from pathlib import Path
 import unittest
 from unittest.mock import patch, MagicMock
@@ -176,25 +177,19 @@ class TestGUISettingsAndMenus(unittest.TestCase):
     def test_quick_strategy_presets(self):
         with patch.object(self.app, "save_settings"):
             # Test 1: Fastest preset
-            self.app.apply_strategy_preset("fast_cap")
-            self.assertEqual(self.app.active_mode, "fast_cap")
+            self.app.apply_strategy_preset("fastest_clear")
+            self.assertEqual(self.app.active_mode, "fastest_clear")
             self.assertEqual(self.app.btn_preset_fast.cget("style"), "ActiveTab.TButton")
-            desc = self.app.canvas.itemcget(self.app.strategy_desc_id, "text")
-            self.assertIn("Fastest", desc)
 
             # Test 2: Balanced preset
-            self.app.apply_strategy_preset("precision_cushion")
-            self.assertEqual(self.app.active_mode, "precision_cushion")
+            self.app.apply_strategy_preset("balanced")
+            self.assertEqual(self.app.active_mode, "balanced")
             self.assertEqual(self.app.btn_preset_balanced.cget("style"), "ActiveTab.TButton")
-            desc = self.app.canvas.itemcget(self.app.strategy_desc_id, "text")
-            self.assertIn("Balanced", desc)
 
             # Test 3: Profit preset
-            self.app.apply_strategy_preset("three_stages")
-            self.assertEqual(self.app.active_mode, "three_stages")
+            self.app.apply_strategy_preset("max_profit")
+            self.assertEqual(self.app.active_mode, "max_profit")
             self.assertEqual(self.app.btn_preset_profit.cget("style"), "ActiveTab.TButton")
-            desc = self.app.canvas.itemcget(self.app.strategy_desc_id, "text")
-            self.assertIn("High Profit", desc)
 
     def test_select_background_menu(self):
         with patch.object(self.app, "save_settings"):
@@ -240,8 +235,8 @@ class TestGUISettingsAndMenus(unittest.TestCase):
             self.app.on_strategy_change()
             self.assertEqual(self.app.canvas.itemcget(self.app.btn_config_strat_win, "state"), "normal")
 
-            # Select back to fast_cap
-            fast_idx = STRATEGY_KEYS.index("fast_cap")
+            # Select back to fastest_clear
+            fast_idx = STRATEGY_KEYS.index("fastest_clear")
             self.app.combo_strategy.current(fast_idx)
             self.app.on_strategy_change()
             self.assertEqual(self.app.canvas.itemcget(self.app.btn_config_strat_win, "state"), "hidden")

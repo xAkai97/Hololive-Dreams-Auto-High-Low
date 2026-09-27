@@ -182,6 +182,7 @@ class GameSimulator:
         initial_payout: int,
         daily_coins: int,
         max_doubles: int = 10,
+        target_limit: int = 20000,
     ) -> RoundResult:
         """Simulate the High-Low doubling phase for a winning poker hand."""
         strategy.reset_round()
@@ -362,6 +363,7 @@ class GameSimulator:
                 strategy=strategy,
                 initial_payout=payout,
                 daily_coins=daily_coins,
+                target_limit=target_limit,
             )
             rounds.append(round_result)
 
