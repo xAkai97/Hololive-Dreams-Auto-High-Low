@@ -18,7 +18,7 @@ import json
 import time
 import re
 import queue
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw
 import keyboard
 
 # Ensure src directory is accessible when running from source or bundle
@@ -250,6 +250,9 @@ class HololiveBotUI(tk.Tk):
         self.bg_candidates = self._discover_backgrounds()
         saved_bg = saved_config.get("background_index", -1)
         self.bg_index = saved_bg if (-1 <= saved_bg < len(self.bg_candidates)) else -1
+        self.field_box_opacity = max(0, min(100, int(saved_config.get("field_box_opacity", 80))))
+        self.show_log = bool(saved_config.get("show_log", True))
+        self.var_show_log = tk.BooleanVar(value=self.show_log)
         self.original_bg = None
         self._load_current_bg()
 
@@ -452,6 +455,21 @@ class HololiveBotUI(tk.Tk):
         self.entry_setting_ticket.insert(0, str(self.ticket_cost))
         self.entry_setting_ticket_win = self.canvas.create_window(0, 0, window=self.entry_setting_ticket, anchor="e")
 
+        self.lbl_setting_opacity_id = self.canvas.create_text(0, 0, font=font_setting, fill="#222222", anchor="w")
+        self.frame_setting_opacity = ttk.Frame(self)
+        self.scale_setting_opacity = ttk.Scale(
+            self.frame_setting_opacity,
+            from_=0,
+            to=100,
+            value=self.field_box_opacity,
+            command=self._on_opacity_scale_change,
+        )
+        self.scale_setting_opacity.bind("<ButtonRelease-1>", self._on_opacity_scale_release)
+        self.scale_setting_opacity.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        self.lbl_setting_opacity_val = ttk.Label(self.frame_setting_opacity, text=f"{self.field_box_opacity}%", width=5, font=font_setting)
+        self.lbl_setting_opacity_val.pack(side="right")
+        self.scale_setting_opacity_win = self.canvas.create_window(0, 0, window=self.frame_setting_opacity, anchor="e")
+
         self.btn_open_custom_dialog = ttk.Button(self, command=self.open_custom_parametric_dialog)
         self.btn_open_custom_dialog_win = self.canvas.create_window(0, 0, window=self.btn_open_custom_dialog, state="hidden")
 
@@ -524,6 +542,8 @@ class HololiveBotUI(tk.Tk):
         self.log_text.bind("<Control-C>", _copy_log_selection)
         self.log_text.bind("<Button-3>", _show_log_context_menu)
         self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
+        self.bind("<Control-l>", lambda e: self.toggle_log_console())
+        self.bind("<Control-L>", lambda e: self.toggle_log_console())
 
         # Tab widget membership lists for clean visibility switching
         self._bot_items = [
@@ -568,6 +588,8 @@ class HololiveBotUI(tk.Tk):
             self.entry_setting_target_win,
             self.lbl_setting_ticket_id,
             self.entry_setting_ticket_win,
+            self.lbl_setting_opacity_id,
+            self.scale_setting_opacity_win,
             self.btn_save_settings_win,
             self.btn_restore_defaults_win,
             self.btn_back_to_bot_win,
@@ -731,14 +753,13 @@ class HololiveBotUI(tk.Tk):
         self.resize_after_id = self.after(10, lambda: self.draw_ui(w, h))
 
     def draw_ui(self, w, h):
+        if w <= 50 or h <= 50:
+            return
         # 1. Background image
         if self.show_bg and self.original_bg:
-            img = self.original_bg.resize((w, h), Image.Resampling.LANCZOS)
+            img = self.original_bg.resize((w, h), Image.Resampling.LANCZOS).convert("RGBA")
         else:
-            img = Image.new('RGB', (w, h), color='#FFFFFF')
-
-        self.bg_photo = ImageTk.PhotoImage(img)
-        self.canvas.itemconfig(self.bg_id, image=self.bg_photo)
+            img = Image.new("RGBA", (w, h), color=(255, 255, 255, 255))
 
         # 2. Responsive layout dimensions
         pad_x = max(16, int(w * 0.06))
@@ -788,9 +809,30 @@ class HololiveBotUI(tk.Tk):
             fails_y = coins_y + 30
             stats_card_bottom = fails_y + 18
 
-            self.canvas.coords(self.stats_card_id, pad_x - 4, stats_card_top, w - pad_x + 4, stats_card_bottom)
-            self.canvas.tag_lower(self.stats_card_id, self.status_id)
-            self.canvas.itemconfig(self.stats_card_id, state="normal")
+            sc_x1 = pad_x - 4
+            sc_y1 = stats_card_top
+            sc_x2 = w - pad_x + 4
+            sc_y2 = stats_card_bottom
+
+            if self.show_bg and self.original_bg:
+                self.canvas.itemconfig(self.stats_card_id, state="hidden")
+                if self.field_box_opacity > 0 and sc_x2 > sc_x1 and sc_y2 > sc_y1:
+                    alpha = int(255 * (self.field_box_opacity / 100.0))
+                    border_alpha = int(255 * min(1.0, (self.field_box_opacity + 30) / 100.0))
+                    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                    draw = ImageDraw.Draw(overlay)
+                    draw.rounded_rectangle(
+                        (sc_x1, sc_y1, sc_x2, sc_y2),
+                        radius=8,
+                        fill=(255, 255, 255, alpha),
+                        outline=(226, 232, 240, border_alpha),
+                        width=1,
+                    )
+                    img = Image.alpha_composite(img, overlay)
+            else:
+                self.canvas.coords(self.stats_card_id, sc_x1, sc_y1, sc_x2, sc_y2)
+                self.canvas.tag_lower(self.stats_card_id, self.status_id)
+                self.canvas.itemconfig(self.stats_card_id, state="normal")
 
             # Internal card left padding: pad_x + 8
             card_inner_x = pad_x + 8
@@ -888,11 +930,15 @@ class HololiveBotUI(tk.Tk):
             scrollbar_w = 16
             log_w = content_w - scrollbar_w - 4
 
-            self.canvas.coords(self.log_text_win, pad_x, log_y)
-            self.canvas.itemconfig(self.log_text_win, width=log_w, height=log_h, state="normal")
-
-            self.canvas.coords(self.scrollbar_win, pad_x + log_w + 4, log_y)
-            self.canvas.itemconfig(self.scrollbar_win, width=scrollbar_w, height=log_h, state="normal")
+            if self.show_log:
+                self.canvas.coords(self.log_text_win, pad_x, log_y)
+                self.canvas.itemconfig(self.log_text_win, width=log_w, height=log_h, state="normal")
+                self.canvas.coords(self.scrollbar_win, pad_x + log_w + 4, log_y)
+                self.canvas.itemconfig(self.scrollbar_win, width=scrollbar_w, height=log_h, state="normal")
+                self.log_text.configure(bg="#F8FAFC" if self.field_box_opacity < 80 else "#FFFFFF")
+            else:
+                self.canvas.itemconfig(self.log_text_win, state="hidden")
+                self.canvas.itemconfig(self.scrollbar_win, state="hidden")
 
         elif self.current_tab == "sim":
             self._set_items_visible(self._bot_items, False)
@@ -979,11 +1025,15 @@ class HololiveBotUI(tk.Tk):
             scrollbar_w = 16
             log_w = content_w - scrollbar_w - 4
 
-            self.canvas.coords(self.log_text_win, pad_x, log_y)
-            self.canvas.itemconfig(self.log_text_win, width=log_w, height=log_h, state="normal")
-
-            self.canvas.coords(self.scrollbar_win, pad_x + log_w + 4, log_y)
-            self.canvas.itemconfig(self.scrollbar_win, width=scrollbar_w, height=log_h, state="normal")
+            if self.show_log:
+                self.canvas.coords(self.log_text_win, pad_x, log_y)
+                self.canvas.itemconfig(self.log_text_win, width=log_w, height=log_h, state="normal")
+                self.canvas.coords(self.scrollbar_win, pad_x + log_w + 4, log_y)
+                self.canvas.itemconfig(self.scrollbar_win, width=scrollbar_w, height=log_h, state="normal")
+                self.log_text.configure(bg="#F8FAFC" if self.field_box_opacity < 80 else "#FFFFFF")
+            else:
+                self.canvas.itemconfig(self.log_text_win, state="hidden")
+                self.canvas.itemconfig(self.scrollbar_win, state="hidden")
 
         elif self.current_tab == "settings":
             self._set_items_visible(self._bot_items, False)
@@ -1015,20 +1065,26 @@ class HololiveBotUI(tk.Tk):
             self.canvas.coords(self.combo_bg_win, w - pad_x, r2_y)
             self.canvas.itemconfig(self.combo_bg_win, width=input_w, height=field_h, state="normal")
 
-            # Row 3: Target limit
+            # Row 3: Field Box Opacity
             r3_y = r2_y + row_gap
-            self.canvas.coords(self.lbl_setting_target_id, pad_x, r3_y)
-            self.canvas.coords(self.entry_setting_target_win, w - pad_x, r3_y)
+            self.canvas.coords(self.lbl_setting_opacity_id, pad_x, r3_y)
+            self.canvas.coords(self.scale_setting_opacity_win, w - pad_x, r3_y)
+            self.canvas.itemconfig(self.scale_setting_opacity_win, width=input_w, height=field_h, state="normal")
+
+            # Row 4: Target limit
+            r4_y = r3_y + row_gap
+            self.canvas.coords(self.lbl_setting_target_id, pad_x, r4_y)
+            self.canvas.coords(self.entry_setting_target_win, w - pad_x, r4_y)
             self.canvas.itemconfig(self.entry_setting_target_win, width=input_w, height=field_h, state="normal")
 
-            # Row 4: Ticket Cost
-            r4_y = r3_y + row_gap
-            self.canvas.coords(self.lbl_setting_ticket_id, pad_x, r4_y)
-            self.canvas.coords(self.entry_setting_ticket_win, w - pad_x, r4_y)
+            # Row 5: Ticket Cost
+            r5_y = r4_y + row_gap
+            self.canvas.coords(self.lbl_setting_ticket_id, pad_x, r5_y)
+            self.canvas.coords(self.entry_setting_ticket_win, w - pad_x, r5_y)
             self.canvas.itemconfig(self.entry_setting_ticket_win, width=input_w, height=field_h, state="normal")
 
-            # Row 5: Buttons: Save & Restore
-            btn_sett_y = r4_y + row_gap + 10
+            # Row 6: Buttons: Save & Restore
+            btn_sett_y = r5_y + row_gap + 10
             btn_sett_w = (content_w - 8) / 2
             btn_sett_h = 36
             self.canvas.coords(self.btn_save_settings_win, pad_x + btn_sett_w / 2, btn_sett_y)
@@ -1036,18 +1092,43 @@ class HololiveBotUI(tk.Tk):
             self.canvas.itemconfig(self.btn_save_settings_win, width=btn_sett_w, height=btn_sett_h, state="normal")
             self.canvas.itemconfig(self.btn_restore_defaults_win, width=btn_sett_w, height=btn_sett_h, state="normal")
 
-            # Row 6: Return to Auto Bot
+            # Row 7: Return to Auto Bot
             btn_back_y = btn_sett_y + btn_sett_h + 12
             self.canvas.coords(self.btn_back_to_bot_win, pad_x + content_w / 2, btn_back_y)
             self.canvas.itemconfig(self.btn_back_to_bot_win, width=content_w, height=36, state="normal")
 
             # Position card behind settings rows
-            self.canvas.coords(self.settings_card_id, pad_x - 8, sett_start_y - 12, w - pad_x + 8, btn_back_y + btn_sett_h / 2 + 12)
-            self.canvas.tag_lower(self.settings_card_id, self.lbl_setting_title_id)
-            self.canvas.itemconfig(self.settings_card_id, state="normal")
+            sett_x1 = pad_x - 8
+            sett_y1 = sett_start_y - 12
+            sett_x2 = w - pad_x + 8
+            sett_y2 = btn_back_y + btn_sett_h / 2 + 12
+
+            if self.show_bg and self.original_bg:
+                self.canvas.itemconfig(self.settings_card_id, state="hidden")
+                if self.field_box_opacity > 0 and sett_x2 > sett_x1 and sett_y2 > sett_y1:
+                    alpha = int(255 * (self.field_box_opacity / 100.0))
+                    border_alpha = int(255 * min(1.0, (self.field_box_opacity + 30) / 100.0))
+                    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                    draw = ImageDraw.Draw(overlay)
+                    draw.rounded_rectangle(
+                        (sett_x1, sett_y1, sett_x2, sett_y2),
+                        radius=8,
+                        fill=(255, 255, 255, alpha),
+                        outline=(226, 232, 240, border_alpha),
+                        width=1,
+                    )
+                    img = Image.alpha_composite(img, overlay)
+            else:
+                self.canvas.coords(self.settings_card_id, sett_x1, sett_y1, sett_x2, sett_y2)
+                self.canvas.tag_lower(self.settings_card_id, self.lbl_setting_title_id)
+                self.canvas.itemconfig(self.settings_card_id, state="normal")
 
             # Feedback label
             self.canvas.coords(self.settings_feedback_id, w / 2, btn_back_y + btn_sett_h / 2 + 20)
+
+        # 3. Final background PhotoImage update (including any composited cards)
+        self.bg_photo = ImageTk.PhotoImage(img)
+        self.canvas.itemconfig(self.bg_id, image=self.bg_photo)
 
     def _discover_backgrounds(self) -> list[Path]:
         valid_exts = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
@@ -1083,6 +1164,59 @@ class HololiveBotUI(tk.Tk):
             self.show_bg = True
             self._load_current_bg()
         self._update_combo_bg_values()
+        w = self.last_w if self.last_w else self.winfo_width()
+        h = self.last_h if self.last_h else self.winfo_height()
+        self.draw_ui(w, h)
+        self.save_settings()
+
+    def set_field_box_opacity(self, opacity: int, save: bool = True):
+        self.field_box_opacity = max(0, min(100, int(opacity)))
+        if hasattr(self, "opacity_var"):
+            try:
+                self.opacity_var.set(self.field_box_opacity)
+            except Exception:
+                pass
+        if hasattr(self, "scale_setting_opacity") and not getattr(self, "_in_opacity_callback", False):
+            try:
+                curr = int(float(self.scale_setting_opacity.get()))
+                if abs(curr - self.field_box_opacity) >= 1:
+                    self.scale_setting_opacity.set(self.field_box_opacity)
+            except Exception:
+                pass
+        if hasattr(self, "lbl_setting_opacity_val"):
+            try:
+                self.lbl_setting_opacity_val.configure(text=f"{self.field_box_opacity}%")
+            except Exception:
+                pass
+        w = self.last_w if (self.last_w and self.last_w > 50) else (self.winfo_width() if self.winfo_width() > 50 else 450)
+        h = self.last_h if (self.last_h and self.last_h > 50) else (self.winfo_height() if self.winfo_height() > 50 else 800)
+        self.draw_ui(w, h)
+        if save:
+            self.save_settings()
+
+    def _on_opacity_scale_change(self, val):
+        self._in_opacity_callback = True
+        try:
+            v = int(float(val))
+        except (ValueError, TypeError):
+            v = 80
+        if hasattr(self, "lbl_setting_opacity_val"):
+            try:
+                self.lbl_setting_opacity_val.configure(text=f"{v}%")
+            except Exception:
+                pass
+        try:
+            self.set_field_box_opacity(v, save=False)
+        finally:
+            self._in_opacity_callback = False
+
+    def _on_opacity_scale_release(self, event=None):
+        self.save_settings()
+
+    def toggle_log_console(self):
+        self.show_log = not self.show_log
+        if hasattr(self, "var_show_log"):
+            self.var_show_log.set(self.show_log)
         w = self.last_w if self.last_w else self.winfo_width()
         h = self.last_h if self.last_h else self.winfo_height()
         self.draw_ui(w, h)
@@ -1220,6 +1354,12 @@ class HololiveBotUI(tk.Tk):
             label=localization.tr("menu_open_logs_dir", self.current_lang),
             command=lambda: self._safe_open_path(auto_bot.LOGS_DIR),
         )
+        self.logs_menu.add_separator()
+        self.logs_menu.add_checkbutton(
+            label=f"{localization.tr('menu_toggle_log', self.current_lang)} (Ctrl+L)",
+            variable=self.var_show_log,
+            command=self.toggle_log_console,
+        )
 
         # Background Menu (Top-level in menubar)
         self.bg_menu.delete(0, "end")
@@ -1239,6 +1379,30 @@ class HololiveBotUI(tk.Tk):
                     value=i,
                     command=lambda idx=i: self.select_background(idx),
                 )
+
+        # Field Box Opacity Submenu
+        self.opacity_menu = tk.Menu(self.bg_menu, tearoff=0)
+        self.opacity_var = tk.IntVar(value=self.field_box_opacity)
+        presets = [
+            (100, localization.tr("opacity_100", self.current_lang)),
+            (85, localization.tr("opacity_85", self.current_lang)),
+            (70, localization.tr("opacity_70", self.current_lang)),
+            (50, localization.tr("opacity_50", self.current_lang)),
+            (30, localization.tr("opacity_30", self.current_lang)),
+            (0, localization.tr("opacity_0", self.current_lang)),
+        ]
+        for val, label in presets:
+            self.opacity_menu.add_radiobutton(
+                label=label,
+                variable=self.opacity_var,
+                value=val,
+                command=lambda v=val: self.set_field_box_opacity(v),
+            )
+        self.bg_menu.add_separator()
+        self.bg_menu.add_cascade(
+            label=localization.tr("menu_field_box_opacity", self.current_lang),
+            menu=self.opacity_menu,
+        )
 
         # Language Menu (Top-level in menubar)
         self.lang_menu.delete(0, "end")
@@ -1450,6 +1614,30 @@ class HololiveBotUI(tk.Tk):
         ent_size.insert(0, str(self.log_max_size_mb))
         ent_size.grid(row=1, column=1, sticky="e", pady=6)
 
+        # --- Section 3: Display & Background ---
+        lf_display = ttk.LabelFrame(frame, text=f" {localization.tr('menu_background', self.current_lang)} ", padding=(14, 10))
+        lf_display.pack(fill="x", expand=True, pady=(0, 10))
+        lf_display.columnconfigure(0, weight=1)
+        lf_display.columnconfigure(1, weight=0)
+
+        ttk.Label(lf_display, text=localization.tr("field_box_opacity_label", self.current_lang), font=font_label).grid(row=0, column=0, sticky="w", pady=6)
+        dlg_frame_op = ttk.Frame(lf_display)
+        dlg_frame_op.grid(row=0, column=1, sticky="e", pady=6)
+        dlg_scale_op = ttk.Scale(dlg_frame_op, from_=0, to=100, value=self.field_box_opacity)
+        dlg_scale_op.pack(side="left", padx=(0, 6))
+        dlg_lbl_op = ttk.Label(dlg_frame_op, text=f"{self.field_box_opacity}%", width=5, font=font_label)
+        dlg_lbl_op.pack(side="right")
+
+        def _on_dlg_op(val):
+            try:
+                v = int(float(val))
+            except (ValueError, TypeError):
+                v = 80
+            dlg_lbl_op.configure(text=f"{v}%")
+            self.set_field_box_opacity(v, save=False)
+
+        dlg_scale_op.configure(command=_on_dlg_op)
+
         lbl_status = ttk.Label(frame, text="", font=(self.font_family, 9), foreground="#007700")
         lbl_status.pack(pady=(0, 6))
 
@@ -1476,6 +1664,7 @@ class HololiveBotUI(tk.Tk):
                 self.entry_setting_target.insert(0, str(self.target_limit))
                 self.entry_setting_ticket.delete(0, "end")
                 self.entry_setting_ticket.insert(0, str(self.ticket_cost))
+                self.set_field_box_opacity(int(float(dlg_scale_op.get())), save=True)
                 self.save_user_settings()
                 clean_old_logs(max_days=self.log_retention_days, max_size_mb=self.log_max_size_mb, lang=self.current_lang)
                 lbl_status.configure(text=localization.tr("settings_saved_msg", self.current_lang))
@@ -1494,6 +1683,9 @@ class HololiveBotUI(tk.Tk):
             ent_size.delete(0, "end")
             ent_size.insert(0, str(self.log_max_size_mb))
             combo_opp.current(0)
+            dlg_scale_op.set(80)
+            dlg_lbl_op.configure(text="80%")
+            self.set_field_box_opacity(80, save=True)
             lbl_status.configure(text=localization.tr("settings_saved_msg", self.current_lang))
 
         ttk.Button(btn_box, text=localization.tr("btn_save_settings", self.current_lang), command=on_save).pack(side="left", padx=5)
@@ -1611,6 +1803,8 @@ class HololiveBotUI(tk.Tk):
                 param_sprint_target=self.param_sprint_target,
                 param_max_doubles=self.param_max_doubles,
                 param_drop_seven_eight=self.param_drop_seven_eight,
+                field_box_opacity=self.field_box_opacity,
+                show_log=self.show_log,
             )
             auto_bot.TARGET_LIMIT = self.target_limit
             self.current_profit = self.current_coins - (self.current_fails * self.ticket_cost)
@@ -1638,6 +1832,13 @@ class HololiveBotUI(tk.Tk):
         self.param_sprint_target = 10000
         self.param_max_doubles = 10
         self.param_drop_seven_eight = False
+        self.field_box_opacity = 80
+        if hasattr(self, "scale_setting_opacity"):
+            self.scale_setting_opacity.set(80)
+        if hasattr(self, "lbl_setting_opacity_val"):
+            self.lbl_setting_opacity_val.configure(text="80%")
+        if hasattr(self, "opacity_var"):
+            self.opacity_var.set(80)
         self.save_user_settings()
 
     def _set_sim_buttons_state(self, state: str):
@@ -1898,6 +2099,8 @@ class HololiveBotUI(tk.Tk):
             param_sprint_target=self.param_sprint_target,
             param_max_doubles=self.param_max_doubles,
             param_drop_seven_eight=self.param_drop_seven_eight,
+            field_box_opacity=self.field_box_opacity,
+            show_log=self.show_log,
         )
 
     def on_stats_manual_edit(self, event=None):
@@ -2081,6 +2284,7 @@ class HololiveBotUI(tk.Tk):
         self.canvas.itemconfig(self.lbl_setting_title_id, text=localization.tr("settings_title", self.current_lang))
         self.canvas.itemconfig(self.lbl_setting_target_id, text=localization.tr("target_limit_label", self.current_lang))
         self.canvas.itemconfig(self.lbl_setting_ticket_id, text=localization.tr("ticket_cost_label", self.current_lang))
+        self.canvas.itemconfig(self.lbl_setting_opacity_id, text=localization.tr("field_box_opacity_label", self.current_lang))
         self.btn_open_custom_dialog.configure(text=localization.tr("btn_custom_strategy_config", self.current_lang))
         self.btn_save_settings.configure(text=localization.tr("btn_save_settings", self.current_lang))
         self.btn_restore_defaults.configure(text=localization.tr("btn_restore_defaults", self.current_lang))

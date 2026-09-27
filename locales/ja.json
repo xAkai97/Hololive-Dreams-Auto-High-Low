@@ -166,7 +166,16 @@
     "custom_param_dialog_title": "カスタム戦略パラメータ設定",
     "btn_cancel": "キャンセル",
     "btn_config_params": "⚙️ 設定",
-    "btn_custom_strategy_config": "⚙️ カスタム戦略専用パラメータ設定..."
+    "btn_custom_strategy_config": "⚙️ カスタム戦略専用パラメータ設定...",
+    "field_box_opacity_label": "フィールド枠の不透明度 (%):",
+    "menu_field_box_opacity": "フィールド枠の透明度",
+    "opacity_100": "100%（不透明）",
+    "opacity_85": "85%（フロストガラス・推奨）",
+    "opacity_70": "70%（ガラス）",
+    "opacity_50": "50%（半透明）",
+    "opacity_30": "30%（薄い半透明）",
+    "opacity_0": "0%（完全透明）",
+    "menu_toggle_log": "ログ枠の表示切替"
   },
   "error_translations": {
     "Settlement amount could not be confirmed": "精算金額を安定して確認できなかったため、停止しました（未記帳）。画面と残高を確認してください。",

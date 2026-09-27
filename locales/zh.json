@@ -166,7 +166,16 @@
     "custom_param_dialog_title": "自定义策略参数配置",
     "btn_cancel": "取消",
     "btn_config_params": "⚙️ 配置",
-    "btn_custom_strategy_config": "⚙️ 配置自定义策略专属参数..."
+    "btn_custom_strategy_config": "⚙️ 配置自定义策略专属参数...",
+    "field_box_opacity_label": "信息框不透明度 (%):",
+    "menu_field_box_opacity": "信息框透明度",
+    "opacity_100": "100% (不透明)",
+    "opacity_85": "85% (磨砂玻璃 - 推荐)",
+    "opacity_70": "70% (玻璃质感)",
+    "opacity_50": "50% (半透明)",
+    "opacity_30": "30% (浅色半透明)",
+    "opacity_0": "0% (完全透明)",
+    "menu_toggle_log": "日志框显示切换"
   },
   "error_translations": {
     "Settlement amount could not be confirmed": "结算金额未能稳定确认，已停止且未将此笔入账。请手动核对结算画面与今日账目。",

@@ -166,7 +166,16 @@
     "custom_param_dialog_title": "Custom Strategy Parameters",
     "btn_cancel": "Cancel",
     "btn_config_params": "⚙️ Config",
-    "btn_custom_strategy_config": "⚙️ Configure Custom Strategy Parameters..."
+    "btn_custom_strategy_config": "⚙️ Configure Custom Strategy Parameters...",
+    "field_box_opacity_label": "Field Box Opacity (%):",
+    "menu_field_box_opacity": "Field Box Opacity",
+    "opacity_100": "100% (Solid White)",
+    "opacity_85": "85% (Frosted Glass - Recommended)",
+    "opacity_70": "70% (Glass)",
+    "opacity_50": "50% (Translucent)",
+    "opacity_30": "30% (Light Tint)",
+    "opacity_0": "0% (Fully Transparent)",
+    "menu_toggle_log": "Show Log Console"
   },
   "error_translations": {
     "Settlement amount could not be confirmed": "Settlement amount could not be confirmed reliably; stopped and excluded from ledger. Please check the settlement screen and daily balance.",

@@ -11,8 +11,10 @@ echo [1/3] Checking for running instances...
 taskkill /IM "Hololive-Dreams-Auto.exe" /F >nul 2>&1
 
 set "PY_CMD=python"
-if defined VIRTUAL_ENV if exist "%VIRTUAL_ENV%\Scripts\python.exe" set "PY_CMD=%VIRTUAL_ENV%\Scripts\python.exe"
-if "%PY_CMD%"=="python" if exist "D:\PythonEnvs\Hololive-Dreams-Auto-High-Low\Scripts\python.exe" set "PY_CMD=D:\PythonEnvs\Hololive-Dreams-Auto-High-Low\Scripts\python.exe"
+if not "%~1"=="" if exist "%~1" set "PY_CMD=%~1"
+if "%PY_CMD%"=="python" if defined PYTHON_EXE if exist "%PYTHON_EXE%" set "PY_CMD=%PYTHON_EXE%"
+if "%PY_CMD%"=="python" if defined VIRTUAL_ENV if exist "%VIRTUAL_ENV%\Scripts\python.exe" set "PY_CMD=%VIRTUAL_ENV%\Scripts\python.exe"
+if "%PY_CMD%"=="python" if defined CONDA_PREFIX if exist "%CONDA_PREFIX%\python.exe" set "PY_CMD=%CONDA_PREFIX%\python.exe"
 if "%PY_CMD%"=="python" if exist ".venv\Scripts\python.exe" set "PY_CMD=.venv\Scripts\python.exe"
 if "%PY_CMD%"=="python" if exist "venv\Scripts\python.exe" set "PY_CMD=venv\Scripts\python.exe"
 
@@ -38,7 +40,7 @@ if %ERRORLEVEL% leq 7 (
     echo ===================================================
 ) else (
     echo.
-    echo [WARNING] Robocopy sync reported error code %ERRORLEVEL%.
+    echo [WARNING] Robocopy sync reported error code %ERRORLEVEL%. If Hololive-Dreams-Auto.exe is open, close it and re-run.
 )
 
 endlocal

@@ -166,7 +166,16 @@
     "custom_param_dialog_title": "自訂策略參數設定",
     "btn_cancel": "取消",
     "btn_config_params": "⚙️ 設定",
-    "btn_custom_strategy_config": "⚙️ 設定自訂策略專屬參數..."
+    "btn_custom_strategy_config": "⚙️ 設定自訂策略專屬參數...",
+    "field_box_opacity_label": "資訊框不透明度 (%):",
+    "menu_field_box_opacity": "資訊框透明度",
+    "opacity_100": "100% (不透明)",
+    "opacity_85": "85% (磨砂玻璃 - 推薦)",
+    "opacity_70": "70% (玻璃質感)",
+    "opacity_50": "50% (半透明)",
+    "opacity_30": "30% (淺色半透明)",
+    "opacity_0": "0% (完全透明)",
+    "menu_toggle_log": "日誌框顯示切換"
   },
   "error_translations": {
     "Settlement amount could not be confirmed": "結算金額未能穩定確認，已停止且未將此筆入帳。請手動核對結算畫面與今日帳目。",

@@ -1,5 +1,8 @@
 # Automated Build Script for Hololive Dreams-Auto
 # Universal script: works seamlessly on local SSDs, external disks, and network/SMB shares.
+param(
+    [string]$PythonPath = ""
+)
 $ErrorActionPreference = "Stop"
 
 Write-Host "===================================================" -ForegroundColor Cyan
@@ -10,12 +13,16 @@ Write-Host "===================================================" -ForegroundColo
 Write-Host "[1/3] Checking for running instances..." -ForegroundColor Yellow
 Stop-Process -Name "Hololive-Dreams-Auto" -Force -ErrorAction SilentlyContinue
 
-# 2. Detect Python interpreter (prefer project virtualenv)
+# 2. Detect Python interpreter (prefer active virtualenv or project venv)
 $py = "python"
-if ($env:VIRTUAL_ENV -and (Test-Path "$env:VIRTUAL_ENV\Scripts\python.exe")) {
+if ($PythonPath -and (Test-Path $PythonPath)) {
+    $py = $PythonPath
+} elseif ($env:PYTHON_EXE -and (Test-Path $env:PYTHON_EXE)) {
+    $py = $env:PYTHON_EXE
+} elseif ($env:VIRTUAL_ENV -and (Test-Path "$env:VIRTUAL_ENV\Scripts\python.exe")) {
     $py = "$env:VIRTUAL_ENV\Scripts\python.exe"
-} elseif (Test-Path "D:\PythonEnvs\Hololive-Dreams-Auto-High-Low\Scripts\python.exe") {
-    $py = "D:\PythonEnvs\Hololive-Dreams-Auto-High-Low\Scripts\python.exe"
+} elseif ($env:CONDA_PREFIX -and (Test-Path "$env:CONDA_PREFIX\python.exe")) {
+    $py = "$env:CONDA_PREFIX\python.exe"
 } elseif (Test-Path ".venv\Scripts\python.exe") {
     $py = ".venv\Scripts\python.exe"
 } elseif (Test-Path "venv\Scripts\python.exe") {
@@ -37,5 +44,5 @@ if ($LASTEXITCODE -le 7) {
     Write-Host "  Output: dist\Hololive-Dreams-Auto\Hololive-Dreams-Auto.exe" -ForegroundColor Green
     Write-Host "===================================================" -ForegroundColor Green
 } else {
-    Write-Warning "Robocopy sync exited with code $LASTEXITCODE."
+    Write-Warning "Robocopy sync exited with code $LASTEXITCODE. If Hololive-Dreams-Auto.exe is currently running, please close it and re-run."
 }

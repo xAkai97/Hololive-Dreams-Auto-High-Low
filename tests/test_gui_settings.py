@@ -318,6 +318,31 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         self.assertEqual(cleared_content, "")
         self.assertEqual(self.app.log_text.cget("state"), "disabled")
 
+    def test_field_box_opacity_and_log_toggle(self):
+        # 1. Opacity adjustment
+        self.app.set_field_box_opacity(85)
+        self.assertEqual(self.app.field_box_opacity, 85)
+        self.assertEqual(int(float(self.app.scale_setting_opacity.get())), 85)
+
+        self.app.set_field_box_opacity(0)
+        self.assertEqual(self.app.field_box_opacity, 0)
+
+        # Clamping
+        self.app.set_field_box_opacity(150)
+        self.assertEqual(self.app.field_box_opacity, 100)
+        self.app.set_field_box_opacity(-20)
+        self.assertEqual(self.app.field_box_opacity, 0)
+
+        # Reset to 80
+        self.app.set_field_box_opacity(80)
+
+        # 2. Log Console Toggle
+        initial_log_state = self.app.show_log
+        self.app.toggle_log_console()
+        self.assertEqual(self.app.show_log, not initial_log_state)
+        self.app.toggle_log_console()
+        self.assertEqual(self.app.show_log, initial_log_state)
+
     def test_rotate_previous_log(self):
         from main_ui import rotate_previous_log
         with tempfile.TemporaryDirectory() as tmpdir:
