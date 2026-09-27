@@ -20,7 +20,7 @@ class RecognizedCard:
 
 
 class CardRecognizer:
-    """Hololive Dreams 2560x1440 card recognizer.
+    """Hololive Dreams 1920x1080 normalized frame card recognizer.
 
     The recognizer first verifies that five *face-up white cards* are visible.
     This prevents the betting screen, card backs, menus, and animations from
@@ -29,15 +29,17 @@ class CardRecognizer:
 
     def __init__(self, template_dir: str | Path):
         template_dir = Path(template_dir)
-        self.rank_templates: dict[str, list[np.ndarray]] = {}
+        self.rank_templates: dict[str, list[list[np.ndarray]]] = {}
         for path in sorted((template_dir / "ranks").glob("*.png")):
             label = path.stem.split("_")[0]
-            self.rank_templates.setdefault(label, []).append(self._load_mask(path))
-        self.suit_templates: dict[str, list[np.ndarray]] = {}
+            mask = self._load_mask(path)
+            self.rank_templates.setdefault(label, []).append(self._precompute_shifts(mask))
+        self.suit_templates: dict[str, list[list[np.ndarray]]] = {}
         for path in sorted((template_dir / "suits").glob("*.png")):
             label = path.stem[0]
-            self.suit_templates.setdefault(label, []).append(self._load_mask(path))
-        self.joker_corner = self._load_mask(template_dir / "joker_corner.png")
+            mask = self._load_mask(path)
+            self.suit_templates.setdefault(label, []).append(self._precompute_shifts(mask))
+        self.joker_corner = self._precompute_shifts(self._load_mask(template_dir / "joker_corner.png"))
         self.joker_card = self._read_image(template_dir / "joker_card.png", cv2.IMREAD_GRAYSCALE)
         if not self.rank_templates or len(self.suit_templates) != 4 or self.joker_card is None:
             raise RuntimeError("Template files are incomplete.")
@@ -119,17 +121,36 @@ class CardRecognizer:
         return out
 
     @staticmethod
-    def _shape_score(a: np.ndarray, b: np.ndarray) -> float:
-        best = 0.0
-        aa = a > 0
+    def _precompute_shifts(template: np.ndarray) -> list[tuple[np.ndarray, int]]:
+        h, w = template.shape[:2]
+        shifts = []
         for dy in range(-3, 4):
             for dx in range(-3, 4):
                 transform = np.float32([[1, 0, dx], [0, 1, dy]])
-                shifted = cv2.warpAffine(b, transform, (b.shape[1], b.shape[0]), borderValue=0) > 0
-                union = np.logical_or(aa, shifted).sum()
-                if union:
-                    score = float(np.logical_and(aa, shifted).sum()) / float(union)
-                    best = max(best, score)
+                shifted = cv2.warpAffine(template, transform, (w, h), borderValue=0) > 0
+                shifts.append((shifted, int(shifted.sum())))
+        return shifts
+
+    @staticmethod
+    def _shape_score(a: np.ndarray, b: np.ndarray | list) -> float:
+        best = 0.0
+        aa = a > 0
+        a_sum = int(aa.sum())
+        if a_sum == 0:
+            return 0.0
+        shifts = b if isinstance(b, list) else CardRecognizer._precompute_shifts(b)
+        for item in shifts:
+            if isinstance(item, tuple):
+                shifted, b_sum = item
+            else:
+                shifted = item
+                b_sum = int(shifted.sum())
+            inter = int(np.logical_and(aa, shifted).sum())
+            if inter > 0:
+                union = a_sum + b_sum - inter
+                score = inter / union
+                if score > best:
+                    best = score
         return best
 
     @staticmethod

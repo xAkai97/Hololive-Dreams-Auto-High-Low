@@ -37,7 +37,9 @@ def read_challenge_number(img, zone, ocr):
     prepared = challenge_number_image(img, zone)
     if prepared is None:
         return 0
-    _, encoded = cv2.imencode('.png', prepared)
+    ok, encoded = cv2.imencode('.png', prepared)
+    if not ok or encoded is None:
+        return 0
     text = ocr.classification(encoded.tobytes()).strip().upper()
     text = text.translate(str.maketrans({'O':'0', 'Q':'0', 'I':'1', 'L':'1', 'S':'5', 'B':'8'}))
     return int(text) if text.isdigit() else 0

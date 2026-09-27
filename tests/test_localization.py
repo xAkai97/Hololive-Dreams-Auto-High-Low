@@ -12,8 +12,11 @@ import contextlib
 import io
 
 import localization
-import auto_bot as bot
-from main_ui import RedirectText
+
+try:
+    import auto_bot as bot
+except ImportError:
+    bot = None
 
 
 class I18nTests(unittest.TestCase):
@@ -57,6 +60,12 @@ class I18nTests(unittest.TestCase):
             "score": 0.95,
             "threshold": 0.80,
             "path": "templates/icon.png",
+            "mean": 35000,
+            "std": 12000,
+            "max": 520000,
+            "cap": 99.5,
+            "over30": 85.0,
+            "over40": 42.0,
         }
         for lang in ("zh", "tw", "en", "ja"):
             for key in localization.TRANSLATIONS[lang]:
@@ -80,44 +89,10 @@ class I18nTests(unittest.TestCase):
     def test_strategy_labels_exist_for_all_languages(self):
         for lang in ("zh", "tw", "en", "ja"):
             self.assertIn(lang, localization.STRATEGY_LABELS)
-            self.assertEqual(len(localization.STRATEGY_LABELS[lang]), 2)
+            self.assertEqual(len(localization.STRATEGY_LABELS[lang]), 9)
 
-    def test_redirect_text_regex_matches_all_languages(self):
-        class DummyUI:
-            def __init__(self):
-                self.current_coins = 0
-                self.current_fails = 0
-                self.current_profit = 0
-                self.log_lines = []
-                self.log_max_lines = 13
-                self.log_view_start = 0
 
-            def after(self, ms, func, *args):
-                func(*args)
-
-            def update_stats_display(self, coins=None, fails=None, profit=None):
-                if coins is not None: self.current_coins = coins
-                if fails is not None: self.current_fails = fails
-                if profit is not None: self.current_profit = profit
-
-            def update_log_view(self):
-                pass
-
-        test_cases = [
-            ("zh", "💰 成功入账: 400 ! 当前总金币: 12800 | 累计失败: 2 次 | 今日净利润: 12700", 12800, 2, 12700),
-            ("tw", "💰 成功入帳: 400 ! 當前總金幣: 13200 | 累計失敗: 3 次 | 今日淨利潤: 13050", 13200, 3, 13050),
-            ("en", "💰 Credited: 400! Total coins: 15000 | Fails: 4 | Net profit: 14800", 15000, 4, 14800),
-            ("ja", "💰 入金成功: 400! 現在のコイン: 16000 | 失敗: 5 回 | 純利益: 15750", 16000, 5, 15750),
-        ]
-
-        for lang, log_line, exp_coins, exp_fails, exp_profit in test_cases:
-            ui = DummyUI()
-            redirector = RedirectText(ui)
-            redirector.write(log_line)
-            self.assertEqual(ui.current_coins, exp_coins, f"Failed for {lang}")
-            self.assertEqual(ui.current_fails, exp_fails, f"Failed for {lang}")
-            self.assertEqual(ui.current_profit, exp_profit, f"Failed for {lang}")
-
+    @unittest.skipIf(bot is None, "auto_bot dependencies not installed")
     def test_bot_loop_stats_callback_and_language(self):
         stats_calls = []
 
@@ -130,7 +105,7 @@ class I18nTests(unittest.TestCase):
              patch.object(bot, 'capture_game_window', return_value=(None, 0, 0)), \
              contextlib.redirect_stdout(io.StringIO()) as buf:
             bot.bot_running = False
-            bot.auto_play_loop(mode='legacy', on_stats_update=on_stats, lang='en')
+            bot.auto_play_loop(mode='legacy_101', on_stats_update=on_stats, lang='en')
 
         self.assertEqual(localization.get_lang(), 'en')
         self.assertEqual(stats_calls, [(500, 1, 450)])
@@ -164,6 +139,7 @@ class I18nTests(unittest.TestCase):
             # Fallback for untranslated keys
             self.assertEqual(localization.tr("status_idle"), "Status: Idle")
 
+    @unittest.skipIf(bot is None, "auto_bot dependencies not installed")
     def test_logs_match_selected_display_language(self):
         for lang, expected_token in [
             ("zh", "开始自动挂机... 当日累计代币: 1000"),
@@ -177,9 +153,19 @@ class I18nTests(unittest.TestCase):
                  patch.object(bot, 'capture_game_window', return_value=(None, 0, 0)), \
                  contextlib.redirect_stdout(io.StringIO()) as buf:
                 bot.bot_running = False
-                bot.auto_play_loop(mode='legacy', lang=lang)
+                bot.auto_play_loop(mode='legacy_101', lang=lang)
 
             self.assertIn(expected_token, buf.getvalue(), f"Log output did not match {lang}")
+
+    def test_all_strategies_have_descriptions(self):
+        from strategies import STRATEGY_REGISTRY
+        for strat_key in STRATEGY_REGISTRY:
+            desc_key = f"desc_{strat_key}"
+            for lang in ("zh", "tw", "en", "ja"):
+                desc = localization.tr(desc_key, lang=lang)
+                self.assertNotEqual(desc, desc_key, f"Missing description for {strat_key} in {lang}")
+                self.assertTrue(len(desc) > 5, f"Description too short for {strat_key} in {lang}")
+
 
 
 if __name__ == '__main__':

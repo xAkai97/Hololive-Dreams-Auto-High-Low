@@ -24,8 +24,12 @@ _internal/
 daily_coins.json
 config.json
 debug/
+log.txt
+log_*.txt
+logs/
 todo.md
 completed.md
+review.md
 
 # IDE configurations
 .idea/

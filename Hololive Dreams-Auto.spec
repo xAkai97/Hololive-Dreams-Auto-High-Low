@@ -15,6 +15,22 @@ datas += [
     ('assets', 'assets'),
 ]
 
+hiddenimports += [
+    'strategies',
+    'strategies.base',
+    'strategies.legacy_101',
+    'strategies.three_stages',
+    'strategies.max_profit',
+    'strategies.fastest_clear',
+    'strategies.balanced',
+    'strategies.aggressive_balanced',
+    'strategies.adaptive_rush',
+    'strategies.grinder',
+    'strategies.custom_parametric',
+    'simulation',
+    'window_control',
+]
+
 
 a = Analysis(
     ['main_ui.py'],

@@ -6,12 +6,17 @@ if str(SRC_DIR) not in sys.path:
 
 import os
 import unittest
-import cv2
-import numpy as np
-import ddddocr
-from reward_vision import challenge_number_image, read_challenge_number
+try:
+    import cv2
+    import numpy as np
+    import ddddocr
+    from reward_vision import challenge_number_image, read_challenge_number
+    HAVE_VISION_DEPS = True
+except ImportError:
+    HAVE_VISION_DEPS = False
 
 
+@unittest.skipUnless(HAVE_VISION_DEPS, 'Vision dependencies (cv2, numpy, ddddocr) not installed')
 class RewardVisionTests(unittest.TestCase):
     def test_wallet_object_does_not_expand_number_crop(self):
         image = np.zeros((300, 500, 3), dtype=np.uint8)

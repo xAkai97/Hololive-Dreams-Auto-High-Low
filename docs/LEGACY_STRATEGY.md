@@ -7,7 +7,7 @@ In the strategy dropdown menu, select **"1.0.1 Legacy"** (default option).
 ## Strategy Overview
 
 The **1.0.1 Legacy** strategy is the original, dynamic real-time decision engine. Unlike the fixed win-count progression of the Three-Stage strategy, the Legacy strategy calculates risk and doubling decisions on every turn using:
-- **Card Counting Probabilities**: Real-time remaining card odds computed by [`HighLowCounter`](file:///y:/Code/Hololive-Dreams-Auto-High-Low/src/auto_bot.py#L205).
+- **Card Counting Probabilities**: Real-time remaining card odds computed by [`HighLowCounter`](file:///y:/Code/Hololive-Dreams-Auto-High-Low/src/auto_bot.py#L214). Drawing an equal-rank card in the High-Low game results in a loss; therefore, remaining cards of the same rank are counted in the denominator to evaluate the mathematically exact win probability $P(\text{Win}) = \frac{\text{favorable cards}}{\text{total remaining cards}}$.
 - **OCR Payout Tracking**: Reads the current cashout pool and the double-or-nothing potential payout from the screen.
 - **Two-Phase Bankroll Management**: Distinguishes between building a safe cushion (**Staging Phase**) and going for a massive final payout (**Sprint Phase**).
 
@@ -71,6 +71,10 @@ Once total daily coins reach 19,800 or more, the bot transitions to **Sprint Mod
 | **Staging** (`< 19.8k`) | Win rate &ge; 60% and total safe | **Double** | Mathematically favorable continuation |
 | **Sprint** (`>= 19.8k`) | Current cashout &ge; 10,000 | **Cashout** | Ultimate target reached |
 | **Sprint** (`>= 19.8k`) | Current cashout < 10,000 | **Double** | Push for the maximum single-run payout |
+
+> [!NOTE]
+> **Opportunistic High-Chance Doubling Override:**
+> When an early cashout would otherwise occur, if the revealed card matches an active toggle (e.g. `A & 2`, `3 & K`, `4 & Q`) and the post-win balance remains strictly under the daily limit (`daily_coins + next_reward < target_limit`, max 19,800), the bot overrides the cashout to challenge. Hitting 20,000 is blocked so the Sprint Phase is never forfeited.
 
 ---
 

@@ -16,7 +16,7 @@ LANGUAGE_NAMES: dict[str, str] = {
     "ja": "日本語",
 }
 
-STRATEGY_LABELS: dict[str, tuple[str, str]] = {}
+STRATEGY_LABELS: dict[str, tuple[str, ...]] = {}
 TRANSLATIONS: dict[str, dict[str, str]] = {}
 ERROR_TRANSLATIONS: dict[str, dict[str, str]] = {}
 
@@ -29,6 +29,11 @@ def set_lang(lang: str) -> None:
 
 def get_lang() -> str:
     return _current_lang
+
+
+def get_strategy_labels(lang: str | None = None) -> tuple[str, ...]:
+    active = lang or _current_lang
+    return STRATEGY_LABELS.get(active, STRATEGY_LABELS.get("en", ()))
 
 
 def get_locales_dir() -> Path:
@@ -62,10 +67,10 @@ def load_external_locales(locales_dir: Path | str | None = None) -> list[tuple[s
             LANGUAGE_NAMES[lang_code] = lang_name
 
             strategy_labels = data.get("strategy_labels")
-            if strategy_labels and isinstance(strategy_labels, (list, tuple)) and len(strategy_labels) >= 2:
-                STRATEGY_LABELS[lang_code] = (str(strategy_labels[0]), str(strategy_labels[1]))
+            if strategy_labels and isinstance(strategy_labels, (list, tuple)) and len(strategy_labels) >= 1:
+                STRATEGY_LABELS[lang_code] = tuple(str(x) for x in strategy_labels)
             elif lang_code not in STRATEGY_LABELS:
-                STRATEGY_LABELS[lang_code] = STRATEGY_LABELS.get("en", ("1.0.1 Legacy", "3 Stages: Max → Win Count → Max"))
+                STRATEGY_LABELS[lang_code] = STRATEGY_LABELS.get("en", ())
 
             translations = data.get("translations", data)
             if lang_code not in TRANSLATIONS:

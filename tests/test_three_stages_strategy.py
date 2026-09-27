@@ -7,24 +7,30 @@ if str(SRC_DIR) not in sys.path:
 import contextlib
 import io
 import json
-from pathlib import Path
 import tempfile
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
-import numpy as np
-import auto_bot as bot
+try:
+    import numpy as np
+    import auto_bot as bot
+    HAVE_BOT = True
+except ImportError:
+    np = None
+    bot = None
+    HAVE_BOT = False
+
 from challenge_reward import ChallengeRewardReader, valid_next_reward
-from phased_strategy import PhasedStrategy
+from strategies import ThreeStagesStrategy
 from settlement import SettlementReader
 
 
-class StrategyTests(unittest.TestCase):
+class ThreeStagesStrategyTests(unittest.TestCase):
     def test_second_stage_counts_by_initial_hand(self):
         for base, wins, payout in [(200, 5, 6400), (400, 4, 6400), (700, 3, 5600),
                                    (800, 3, 6400), (1500, 2, 6000), (3000, 1, 6000)]:
-            policy = PhasedStrategy(1)
+            policy = ThreeStagesStrategy(1)
             policy.start_round(base, 12800)
             self.assertEqual(policy.target_wins, wins)
             for _ in range(wins):
@@ -38,7 +44,7 @@ class StrategyTests(unittest.TestCase):
 
     def test_first_and_third_continue_until_game_settlement(self):
         for stage in (0, 2):
-            policy = PhasedStrategy(stage)
+            policy = ThreeStagesStrategy(stage)
             policy.start_round(400, 0)
             for _ in range(8):
                 policy.guess_clicked()
@@ -51,7 +57,7 @@ class StrategyTests(unittest.TestCase):
             self.assertEqual(policy.stage_after_credit(policy.expected_cash), stage + 1)
 
     def test_failure_restarts_count_but_not_stage(self):
-        policy = PhasedStrategy(1)
+        policy = ThreeStagesStrategy(1)
         policy.start_round(200, 12800)
         policy.guess_clicked()
         policy.confirm_success()
@@ -62,11 +68,11 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(policy.target_wins, 3)
 
     def test_second_stage_preserves_third_round(self):
-        policy = PhasedStrategy(1)
+        policy = ThreeStagesStrategy(1)
         policy.start_round(200, 14000)
         self.assertEqual(policy.target_wins, 4)
         with self.assertRaises(RuntimeError):
-            PhasedStrategy(1).start_round(7000, 14000)
+            ThreeStagesStrategy(1).start_round(7000, 14000)
 
     def test_only_valid_stable_amounts_reach_strategy(self):
         for value in (0, 20, 80, 200, 8000, -400):
@@ -97,6 +103,7 @@ class StrategyTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             reader.observe(400, 8, expected=12800)
 
+    @unittest.skipUnless(HAVE_BOT, "auto_bot dependencies not installed")
     def test_ledger_stage_is_atomic_persistent_and_date_scoped(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'daily_coins.json'
@@ -104,7 +111,7 @@ class StrategyTests(unittest.TestCase):
                 bot.save_daily_data(12800, 3, 1)
                 self.assertEqual(bot.load_daily_data(), (12800, 3))
                 self.assertEqual(bot.load_daily_stage(), 1)
-                bot.save_daily_data(12800, 4)  # Failure or legacy write.
+                bot.save_daily_data(12800, 4)
                 self.assertEqual(bot.load_daily_stage(), 1)
                 self.assertFalse(path.with_suffix('.tmp').exists())
                 data = json.loads(path.read_text())
@@ -112,7 +119,9 @@ class StrategyTests(unittest.TestCase):
                 path.write_text(json.dumps(data))
                 self.assertEqual(bot.load_daily_stage(), 0)
 
-    def run_frames(self, frames, mode='phased', stage=0):
+    def run_frames(self, frames, mode='three_stages', stage=0):
+        if not HAVE_BOT:
+            self.skipTest("auto_bot dependencies not installed")
         frames = iter(frames)
         current = ['UNKNOWN', 0]
         clock = [0.0]
@@ -138,7 +147,7 @@ class StrategyTests(unittest.TestCase):
 
         def read_initial(*args):
             if current[0] == 'SUCCESS':
-                raise AssertionError('Ongoing reward OCR must not drive the phased strategy')
+                raise AssertionError('Ongoing reward OCR must not drive the three stages strategy')
             return current[1]
 
         def click(img, tpl, *args, **kwargs):
@@ -151,9 +160,7 @@ class StrategyTests(unittest.TestCase):
              patch.object(bot, 'find_all_card_rects', return_value=[(50, 400, 200, 300)]), \
              patch.object(bot, 'is_success_prompt', side_effect=lambda _: current[0] == 'SUCCESS'), \
              patch.object(bot, 'read_challenge_payout', side_effect=read_initial), \
-             patch.object(bot, 'read_screen_number', side_effect=read_initial), \
              patch.object(bot, 'read_settlement_payout', side_effect=lambda *a: current[1]), \
-             patch.object(bot, 'read_result_number', side_effect=lambda *a: current[1]), \
              patch.object(bot, 'find_and_click_icon', side_effect=click), \
              patch.object(bot, 'load_daily_data', return_value=(0, 0)), \
              patch.object(bot, 'load_daily_stage', return_value=stage), \
@@ -186,13 +193,23 @@ class StrategyTests(unittest.TestCase):
                          ['SUCCESS', 'SUCCESS'])
 
     def test_invalid_reward_cannot_trigger_click_in_either_mode(self):
-        for mode in ('legacy', 'phased'):
+        for mode in ('legacy_101', 'three_stages'):
             writes, clicks = self.run_frames([('ASK_CHALLENGE', 80)] * 3, mode)
             self.assertEqual((writes, clicks), ([], []))
 
     def test_completed_stage_does_not_start_a_fourth_round(self):
         self.assertEqual(self.run_frames([('START_BET', 0)], stage=3), ([], []))
 
+    @unittest.skipUnless(HAVE_BOT, "auto_bot dependencies not installed")
+    def test_load_daily_data_robust_against_tampering(self):
+        today = bot.time.strftime('%Y-%m-%d')
+        # Strings, negative numbers, and corrupt values should be coerced or safely defaulted
+        with patch.object(bot, 'load_config', return_value={'date': today, 'coins': '500', 'fails': '2'}):
+            self.assertEqual(bot.load_daily_data(), (500, 2))
+        with patch.object(bot, 'load_config', return_value={'date': today, 'coins': 'corrupted', 'fails': None}):
+            self.assertEqual(bot.load_daily_data(), (0, 0))
+
 
 if __name__ == '__main__':
     unittest.main()
+

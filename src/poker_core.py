@@ -20,7 +20,9 @@ CATEGORY_NAMES = (
     "Five of a Kind",
     "Royal Flush",
 )
-PRIZES = np.array([0, 200, 200, 400, 700, 800, 1500, 3000, 7000, 10000], dtype=np.int64)
+RAW_PRIZES = (0, 200, 200, 400, 700, 800, 1500, 3000, 7000, 10000)
+VALID_PRIZES: tuple[int, ...] = (200, 400, 700, 800, 1500, 3000, 7000, 10000)
+PRIZES = np.array(RAW_PRIZES, dtype=np.int64)
 RANK_LABELS = ("2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A")
 SUIT_SYMBOLS = ("♠", "♥", "♦", "♣")
 SUIT_NAMES = ("Spades", "Hearts", "Diamonds", "Clubs")
@@ -63,7 +65,7 @@ def card_text_console(cid: int) -> str:
     return f"{('S', 'H', 'D', 'C')[cid % 4]}{RANK_LABELS[cid // 4]}"
 
 
-@njit(cache=False)
+@njit(cache=True)
 def _evaluate_category5(c0: int, c1: int, c2: int, c3: int, c4: int) -> int:
     cards = (c0, c1, c2, c3, c4)
     rank_counts = np.zeros(15, dtype=np.int8)
@@ -164,14 +166,14 @@ def _evaluate_category5(c0: int, c1: int, c2: int, c3: int, c4: int) -> int:
     return 0
 
 
-@njit(cache=False)
+@njit(cache=True)
 def _record(cards: np.ndarray, counts: np.ndarray) -> tuple[int, int]:
     category = _evaluate_category5(cards[0], cards[1], cards[2], cards[3], cards[4])
     counts[category] += 1
     return int(PRIZES[category]), 1 if category > 0 else 0
 
 
-@njit(cache=False)
+@njit(cache=True)
 def _evaluate_mask(initial: np.ndarray, mask: int, standard_mode: bool):
     held = np.empty(5, dtype=np.int16)
     held_count = 0
@@ -269,7 +271,7 @@ def _evaluate_mask(initial: np.ndarray, mask: int, standard_mode: bool):
     return total, payout_sum, wins, counts
 
 
-@njit(cache=False)
+@njit(cache=True)
 def _all_strategies(initial: np.ndarray, standard_mode: bool):
     totals = np.zeros(32, dtype=np.int64)
     payouts = np.zeros(32, dtype=np.int64)

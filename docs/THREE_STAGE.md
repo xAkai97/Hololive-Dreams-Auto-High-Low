@@ -1,6 +1,6 @@
 # Three-Stage Doubling Strategy Guide
 
-In the strategy dropdown menu, select **"3 stages: Max → Win count → Max"** (Legacy remains the default option).
+In the strategy dropdown menu, select **"3 stages: Max → Win count → Max"** (implemented in [`ThreeStagesStrategy`](file:///y:/Code/Hololive-Dreams-Auto-High-Low/src/strategies/three_stages.py#L8); Legacy remains the default option).
 
 ---
 
@@ -32,8 +32,8 @@ In the strategy dropdown menu, select **"3 stages: Max → Win count → Max"** 
 
 ## Ledger & Persistence
 
-- Settlement totals are validated against the initial payout multiplied by confirmed doubling steps, guarding against OCR digit-truncation issues.
-- Daily coins and stage progress are persisted in `daily_coins.json`. Progress is preserved across restarts on the same day and automatically resets when the date changes.
+- Settlement totals are validated against the initial payout multiplied by confirmed doubling steps via [`SettlementManager`](file:///y:/Code/Hololive-Dreams-Auto-High-Low/src/settlement.py#L33), guarding against OCR digit-truncation issues.
+- Daily coins and stage progress are persisted in `config.json`. Progress is preserved across restarts on the same day and automatically resets when the date changes.
 - Mid-round bot restarts stop and request a fresh round to prevent inaccurate win-count guesses.
 - Automation safely stops once Stage 3 completes.
 

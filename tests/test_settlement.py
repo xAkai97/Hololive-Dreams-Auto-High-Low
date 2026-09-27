@@ -4,48 +4,38 @@ SRC_DIR = Path(__file__).resolve().parents[1] / 'src'
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-import ast
 import contextlib
 import io
-from pathlib import Path
-import types
 import unittest
 
-from settlement import SettlementReader
-from challenge_reward import ChallengeRewardReader
-from localization import tr
+from settlement import SettlementReader, SettlementManager
 
 
 class SettlementTests(unittest.TestCase):
     def replay(self, frames):
-        # Execute the real accounting branches without importing Windows/OCR
-        # dependencies or allowing mouse input and ledger file writes.
-        auto_bot_path = Path(__file__).resolve().parents[1] / 'src' / 'auto_bot.py'
-        if not auto_bot_path.exists():
-            auto_bot_path = Path(__file__).resolve().parents[1] / 'auto_bot.py'
-        tree = ast.parse(auto_bot_path.read_text(encoding='utf-8'))
-        loop = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'auto_play_loop')
-        reset = next(n for n in ast.walk(loop) if isinstance(n, ast.If)
-                     and ast.unparse(n.test) == "current_state in ('START_BET', 'HOLD_CARDS')")
-        result = next(n for n in ast.walk(loop) if isinstance(n, ast.If)
-                      and ast.unparse(n.test) == "current_state == 'RESULT'")
-        runner = ast.parse('for current_state, now, amount in frames:\n    pass')
-        runner.body[0].body = [reset, ast.If(test=result.test, body=result.body, orelse=[])]
         writes, clicks = [], []
-        env = dict(frames=frames, daily_coins=360, daily_fails=0,
-                   has_tallied=False, settlement_reader=SettlementReader(),
-                   reward_reader=ChallengeRewardReader(), phased=None, expected_cashout=None,
-                   img=None, RESULT_REWARD_ZONE=None, TPL_CHECK=None, TPL_CONFIRM_DOUBLE=None,
-                   win_left=0, win_top=0,
-                   tr=tr, on_stats_update=None,
-                   save_daily_data=lambda c, f: writes.append(c),
-                   find_and_click_icon=lambda *a, **kw: clicks.append(True))
-        env['read_result_number'] = lambda *a: env['amount']
-        env['read_settlement_payout'] = env['read_result_number']
-        env['time'] = types.SimpleNamespace(monotonic=lambda: env['now'], sleep=lambda _: None)
+        mgr = SettlementManager(
+            settlement_reader=SettlementReader(),
+            save_data_fn=lambda c, f, *a: writes.append(c),
+        )
+        daily_coins = 360
+        daily_fails = 0
+
         with contextlib.redirect_stdout(io.StringIO()):
-            exec(compile(ast.fix_missing_locations(runner), '<accounting>', 'exec'), env)
-        return env['daily_coins'], writes, clicks
+            for current_state, now, amount in frames:
+                if current_state in ('START_BET', 'HOLD_CARDS'):
+                    mgr.reset_round()
+                elif current_state == 'RESULT':
+                    daily_coins, can_proceed = mgr.process_result(
+                        amount=amount,
+                        now=now,
+                        daily_coins=daily_coins,
+                        daily_fails=daily_fails,
+                    )
+                    if can_proceed:
+                        clicks.append(True)
+
+        return daily_coins, writes, clicks
 
     def test_count_up_then_stable_400(self):
         frames = [('RESULT', i * .25, amount) for i, amount in enumerate(
@@ -84,6 +74,45 @@ class SettlementTests(unittest.TestCase):
         for now in (2, 2.25, 2.5):
             self.assertIsNone(reader.observe(400, now))
         self.assertEqual(reader.observe(400, 2.75), 400)
+
+    def test_custom_ticket_cost(self):
+        reported = []
+        mgr = SettlementManager()
+        # 10 fails with ticket_cost=100 -> fee = 1000. Earned = 400. Profit = 400 - 1000 = -600
+        with contextlib.redirect_stdout(io.StringIO()):
+            for i in range(12):
+                mgr.process_result(
+                    amount=400,
+                    now=i * 0.25,
+                    daily_coins=0,
+                    daily_fails=10,
+                    on_stats_update=lambda c, f, p: reported.append((c, f, p)),
+                    ticket_cost=100,
+                )
+        self.assertEqual(reported, [(400, 10, -600)])
+
+    def test_max_payout_auto_settle_after_challenge_credits_without_error(self):
+        from strategies.max_profit import MaxProfitStrategy
+        strat = MaxProfitStrategy()
+        # Strategy decides to challenge 6000 -> 12000
+        decision = strat.decide(current_cashout=6000, next_reward=12000, win_rate=0.75, daily_coins=4200)
+        self.assertEqual(decision, 'challenge')
+        self.assertIsNone(strat.expected_cash)
+
+        # Game hits max payout and lands directly on RESULT with 12000
+        mgr = SettlementManager(save_data_fn=lambda *a: None)
+        coins = 4200
+        with contextlib.redirect_stdout(io.StringIO()):
+            for i in range(12):
+                coins, can_proceed = mgr.process_result(
+                    amount=12000,
+                    now=i * 0.25,
+                    daily_coins=coins,
+                    daily_fails=15,
+                    strategy=strat,
+                )
+        self.assertTrue(can_proceed)
+        self.assertEqual(coins, 16200)
 
 
 if __name__ == '__main__':

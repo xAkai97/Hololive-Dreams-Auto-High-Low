@@ -1,6 +1,9 @@
 """Validate and stabilize challenge OCR before any strategy sees a number."""
 
-PRIZES = (200, 400, 700, 800, 1500, 3000, 7000, 10000)
+try:
+    from poker_core import VALID_PRIZES as PRIZES
+except ImportError:
+    PRIZES = (200, 400, 700, 800, 1500, 3000, 7000, 10000)
 
 
 def valid_next_reward(value):

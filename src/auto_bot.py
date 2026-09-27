@@ -1,25 +1,31 @@
-import pygetwindow as gw
-import mss
 import numpy as np
 import cv2
-import pydirectinput
-import ctypes
-from ctypes import wintypes
 import random
 import time
 import os
 import json
+import re
 import sys
 from pathlib import Path
 import ddddocr
 
 from recognizer import CardRecognizer
 from poker_core import calculate_best, JOKER_ID
-from settlement import SettlementReader
+from settlement import SettlementReader, SettlementManager
 from reward_vision import read_challenge_number
 from challenge_reward import ChallengeRewardReader
-from phased_strategy import PhasedStrategy
-from localization import tr, set_lang
+from strategies import BaseStrategy, get_strategy
+import localization
+from localization import tr, set_lang, get_lang
+from window_control import (
+    GAME_TITLE,
+    REFERENCE_WIDTH,
+    REFERENCE_HEIGHT,
+    find_game_window,
+    capture_game_window,
+    safe_click,
+    init_dpi_awareness,
+)
 
 try:
     # Windows source-mode runs otherwise inherit a legacy console encoding and
@@ -34,8 +40,7 @@ ocr = ddddocr.DdddOcr(show_ad=False)
 
 bot_running = False
 # ================= Global Configuration & Constants =================
-GAME_TITLE = "hololive-Dreams"
-TARGET_LIMIT = 19800
+TARGET_LIMIT = 20000
 
 # All bundled assets are resolved relative to the executable/source directory.
 # The old code depended on the process working directory, so launching from a
@@ -46,60 +51,12 @@ TEMPLATE_DIR = RESOURCE_DIR / "templates"
 BACKGROUNDS_DIR = APP_DIR / "backgrounds"
 ASSETS_DIR = RESOURCE_DIR / "assets"
 DEBUG_DIR = APP_DIR / "debug"
+LOGS_DIR = APP_DIR / "logs"
 DATA_FILE = APP_DIR / "config.json"
-LEGACY_DATA_FILE = APP_DIR / "daily_coins.json"
-
-# Icon templates and hard-coded recognition zones were captured at 1920x1080.
-# Every game frame is normalized to this size before matching/recognition, and
-# clicks are transformed back to the actual client size.
-REFERENCE_WIDTH = 1920
-REFERENCE_HEIGHT = 1080
 
 
 def resource_path(*parts):
     return str(RESOURCE_DIR.joinpath(*parts))
-
-
-try:
-    # Must happen before Tk creates a window. It keeps Win32 coordinates,
-    # PrintWindow output and SendInput coordinates in the same DPI space.
-    ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
-except Exception:
-    pass
-
-
-_user32 = ctypes.windll.user32
-_gdi32 = ctypes.windll.gdi32
-_capture_context = None
-
-_user32.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
-_user32.GetClientRect.restype = wintypes.BOOL
-_user32.ClientToScreen.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.POINT)]
-_user32.ClientToScreen.restype = wintypes.BOOL
-_user32.GetDC.argtypes = [wintypes.HWND]
-_user32.GetDC.restype = wintypes.HDC
-_user32.ReleaseDC.argtypes = [wintypes.HWND, wintypes.HDC]
-_user32.ReleaseDC.restype = ctypes.c_int
-_user32.PrintWindow.argtypes = [wintypes.HWND, wintypes.HDC, wintypes.UINT]
-_user32.PrintWindow.restype = wintypes.BOOL
-_user32.IsWindow.argtypes = [wintypes.HWND]
-_user32.IsWindow.restype = wintypes.BOOL
-_user32.ShowWindowAsync.argtypes = [wintypes.HWND, ctypes.c_int]
-_user32.SetForegroundWindow.argtypes = [wintypes.HWND]
-_user32.BringWindowToTop.argtypes = [wintypes.HWND]
-_user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
-                                 ctypes.c_int, ctypes.c_int, wintypes.UINT]
-
-_gdi32.CreateCompatibleDC.argtypes = [wintypes.HDC]
-_gdi32.CreateCompatibleDC.restype = wintypes.HDC
-_gdi32.CreateCompatibleBitmap.argtypes = [wintypes.HDC, ctypes.c_int, ctypes.c_int]
-_gdi32.CreateCompatibleBitmap.restype = wintypes.HBITMAP
-_gdi32.SelectObject.argtypes = [wintypes.HDC, wintypes.HGDIOBJ]
-_gdi32.SelectObject.restype = wintypes.HGDIOBJ
-_gdi32.GetBitmapBits.argtypes = [wintypes.HBITMAP, wintypes.LONG, wintypes.LPVOID]
-_gdi32.GetBitmapBits.restype = wintypes.LONG
-_gdi32.DeleteObject.argtypes = [wintypes.HGDIOBJ]
-_gdi32.DeleteDC.argtypes = [wintypes.HDC]
 
 # === Dynamic Bounding Box Parameters ===
 CARD_WIDTH = 260
@@ -111,8 +68,6 @@ REWARD_ZONE = (606, 389, 870, 253)
 
 # Blue settlement text OCR detection zone
 RESULT_REWARD_ZONE = (990, 290, 600, 150)
-
-upcoming_card_val = None
 
 
 # === Card Value Mapping ===
@@ -145,9 +100,6 @@ def get_card_point_value(card):
 
     print(f"[Warning] Recognizer output unparseable rank: '{raw}', ID: {card.card_id}")
     return 8
-
-
-get_real_card_value = get_card_point_value
 
 
 ICON_TEMPLATES = {
@@ -199,38 +151,55 @@ ICON_TEMPLATES = {
     ],
 }
 
+_LANG_TEMPLATES: dict[str, list[tuple[str, str]]] = {"en": [], "ja": [], "zh": [], "tw": [], "other": []}
+for _state, _tpl_paths in ICON_TEMPLATES.items():
+    for _tpl_path in _tpl_paths:
+        _p_str = str(_tpl_path)
+        _matched = False
+        for _lk in ("en", "ja", "zh", "tw"):
+            if f"_{_lk}." in _p_str or f"/{_lk}/" in _p_str or f"\\{_lk}\\" in _p_str:
+                _LANG_TEMPLATES[_lk].append((_state, _tpl_path))
+                _matched = True
+                break
+        if not _matched:
+            _LANG_TEMPLATES["other"].append((_state, _tpl_path))
+
 TPL_REPLACE = resource_path("templates", "icons", "tpl_replace.png")
 TPL_HIGH = resource_path("templates", "icons", "tpl_high.png")
 TPL_LOW = resource_path("templates", "icons", "tpl_low.png")
 TPL_CONFIRM_DOUBLE = resource_path("templates", "icons", "tpl_check.png")
 TPL_CASHOUT = resource_path("templates", "icons", "tpl_cross.png")
-TPL_CHECK = TPL_CONFIRM_DOUBLE
-TPL_CROSS = TPL_CASHOUT
 
 
 # ================= 1. Core Algorithm: High-Low Counter =================
 class HighLowCounter:
+    """Tracks remaining deck composition and computes exact winning odds for High/Low."""
+
     def __init__(self):
-        self.deck = {i: 4 for i in range(2, 15)}
+        self.reset()
 
     def reset(self):
         self.deck = {i: 4 for i in range(2, 15)}
+        self._counts = [0, 0, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
+        self.total_cards = 52
 
     def remove_cards(self, cards_list):
         for card_val in cards_list:
-            if self.deck.get(card_val, 0) > 0:
+            if 2 <= card_val <= 14 and self._counts[card_val] > 0:
+                self._counts[card_val] -= 1
                 self.deck[card_val] -= 1
+                self.total_cards -= 1
 
-    def get_best_choice_and_rate(self, current_card):
-        high_count = sum(count for val, count in self.deck.items() if val > current_card)
-        low_count = sum(count for val, count in self.deck.items() if val < current_card)
-
-        total_valid_cards = high_count + low_count
-        if total_valid_cards == 0:
+    def get_best_choice_and_rate(self, current_card: int) -> tuple[str, float]:
+        if self.total_cards <= 0:
             return "high", 0.5
 
-        high_rate = high_count / total_valid_cards
-        low_rate = low_count / total_valid_cards
+        c = self._counts
+        high_count = sum(c[current_card + 1:])
+        low_count = sum(c[2:current_card])
+
+        high_rate = high_count / self.total_cards
+        low_rate = low_count / self.total_cards
 
         if high_rate >= low_rate:
             return "high", high_rate
@@ -239,167 +208,39 @@ class HighLowCounter:
 
 
 # ================= 2. Vision Recognition & Control =================
-def find_game_window():
-    """Return the real game window using an exact title match.
+# Window detection, capture, and safe_click are imported from window_control.
 
-    ``getWindowsWithTitle`` performs a substring search.  A browser tab or
-    Explorer window containing the repository name therefore used to win the
-    race and get captured instead of the game.  Compare every returned window
-    title exactly and prefer the largest exact match.
-    """
-    expected = GAME_TITLE.casefold().strip()
-    matches = [
-        win for win in gw.getAllWindows()
-        if win.title.casefold().strip() == expected and getattr(win, "_hWnd", None)
-    ]
-    if not matches:
+
+_TEMPLATE_CACHE: dict[str, np.ndarray | None] = {}
+
+
+def get_template(path: str | os.PathLike) -> np.ndarray | None:
+    p = os.fspath(path)
+    if p in _TEMPLATE_CACHE:
+        return _TEMPLATE_CACHE[p]
+    if not os.path.exists(p):
+        _TEMPLATE_CACHE[p] = None
         return None
-    return max(matches, key=lambda win: max(0, win.width) * max(0, win.height))
-
-
-def _get_client_geometry(hwnd):
-    rect = wintypes.RECT()
-    origin = wintypes.POINT(0, 0)
-    if not _user32.GetClientRect(hwnd, ctypes.byref(rect)):
-        raise ctypes.WinError()
-    if not _user32.ClientToScreen(hwnd, ctypes.byref(origin)):
-        raise ctypes.WinError()
-    return origin.x, origin.y, rect.right - rect.left, rect.bottom - rect.top
-
-
-def _capture_client_with_printwindow(hwnd, width, height):
-    """Capture a client area even when another window covers the game."""
-    window_dc = _user32.GetDC(hwnd)
-    memory_dc = bitmap = old_bitmap = None
     try:
-        if not window_dc:
-            raise ctypes.WinError()
-        memory_dc = _gdi32.CreateCompatibleDC(window_dc)
-        bitmap = _gdi32.CreateCompatibleBitmap(window_dc, width, height)
-        if not memory_dc or not bitmap:
-            raise ctypes.WinError()
-        old_bitmap = _gdi32.SelectObject(memory_dc, bitmap)
-
-        # PW_CLIENTONLY | PW_RENDERFULLCONTENT. This works for the game's
-        # Chromium/DirectX-backed window and avoids desktop occlusion.
-        if not _user32.PrintWindow(hwnd, memory_dc, 0x00000001 | 0x00000002):
-            raise RuntimeError("PrintWindow failed")
-
-        byte_count = width * height * 4
-        buffer = ctypes.create_string_buffer(byte_count)
-        if _gdi32.GetBitmapBits(bitmap, byte_count, buffer) != byte_count:
-            raise RuntimeError("GetBitmapBits returned an incomplete frame")
-        frame = np.frombuffer(buffer, dtype=np.uint8).reshape(height, width, 4)
-        frame = frame[:, :, :3].copy()  # BGRA -> BGR by dropping alpha.
-        if frame.size == 0 or float(frame.mean()) < 1.0:
-            raise RuntimeError("PrintWindow returned a blank frame")
-        return frame
-    finally:
-        if old_bitmap and memory_dc:
-            _gdi32.SelectObject(memory_dc, old_bitmap)
-        if bitmap:
-            _gdi32.DeleteObject(bitmap)
-        if memory_dc:
-            _gdi32.DeleteDC(memory_dc)
-        if window_dc:
-            _user32.ReleaseDC(hwnd, window_dc)
-
-
-def capture_game_window():
-    global _capture_context
-    win = find_game_window()
-    if win is None:
-        _capture_context = None
-        return None, 0, 0
-
-    if win.isMinimized:
-        win.restore()
-        time.sleep(0.5)
-
-    hwnd = win._hWnd
-    try:
-        left, top, width, height = _get_client_geometry(hwnd)
-        if width < 640 or height < 360:
-            raise RuntimeError(f"Unexpected game client area size: {width}x{height}")
-        img = _capture_client_with_printwindow(hwnd, width, height)
-    except Exception as exc:
-        # Fallback for Windows versions/drivers where PrintWindow is disabled.
-        # Bring the exact game window forward before using a desktop capture.
-        print(tr('warn_background_capture_fail', error=exc))
-        _bring_game_to_front(hwnd)
-        time.sleep(0.2)
-        left, top, width, height = _get_client_geometry(hwnd)
-        monitor = {"top": top, "left": left, "width": width, "height": height}
-        with mss.MSS() as sct:
-            img = cv2.cvtColor(np.array(sct.grab(monitor)), cv2.COLOR_BGRA2BGR)
-
-    _capture_context = {
-        "hwnd": hwnd,
-        "width": width,
-        "height": height,
-    }
-    normalized = cv2.resize(img, (REFERENCE_WIDTH, REFERENCE_HEIGHT), interpolation=cv2.INTER_CUBIC)
-    return normalized, left, top
-
-
-def _bring_game_to_front(hwnd):
-    if not hwnd or not _user32.IsWindow(hwnd):
-        return False
-    _user32.ShowWindowAsync(hwnd, 9)  # SW_RESTORE
-    _user32.BringWindowToTop(hwnd)
-    _user32.SetForegroundWindow(hwnd)
-    # A short topmost -> non-topmost transition also handles windows that were
-    # visually above the foreground window on multi-monitor setups.
-    flags = 0x0001 | 0x0002 | 0x0040  # NOSIZE | NOMOVE | SHOWWINDOW
-    _user32.SetWindowPos(hwnd, wintypes.HWND(-1), 0, 0, 0, 0, flags)
-    _user32.SetWindowPos(hwnd, wintypes.HWND(-2), 0, 0, 0, 0, flags)
-    return True
-
-
-def safe_click(rel_x, rel_y, win_left, win_top):
-    if not _capture_context:
-        print(tr('warn_no_window'))
-        return False
-
-    hwnd = _capture_context["hwnd"]
-    if not _bring_game_to_front(hwnd):
-        print(tr('warn_window_lost'))
-        return False
-
-    # Match coordinates are in the normalized 1920x1080 frame. Transform them
-    # back to the current client size, then query the current screen origin in
-    # case the user moved the game window since the frame was captured.
-    try:
-        client_left, client_top, client_width, client_height = _get_client_geometry(hwnd)
-    except Exception as exc:
-        print(tr('warn_cannot_read_coords', error=exc))
-        return False
-
-    offset_x = random.randint(-4, 4)
-    offset_y = random.randint(-4, 4)
-
-    target_x = client_left + round(rel_x * client_width / REFERENCE_WIDTH) + offset_x
-    target_y = client_top + round(rel_y * client_height / REFERENCE_HEIGHT) + offset_y
-
-    pydirectinput.moveTo(target_x, target_y)
-    time.sleep(random.uniform(0.02, 0.05))
-
-    pydirectinput.mouseDown()
-    time.sleep(random.uniform(0.05, 0.08))
-    pydirectinput.mouseUp()
-
-    time.sleep(random.uniform(0.05, 0.1))
-    return True
+        data = np.frombuffer(Path(p).read_bytes(), dtype=np.uint8)
+        img = cv2.imdecode(data, cv2.IMREAD_GRAYSCALE)
+    except Exception:
+        img = None
+    _TEMPLATE_CACHE[p] = img
+    return img
 
 
 def find_and_click_icon(screen_bgr, tpl_path, win_left, win_top, threshold=0.80):
     tpl_path = os.fspath(tpl_path)
-    if not os.path.exists(tpl_path):
-        print(tr('icon_not_found', path=tpl_path))
+    tpl_img = get_template(tpl_path)
+    if tpl_img is None:
+        if not os.path.exists(tpl_path):
+            print(tr('icon_not_found', path=tpl_path))
         return False
 
     screen_gray = cv2.cvtColor(screen_bgr, cv2.COLOR_BGR2GRAY)
-    tpl_img = cv2.imread(tpl_path, cv2.IMREAD_GRAYSCALE)
+    if tpl_img.shape[0] > screen_gray.shape[0] or tpl_img.shape[1] > screen_gray.shape[1]:
+        return False
     res = cv2.matchTemplate(screen_gray, tpl_img, cv2.TM_CCOEFF_NORMED)
     _, max_val, _, max_loc = cv2.minMaxLoc(res)
 
@@ -417,7 +258,7 @@ def is_success_prompt(screen_bgr):
     for path in ICON_TEMPLATES['ASK_CHALLENGE']:
         if 'success_' not in os.path.basename(path):
             continue
-        template = cv2.imdecode(np.frombuffer(Path(path).read_bytes(), dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+        template = get_template(path)
         if template is not None and template.shape[0] <= gray.shape[0] and template.shape[1] <= gray.shape[1]:
             score = cv2.minMaxLoc(cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED))[1]
             if score >= .85:
@@ -425,19 +266,34 @@ def is_success_prompt(screen_bgr):
     return False
 
 
-def detect_game_state(screen_bgr):
+def detect_game_state(screen_bgr, lang: str | None = None) -> str:
     screen_gray = cv2.cvtColor(screen_bgr, cv2.COLOR_BGR2GRAY)
     THRESHOLD = 0.85
+    active_lang = lang or localization.get_lang()
 
-    for state, tpl_paths in ICON_TEMPLATES.items():
-        for tpl_path in tpl_paths:
-            if not os.path.exists(tpl_path):
+    # Fast path: try templates matching active language first
+    for state, tpl_path in _LANG_TEMPLATES.get(active_lang, []):
+        tpl_img = get_template(tpl_path)
+        if tpl_img is None or tpl_img.shape[0] > screen_gray.shape[0] or tpl_img.shape[1] > screen_gray.shape[1]:
+            continue
+        res = cv2.matchTemplate(screen_gray, tpl_img, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, _ = cv2.minMaxLoc(res)
+        if max_val >= THRESHOLD:
+            return state
+
+    # Fallback path: search remaining languages if not matched
+    for lk, tpl_list in _LANG_TEMPLATES.items():
+        if lk == active_lang:
+            continue
+        for state, tpl_path in tpl_list:
+            tpl_img = get_template(tpl_path)
+            if tpl_img is None or tpl_img.shape[0] > screen_gray.shape[0] or tpl_img.shape[1] > screen_gray.shape[1]:
                 continue
-            tpl_img = cv2.imread(tpl_path, cv2.IMREAD_GRAYSCALE)
             res = cv2.matchTemplate(screen_gray, tpl_img, cv2.TM_CCOEFF_NORMED)
             _, max_val, _, _ = cv2.minMaxLoc(res)
             if max_val >= THRESHOLD:
                 return state
+
     return "UNKNOWN"
 
 
@@ -466,12 +322,17 @@ def read_challenge_payout(img, search_zone):
     return read_challenge_number(img, search_zone, ocr)
 
 
-read_screen_number = read_challenge_payout
-
-
 # ---------------------------------------------------------
 # OCR Engine 2: pure white background light blue text (RESULT settlement screen Coins)
 # ---------------------------------------------------------
+_SETTLEMENT_TRANS = str.maketrans({
+    'O': '0', 'o': '0', 'Q': '0', 'q': '0', 'D': '0',
+    'I': '1', 'i': '1', 'L': '1', 'l': '1',
+    'Z': '2', 'z': '2', 'S': '5', 's': '5',
+    'B': '8', 'b': '8'
+})
+
+
 def read_settlement_payout(img, search_zone):
     sx, sy, sw, sh = search_zone
     if sw == 0 or sh == 0:
@@ -481,36 +342,43 @@ def read_settlement_payout(img, search_zone):
     roi = cv2.resize(roi, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
-    _, img_bytes = cv2.imencode('.png', gray)
+    ok, img_bytes = cv2.imencode('.png', gray)
+    if not ok or img_bytes is None:
+        return 0
     text = ocr.classification(img_bytes.tobytes())
 
+    text = re.sub(r'(?i)coins?|earned', '', text)
+    text = text.translate(_SETTLEMENT_TRANS)
+    digits = ''.join(filter(str.isdigit, text))
+
     try:
-        return int(''.join(filter(str.isdigit, text)))
+        return int(digits) if digits else 0
     except ValueError:
         return 0
 
 
-read_result_number = read_settlement_payout
-
-
 # ================= 3. Data & Main Loop =================
 def load_config() -> dict:
-    for target in (DATA_FILE, LEGACY_DATA_FILE):
-        if target.exists():
-            try:
-                with target.open('r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    if isinstance(data, dict):
-                        return data
-            except Exception:
-                pass
+    if DATA_FILE.exists():
+        try:
+            with DATA_FILE.open('r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            pass
     return {}
 
 
 def load_daily_data():
     data = load_config()
     if data.get("date") == time.strftime("%Y-%m-%d"):
-        return data.get("coins", 0), data.get("fails", 0)
+        try:
+            coins = max(0, int(data.get("coins", 0)))
+            fails = max(0, int(data.get("fails", 0)))
+            return coins, fails
+        except (ValueError, TypeError):
+            return 0, 0
     return 0, 0
 
 
@@ -518,10 +386,14 @@ def load_daily_stage():
     data = load_config()
     if not data:
         return 0
-    stage = data.get('phased_stage', 0) if data.get('date') == time.strftime('%Y-%m-%d') else 0
-    if type(stage) is not int or not 0 <= stage <= 3:
-        raise ValueError('Invalid strategy stage in config.json; please check file.')
-    return stage
+    raw_stage = data.get('phased_stage', 0) if data.get('date') == time.strftime('%Y-%m-%d') else 0
+    try:
+        stage = int(raw_stage)
+        if 0 <= stage <= 3:
+            return stage
+    except (ValueError, TypeError):
+        pass
+    return 0
 
 
 def save_daily_data(coins, fails, stage=None, **settings):
@@ -543,38 +415,57 @@ def save_daily_data(coins, fails, stage=None, **settings):
     os.replace(temporary, DATA_FILE)
 
 
-def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
-    global upcoming_card_val
+def auto_play_loop(mode='legacy_101', on_stats_update=None, lang=None):
+    upcoming_card_val = None
     if lang is not None:
         set_lang(lang)
-    if mode not in ('legacy', 'phased'):
-        raise ValueError('Unknown strategy mode')
-    phased = PhasedStrategy(load_daily_stage()) if mode == 'phased' else None
-    if phased is not None and phased.complete:
+    config = load_config()
+    target_limit = int(config.get("target_limit", TARGET_LIMIT))
+    ticket_cost = int(config.get("ticket_cost", 50))
+
+    strat_kwargs = {}
+    if mode == "custom_parametric":
+        if "param_min_win_rate" in config:
+            strat_kwargs["min_win_rate"] = float(config["param_min_win_rate"]) / 100.0
+        if "param_cashout_target" in config:
+            strat_kwargs["cashout_target"] = int(config["param_cashout_target"])
+        if "param_sprint_threshold" in config:
+            strat_kwargs["sprint_threshold"] = int(config["param_sprint_threshold"])
+        if "param_sprint_cashout" in config:
+            strat_kwargs["sprint_cashout"] = int(config["param_sprint_cashout"])
+        if "param_max_doubles" in config:
+            strat_kwargs["max_doubles"] = int(config["param_max_doubles"])
+        if "param_drop_seven_eight" in config:
+            strat_kwargs["drop_on_seven_eight"] = bool(config["param_drop_seven_eight"])
+        if "param_fail_safety_limit" in config:
+            strat_kwargs["fail_safety_limit"] = int(config["param_fail_safety_limit"])
+
+    strategy = get_strategy(mode, stage=load_daily_stage(), **strat_kwargs)
+    if strategy.complete:
         print(tr('phased_completed'))
         return
     counter = HighLowCounter()
     card_rec = CardRecognizer(TEMPLATE_DIR)
     daily_coins, daily_fails = load_daily_data()
-    net_profit = daily_coins - (daily_fails * 50)
+    net_profit = daily_coins - (daily_fails * ticket_cost)
     print(tr('start_bot', coins=daily_coins, fails=daily_fails, profit=net_profit))
     if on_stats_update:
         on_stats_update(daily_coins, daily_fails, net_profit)
 
-    has_tallied = False
-    settlement_reader = SettlementReader()
     reward_reader = ChallengeRewardReader()
-    expected_cashout = None
+    settlement_mgr = SettlementManager(SettlementReader(), save_data_fn=save_daily_data)
+    # Ensure settlement manager is fresh on each bot start to avoid stale has_tallied preventing credit on resume
+    settlement_mgr.reset_round(strategy)
     has_recorded_fail = False  # Prevent duplicate fee deduction during FAIL animation
+    has_confirmed_success = False  # Prevent duplicate success count during multi-frame ASK_CHALLENGE prompt
 
     def request_cashout(frame, left, top, cash):
-        nonlocal expected_cashout
         if find_and_click_icon(frame, TPL_CASHOUT, left, top):
-            expected_cashout = cash
+            settlement_mgr.expected_cashout = cash
             return True
         return False
 
-    while daily_coins < 20000 and bot_running :
+    while daily_coins < target_limit and bot_running:
         img, win_left, win_top = capture_game_window()
         if img is None:
             print(tr('window_not_found'))
@@ -585,34 +476,23 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
 
         # Only a new round resets accounting; UNKNOWN may be a result flicker.
         if current_state in ("START_BET", "HOLD_CARDS"):
-            has_tallied = False
-            settlement_reader.reset()
+            settlement_mgr.reset_round(strategy)
             reward_reader.reset_round()
-            expected_cashout = None
-            if phased is not None:
-                phased.reset_round()
+            has_confirmed_success = False
         elif current_state in ('HIGH_LOW', 'FAIL', 'RESULT'):
             reward_reader.reset_prompt()
+            has_confirmed_success = False
         if current_state != "FAIL":
             has_recorded_fail = False
 
-        # === Real-time GUI frame rendering ===
-        display_img = img.copy()
-        cv2.putText(display_img, f"State: {current_state}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
-        cv2.putText(display_img, f"Coins: {daily_coins} / {TARGET_LIMIT}", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.2,
-                    (0, 255, 255), 3)
-        if current_state == "UNKNOWN":
-            cv2.putText(display_img, "Waiting for match...", (20, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-        #cv2.imshow("Auto Bot GUI", display_img)
-
-        #if cv2.waitKey(1) & 0xFF == ord('q'):
-            #print("Received exit command, stopping bot.")
-            #break
-        # =========================
 
         if current_state == "UNKNOWN":
             time.sleep(0.5)
             continue
+
+        if current_state == "FULL":
+            print(tr('state_full'))
+            break
 
         if current_state == "START_BET":
             print(tr('state_start_bet'))
@@ -649,46 +529,32 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
             safe_click(w // 2, h // 2, win_left, win_top)
             time.sleep(0.6)
 
-
-
-
-
-
-
-
         elif current_state == "ASK_CHALLENGE":
+            if getattr(strategy, "base_cash", None) is None:
+                if is_success_prompt(img):
+                    raise RuntimeError('Currently mid-doubling, cannot recover win count. Please start from a fresh round.')
+                real_reward = read_challenge_payout(img, REWARD_ZONE)
+                next_reward = reward_reader.observe(real_reward, time.monotonic())
+                if next_reward is None:
+                    time.sleep(0.25)
+                    continue
+                current_cashout = next_reward // 2
+                strategy.start_round(current_cashout, daily_coins)
+            else:
+                if is_success_prompt(img) and not has_confirmed_success:
+                    strategy.confirm_success()
+                    has_confirmed_success = True
 
-            if phased is not None:
-                if phased.base_cash is None:
-                    if is_success_prompt(img):
-                        raise RuntimeError('Currently mid-doubling, cannot recover win count. Please start from a fresh round.')
+                if getattr(strategy, "requires_ongoing_ocr", True):
                     real_reward = read_challenge_payout(img, REWARD_ZONE)
                     next_reward = reward_reader.observe(real_reward, time.monotonic())
                     if next_reward is None:
-                        time.sleep(.25)
+                        time.sleep(0.25)
                         continue
-                    phased.start_round(next_reward // 2, daily_coins)
-                elif is_success_prompt(img):
-                    phased.confirm_success()
-                action = phased.decide()
-                goal = (tr('phased_target_auto') if phased.target_wins is None
-                        else tr('phased_target_wins', wins=phased.target_wins))
-                action_text = tr('action_cashout') if action == 'cashout' else tr('action_continue')
-                print(tr('phased_round_status', stage=phased.stage + 1, successes=phased.successes, goal=goal, action=action_text))
-                if action == 'cashout':
-                    request_cashout(img, win_left, win_top, phased.expected_cash)
+                    current_cashout = next_reward // 2
                 else:
-                    find_and_click_icon(img, TPL_CONFIRM_DOUBLE, win_left, win_top, threshold=.55)
-                time.sleep(.6)
-                continue
-
-            real_reward = read_challenge_payout(img, REWARD_ZONE)
-            next_reward = reward_reader.observe(real_reward, time.monotonic())
-            if next_reward is None:
-                time.sleep(.25)
-                continue
-            current_cashout = next_reward // 2
-            print(tr('challenge_current', cashout=current_cashout, reward=next_reward))
+                    current_cashout = strategy.expected_cash or 0
+                    next_reward = current_cashout * 2
 
             if upcoming_card_val is not None:
                 _, win_rate = counter.get_best_choice_and_rate(upcoming_card_val)
@@ -697,35 +563,52 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
                 win_rate = 1.0
                 print(tr('risk_blind'))
 
-            # === Risk Control: Staging / Sprint Mode ===
-            if daily_coins >= 19800:
-                if current_cashout >= 10000:
-                    print(tr('target_achieved', cashout=current_cashout))
-                    request_cashout(img, win_left, win_top, current_cashout)
-                else:
-                    print(tr('sprint_continue', cashout=current_cashout, reward=next_reward))
-                    find_and_click_icon(img, TPL_CONFIRM_DOUBLE, win_left, win_top, threshold=0.55)
+            action = strategy.decide(current_cashout, next_reward, win_rate, daily_coins)
+
+            # Opportunistic high-chance card continuation override (when safely under daily target limit)
+            if action == 'cashout' and upcoming_card_val is not None:
+                runtime_config = load_config()
+                opp_mode = runtime_config.get("opportunistic_double_mode", "a_2_only")
+                opp_a2 = runtime_config.get("opp_a2", opp_mode in ("a_2_only", "include_3_k", "include_4_q"))
+                opp_3k = runtime_config.get("opp_3k", opp_mode in ("include_3_k", "include_4_q"))
+                opp_4q = runtime_config.get("opp_4q", opp_mode == "include_4_q")
+
+                should_double = False
+                if upcoming_card_val in (2, 14) and opp_a2:
+                    should_double = True
+                elif upcoming_card_val in (3, 13) and opp_3k:
+                    should_double = True
+                elif upcoming_card_val in (4, 12) and opp_4q:
+                    should_double = True
+
+                if should_double and (daily_coins + next_reward < target_limit):
+                    action = 'challenge'
+                    if hasattr(strategy, 'last_cashout'):
+                        strategy.last_cashout = None
+                    rank_name = {2: "2", 3: "3", 4: "4", 12: "Q", 13: "K", 14: "A"}.get(upcoming_card_val, str(upcoming_card_val))
+                    print(tr('opportunistic_double_msg', rank=rank_name, rate=win_rate, reward=next_reward, limit=target_limit))
+
+            if hasattr(strategy, 'stage') and hasattr(strategy, 'target_wins'):
+                goal = (tr('phased_target_auto') if strategy.target_wins is None
+                        else tr('phased_target_wins', wins=strategy.target_wins))
+                action_text = tr('action_cashout') if action == 'cashout' else tr('action_continue')
+                print(tr('phased_round_status', stage=strategy.stage + 1, successes=getattr(strategy, 'successes', 0), goal=goal, action=action_text))
             else:
-                if daily_coins + current_cashout <= 19800 and daily_coins + next_reward > 19800:
-                    print(tr('cushion_warning', cashout=current_cashout, reward=next_reward, total=daily_coins + next_reward))
-                    request_cashout(img, win_left, win_top, current_cashout)
-                elif daily_coins + current_cashout > 19800:
-                    if current_cashout >= 10000:
-                        print(tr('lucky_cashout', cashout=current_cashout))
-                        request_cashout(img, win_left, win_top, current_cashout)
-                    else:
-                        print(tr('force_double', cashout=current_cashout, total=daily_coins + current_cashout))
-                        find_and_click_icon(img, TPL_CONFIRM_DOUBLE, win_left, win_top, threshold=0.55)
-                elif win_rate < 0.60:
-                    print(tr('low_rate_cashout', rate=win_rate, cashout=current_cashout))
-                    request_cashout(img, win_left, win_top, current_cashout)
-                else:
-                    print(tr('safe_continue'))
-                    find_and_click_icon(img, TPL_CONFIRM_DOUBLE, win_left, win_top, threshold=0.55)
+                print(tr('challenge_current', cashout=current_cashout, reward=next_reward))
+                if hasattr(strategy, 'last_reason') and strategy.last_reason:
+                    meta = getattr(strategy, 'last_meta', {})
+                    reason_text = tr(strategy.last_reason, **meta)
+                    print(reason_text if reason_text != strategy.last_reason else f"[{strategy.name}] {strategy.last_reason}")
+
+            effective_cash = strategy.expected_cash or current_cashout
+            if action == 'cashout':
+                request_cashout(img, win_left, win_top, effective_cash)
+            else:
+                find_and_click_icon(img, TPL_CONFIRM_DOUBLE, win_left, win_top, threshold=0.55)
 
             time.sleep(0.6)
         elif current_state == "HIGH_LOW":
-            if phased is not None and phased.base_cash is None:
+            if getattr(strategy, "base_cash", None) is None and hasattr(strategy, "successes"):
                 raise RuntimeError('Currently mid-doubling, cannot recover win count. Please start from a fresh round.')
             try:
                 # 1. Detect all white face-up cards with new engine
@@ -750,8 +633,8 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
                             guessed = find_and_click_icon(img, TPL_HIGH, win_left, win_top)
                         else:
                             guessed = find_and_click_icon(img, TPL_LOW, win_left, win_top)
-                        if phased is not None and guessed:
-                            phased.guess_clicked()
+                        if strategy is not None and guessed:
+                            strategy.guess_clicked()
 
                         # === 2. Continuous State Tracking & Burst Capture ===
                         print(tr('tracking_start'))
@@ -798,11 +681,14 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
         elif current_state == "FAIL":
             if not has_recorded_fail:
                 daily_fails += 1
-                net_profit = daily_coins - (daily_fails * 50)
+                loss = daily_fails * ticket_cost
+                net_profit = daily_coins - loss
                 save_daily_data(daily_coins, daily_fails)
-                print(tr('fail_summary', fails=daily_fails, loss=daily_fails * 50, profit=net_profit))
+                print(tr('fail_summary', fails=daily_fails, loss=loss, profit=net_profit))
                 if on_stats_update:
                     on_stats_update(daily_coins, daily_fails, net_profit)
+                if strategy is not None:
+                    strategy.begin_settlement(cashout_requested=False)
                 has_recorded_fail = True
 
             time.sleep(0.8)
@@ -810,39 +696,29 @@ def auto_play_loop(mode='legacy', on_stats_update=None, lang=None):
             time.sleep(1)
 
         elif current_state == "RESULT":
-            if not has_tallied:
-                if settlement_reader.started is None:
-                    print(tr('state_settlement_wait'))
-                if phased is not None:
-                    phased.begin_settlement(expected_cashout is not None)
-                    if phased.expected_cash is None:
-                        raise RuntimeError('Missing doubling history for this round; cannot verify settlement. Please verify manually and start a new round.')
-                    expected_cashout = phased.expected_cash
-                amount = read_settlement_payout(img, RESULT_REWARD_ZONE)
-                earned = settlement_reader.observe(amount, time.monotonic(), expected_cashout)
-                if earned is None:
-                    time.sleep(.2)
-                    continue
-                daily_coins += earned
-                net_profit = daily_coins - (daily_fails * 50)
-                print(tr('settle_success', earned=earned, coins=daily_coins, fails=daily_fails, profit=net_profit))
-                if on_stats_update:
-                    on_stats_update(daily_coins, daily_fails, net_profit)
-
-                if phased is not None:
-                    next_stage = phased.stage_after_credit(earned)
-                    save_daily_data(daily_coins, daily_fails, next_stage)
-                    phased.stage = next_stage
-                else:
-                    save_daily_data(daily_coins, daily_fails)
-                has_tallied = True
+            amount = read_settlement_payout(img, RESULT_REWARD_ZONE)
+            daily_coins, can_proceed = settlement_mgr.process_result(
+                amount=amount,
+                now=time.monotonic(),
+                daily_coins=daily_coins,
+                daily_fails=daily_fails,
+                strategy=strategy,
+                on_stats_update=on_stats_update,
+                ticket_cost=ticket_cost,
+            )
+            if not can_proceed:
+                time.sleep(0.2)
+                continue
 
             time.sleep(0.8)
             find_and_click_icon(img, TPL_CONFIRM_DOUBLE, win_left, win_top, threshold=0.55)
             time.sleep(1)
-            if phased is not None and phased.complete:
+            if strategy is not None and strategy.complete:
                 print(tr('phased_all_done'))
                 break
+
+    if daily_coins >= target_limit:
+        print(tr('state_full'))
 
 
 if __name__ == "__main__":
