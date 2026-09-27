@@ -81,12 +81,23 @@ python main_ui.py
 
 ## 🚀 Building Standalone Executable (.exe)
 
+Install dependencies:
 ```powershell
 python -m pip install -r requirements.txt
-python -m PyInstaller -y --workpath "$env:TEMP\pyi_build" "Hololive Dreams-Auto.spec"
 ```
 
-The output will be created in `dist/Hololive-Dreams-Auto/`. Keep the entire folder together (including `_internal/`, `backgrounds/`, `assets/`, and `locales/`); do not move the `.exe` alone.
+Run the automated 1-click build script:
+```powershell
+# In PowerShell:
+./build.ps1
+
+# Or in Command Prompt:
+build.bat
+```
+
+*(Alternatively, you can run manually: `python -m PyInstaller -y --workpath "$env:TEMP\pyi_build" --distpath "$env:TEMP\pyi_dist" "Hololive Dreams-Auto.spec"`).*
+
+The standalone output package will be created in `dist/Hololive-Dreams-Auto/`. Keep the entire folder together (including `_internal/`, `backgrounds/`, `assets/`, and `locales/`); do not move the `.exe` alone.
 
 ---
 
