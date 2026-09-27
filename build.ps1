@@ -1,4 +1,5 @@
 # Automated Build Script for Hololive Dreams-Auto
+# Universal script: works seamlessly on local SSDs, external disks, and network/SMB shares.
 $ErrorActionPreference = "Stop"
 
 Write-Host "===================================================" -ForegroundColor Cyan

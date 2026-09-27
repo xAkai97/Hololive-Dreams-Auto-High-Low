@@ -1,4 +1,5 @@
 @echo off
+:: Universal build script: works on local SSDs, external disks, and network/SMB shares.
 setlocal
 cd /d "%~dp0"
 

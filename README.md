@@ -97,6 +97,9 @@ build.bat
 
 *(Alternatively, you can run manually: `python -m PyInstaller -y --workpath "$env:TEMP\pyi_build" --distpath "$env:TEMP\pyi_dist" "Hololive Dreams-Auto.spec"`).*
 
+> [!TIP]
+> The automated build script works universally across local drives, external disks, and network/SMB shares by compiling temporary artifacts on the local disk to prevent file-locking.
+
 The standalone output package will be created in `dist/Hololive-Dreams-Auto/`. Keep the entire folder together (including `_internal/`, `backgrounds/`, `assets/`, and `locales/`); do not move the `.exe` alone.
 
 ---
