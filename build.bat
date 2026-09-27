@@ -10,8 +10,14 @@ echo ===================================================
 echo [1/3] Checking for running instances...
 taskkill /IM "Hololive-Dreams-Auto.exe" /F >nul 2>&1
 
-echo [2/3] Compiling executable on local temp drive...
-python -m PyInstaller -y --workpath "%TEMP%\pyi_build" --distpath "%TEMP%\pyi_dist" "Hololive Dreams-Auto.spec"
+set "PY_CMD=python"
+if defined VIRTUAL_ENV if exist "%VIRTUAL_ENV%\Scripts\python.exe" set "PY_CMD=%VIRTUAL_ENV%\Scripts\python.exe"
+if "%PY_CMD%"=="python" if exist "D:\PythonEnvs\Hololive-Dreams-Auto-High-Low\Scripts\python.exe" set "PY_CMD=D:\PythonEnvs\Hololive-Dreams-Auto-High-Low\Scripts\python.exe"
+if "%PY_CMD%"=="python" if exist ".venv\Scripts\python.exe" set "PY_CMD=.venv\Scripts\python.exe"
+if "%PY_CMD%"=="python" if exist "venv\Scripts\python.exe" set "PY_CMD=venv\Scripts\python.exe"
+
+echo [2/3] Compiling executable on local temp drive (using %PY_CMD%)...
+"%PY_CMD%" -m PyInstaller -y --workpath "%TEMP%\pyi_build" --distpath "%TEMP%\pyi_dist" "Hololive Dreams-Auto.spec"
 if %ERRORLEVEL% neq 0 (
     echo.
     echo [ERROR] PyInstaller build failed!

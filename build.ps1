@@ -10,9 +10,21 @@ Write-Host "===================================================" -ForegroundColo
 Write-Host "[1/3] Checking for running instances..." -ForegroundColor Yellow
 Stop-Process -Name "Hololive-Dreams-Auto" -Force -ErrorAction SilentlyContinue
 
-# 2. Compile via PyInstaller using local temp drive
-Write-Host "[2/3] Compiling executable on local temp drive..." -ForegroundColor Yellow
-python -m PyInstaller -y --workpath "$env:TEMP\pyi_build" --distpath "$env:TEMP\pyi_dist" "Hololive Dreams-Auto.spec"
+# 2. Detect Python interpreter (prefer project virtualenv)
+$py = "python"
+if ($env:VIRTUAL_ENV -and (Test-Path "$env:VIRTUAL_ENV\Scripts\python.exe")) {
+    $py = "$env:VIRTUAL_ENV\Scripts\python.exe"
+} elseif (Test-Path "D:\PythonEnvs\Hololive-Dreams-Auto-High-Low\Scripts\python.exe") {
+    $py = "D:\PythonEnvs\Hololive-Dreams-Auto-High-Low\Scripts\python.exe"
+} elseif (Test-Path ".venv\Scripts\python.exe") {
+    $py = ".venv\Scripts\python.exe"
+} elseif (Test-Path "venv\Scripts\python.exe") {
+    $py = "venv\Scripts\python.exe"
+}
+
+# 3. Compile via PyInstaller using local temp drive
+Write-Host "[2/3] Compiling executable on local temp drive (using $py)..." -ForegroundColor Yellow
+& $py -m PyInstaller -y --workpath "$env:TEMP\pyi_build" --distpath "$env:TEMP\pyi_dist" "Hololive Dreams-Auto.spec"
 
 # 3. Synchronize to dist/
 Write-Host "[3/3] Synchronizing release files to dist\Hololive-Dreams-Auto\..." -ForegroundColor Yellow
