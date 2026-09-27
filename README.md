@@ -82,11 +82,11 @@ python main_ui.py
 ## 🚀 Building Standalone Executable (.exe)
 
 ```powershell
-python -m pip install -r requirements.txt pyinstaller
-python -m PyInstaller -y "Hololive Dreams-Auto.spec"
+python -m pip install -r requirements.txt
+python -m PyInstaller -y --workpath "$env:TEMP\pyi_build" "Hololive Dreams-Auto.spec"
 ```
 
-The output will be created in `dist/Hololive Dreams-Auto/`. Keep the entire folder together (including `_internal/`, `backgrounds/`, `assets/`, and `locales/`); do not move the `.exe` alone.
+The output will be created in `dist/Hololive-Dreams-Auto/`. Keep the entire folder together (including `_internal/`, `backgrounds/`, `assets/`, and `locales/`); do not move the `.exe` alone.
 
 ---
 

@@ -54,7 +54,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['torch', 'scipy', 'pandas', 'matplotlib'],
+    excludes=['torch', 'scipy', 'pandas', 'matplotlib', 'fastapi', 'uvicorn', 'ddddocr.api'],
     noarchive=False,
     optimize=0,
 )
@@ -65,7 +65,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='Hololive Dreams-Auto',
+    name='Hololive-Dreams-Auto',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -85,5 +85,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='Hololive Dreams-Auto',
+    name='Hololive-Dreams-Auto',
 )
