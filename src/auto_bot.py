@@ -560,7 +560,16 @@ def auto_play_loop(mode='legacy_101', on_stats_update=None, lang=None):
                     time.sleep(0.25)
                     continue
                 current_cashout = next_reward // 2
-                strategy.start_round(current_cashout, daily_coins)
+                try:
+                    strategy.start_round(current_cashout, daily_coins)
+                except RuntimeError as e:
+                    if hasattr(strategy, 'stage') and strategy.stage == 1:
+                        # Auto-advance to stage 2 (Sprint) so bot doesn't crash on high poker hands
+                        strategy.stage = 2
+                        strategy.reset_round()
+                        strategy.start_round(current_cashout, daily_coins)
+                    else:
+                        raise
             else:
                 if is_success_prompt(img) and not has_confirmed_success:
                     strategy.confirm_success()

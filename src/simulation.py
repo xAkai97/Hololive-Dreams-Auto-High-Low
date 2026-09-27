@@ -184,9 +184,28 @@ class GameSimulator:
         max_doubles: int = 10,
         target_limit: int = 20000,
     ) -> RoundResult:
-        """Simulate the High-Low doubling phase for a winning poker hand."""
         strategy.reset_round()
-        strategy.start_round(initial_payout, daily_coins)
+        try:
+            strategy.start_round(initial_payout, daily_coins)
+        except RuntimeError:
+            if hasattr(strategy, 'stage') and strategy.stage == 1:
+                strategy.stage = 2
+                strategy.reset_round()
+                try:
+                    strategy.start_round(initial_payout, daily_coins)
+                except Exception:
+                    pass
+            else:
+                return RoundResult(
+                    won_poker=True,
+                    initial_payout=initial_payout,
+                    final_payout=initial_payout,
+                    net_payout=initial_payout - int(ENTRY_FEE),
+                    doubling_steps=0,
+                    cashed_out=True,
+                    busted=False,
+                    reason="cap_room_fallback",
+                )
 
         # High-Low uses ranks 2..14 (Ace = 14), 4 of each = 52 cards
         hl_deck: list[int] = []
