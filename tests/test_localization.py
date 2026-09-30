@@ -66,6 +66,9 @@ class I18nTests(unittest.TestCase):
             "cap": 99.5,
             "over30": 85.0,
             "over40": 42.0,
+            "observed": 160015,
+            "expected": 1600,
+            "amount": 1600,
         }
         for lang in ("zh", "tw", "en", "ja"):
             for key in localization.TRANSLATIONS[lang]:

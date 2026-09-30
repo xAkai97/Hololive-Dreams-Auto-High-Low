@@ -198,6 +198,8 @@ class HololiveBotUI(tk.Tk):
 
         self.log_retention_days = int(saved_config.get("log_retention_days", 14))
         self.log_max_size_mb = int(saved_config.get("log_max_size_mb", 20))
+        self.settlement_recovery_mode = str(saved_config.get("settlement_recovery_mode", "auto"))
+        self.settlement_ocr_timeout = float(saved_config.get("settlement_ocr_timeout", 8.0))
 
         rotate_previous_log(max_days=self.log_retention_days, max_size_mb=self.log_max_size_mb, lang=self.current_lang)
         try:
@@ -1638,6 +1640,30 @@ class HololiveBotUI(tk.Tk):
 
         dlg_scale_op.configure(command=_on_dlg_op)
 
+        # --- Section 4: Settlement Verification & OCR Recovery ---
+        lf_settle = ttk.LabelFrame(frame, text=f" {localization.tr('section_settlement_recovery', self.current_lang)} ", padding=(14, 10))
+        lf_settle.pack(fill="x", expand=True, pady=(0, 10))
+        lf_settle.columnconfigure(0, weight=1)
+        lf_settle.columnconfigure(1, weight=0)
+
+        ttk.Label(lf_settle, text=localization.tr("settlement_recovery_label", self.current_lang), font=font_label).grid(row=0, column=0, sticky="w", pady=6)
+        recovery_options = [
+            ("auto", localization.tr("recovery_mode_auto", self.current_lang)),
+            ("manual", localization.tr("recovery_mode_manual", self.current_lang)),
+            ("strict", localization.tr("recovery_mode_strict", self.current_lang)),
+        ]
+        rec_keys = [k for k, _ in recovery_options]
+        rec_labels = [lbl for _, lbl in recovery_options]
+        combo_recovery = ttk.Combobox(lf_settle, values=rec_labels, state="readonly", width=34)
+        rec_idx = rec_keys.index(self.settlement_recovery_mode) if self.settlement_recovery_mode in rec_keys else 0
+        combo_recovery.current(rec_idx)
+        combo_recovery.grid(row=0, column=1, sticky="e", pady=6)
+
+        ttk.Label(lf_settle, text=localization.tr("settlement_timeout_label", self.current_lang), font=font_label).grid(row=1, column=0, sticky="w", pady=6)
+        ent_settle_timeout = ttk.Entry(lf_settle, width=14, justify="center")
+        ent_settle_timeout.insert(0, str(int(self.settlement_ocr_timeout)))
+        ent_settle_timeout.grid(row=1, column=1, sticky="e", pady=6)
+
         lbl_status = ttk.Label(frame, text="", font=(self.font_family, 9), foreground="#007700")
         lbl_status.pack(pady=(0, 6))
 
@@ -1660,6 +1686,14 @@ class HololiveBotUI(tk.Tk):
                     self.var_opp_a2.set(self.opportunistic_double_mode in ("a_2_only", "include_3_k", "include_4_q"))
                     self.var_opp_3k.set(self.opportunistic_double_mode in ("include_3_k", "include_4_q"))
                     self.var_opp_4q.set(self.opportunistic_double_mode == "include_4_q")
+                selected_rec_idx = combo_recovery.current()
+                if 0 <= selected_rec_idx < len(rec_keys):
+                    self.settlement_recovery_mode = rec_keys[selected_rec_idx]
+                try:
+                    to_val = float(ent_settle_timeout.get().strip())
+                    self.settlement_ocr_timeout = max(3.0, min(60.0, to_val))
+                except (ValueError, TypeError):
+                    self.settlement_ocr_timeout = 8.0
                 self.entry_setting_target.delete(0, "end")
                 self.entry_setting_target.insert(0, str(self.target_limit))
                 self.entry_setting_ticket.delete(0, "end")
@@ -1683,6 +1717,9 @@ class HololiveBotUI(tk.Tk):
             ent_size.delete(0, "end")
             ent_size.insert(0, str(self.log_max_size_mb))
             combo_opp.current(0)
+            combo_recovery.current(0)
+            ent_settle_timeout.delete(0, "end")
+            ent_settle_timeout.insert(0, "8")
             dlg_scale_op.set(80)
             dlg_lbl_op.configure(text="80%")
             self.set_field_box_opacity(80, save=True)
@@ -1693,8 +1730,8 @@ class HololiveBotUI(tk.Tk):
         ttk.Button(btn_box, text=localization.tr("btn_cancel", self.current_lang, default="Cancel"), command=dialog.destroy).pack(side="left", padx=5)
 
         dialog.update_idletasks()
-        req_w = max(520, dialog.winfo_reqwidth() + 30)
-        req_h = max(390, dialog.winfo_reqheight() + 15)
+        req_w = max(560, dialog.winfo_reqwidth() + 30)
+        req_h = max(510, dialog.winfo_reqheight() + 15)
         x = self.winfo_x() + max(0, (self.winfo_width() - req_w) // 2)
         y = self.winfo_y() + max(0, (self.winfo_height() - req_h) // 2)
         dialog.geometry(f"{req_w}x{req_h}+{x}+{y}")
@@ -1805,6 +1842,8 @@ class HololiveBotUI(tk.Tk):
                 param_drop_seven_eight=self.param_drop_seven_eight,
                 field_box_opacity=self.field_box_opacity,
                 show_log=self.show_log,
+                settlement_recovery_mode=self.settlement_recovery_mode,
+                settlement_ocr_timeout=self.settlement_ocr_timeout,
             )
             auto_bot.TARGET_LIMIT = self.target_limit
             self.current_profit = self.current_coins - (self.current_fails * self.ticket_cost)
@@ -1823,6 +1862,8 @@ class HololiveBotUI(tk.Tk):
         self.entry_setting_ticket.insert(0, "50")
         self.log_retention_days = 14
         self.log_max_size_mb = 20
+        self.settlement_recovery_mode = "auto"
+        self.settlement_ocr_timeout = 8.0
         self.opportunistic_double_mode = "a_2_only"
         self.var_opp_a2.set(True)
         self.var_opp_3k.set(False)
@@ -2426,12 +2467,99 @@ class HololiveBotUI(tk.Tk):
         self._set_sim_buttons_state("normal")
         self.refresh_texts()
 
+    def prompt_settlement_dialog(self, expected, observed):
+        res_queue = queue.Queue()
+        self.after(0, self._show_settlement_modal, expected, observed, res_queue)
+        return res_queue.get()
+
+    def _show_settlement_modal(self, expected, observed, res_queue):
+        dialog = tk.Toplevel(self)
+        dialog.title(localization.tr("settlement_prompt_title", self.current_lang))
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        frame = ttk.Frame(dialog, padding=(20, 16))
+        frame.pack(fill="both", expand=True)
+
+        font_label = (self.font_family, 9, "bold")
+        msg = localization.tr(
+            "settlement_prompt_msg",
+            self.current_lang,
+            observed=observed if observed else "None",
+            expected=expected if expected else "Unknown",
+        )
+        ttk.Label(frame, text=msg, font=(self.font_family, 9), justify="left").pack(anchor="w", pady=(0, 12))
+
+        entry_frame = ttk.Frame(frame)
+        entry_frame.pack(fill="x", pady=(0, 14))
+        ttk.Label(entry_frame, text=localization.tr("custom_amount_label", self.current_lang), font=font_label).pack(side="left")
+        custom_ent = ttk.Entry(entry_frame, width=12, justify="center")
+        custom_ent.insert(0, str(expected if expected else ""))
+        custom_ent.pack(side="right")
+
+        btn_box = ttk.Frame(frame)
+        btn_box.pack(fill="x")
+
+        def choose(val):
+            try:
+                dialog.destroy()
+            except Exception:
+                pass
+            res_queue.put(val)
+
+        def on_custom():
+            try:
+                v = int(custom_ent.get().strip())
+                if auto_bot.is_valid_settlement_amount(v):
+                    choose(v)
+                else:
+                    messagebox.showerror(
+                        localization.tr("settlement_prompt_title", self.current_lang),
+                        localization.tr("settlement_invalid_rejected", self.current_lang, amount=v),
+                        parent=dialog,
+                    )
+            except ValueError:
+                pass
+
+        if expected and expected > 0:
+            btn_exp = ttk.Button(
+                btn_box,
+                text=localization.tr("btn_use_expected", self.current_lang, expected=expected),
+                command=lambda: choose(expected),
+            )
+            btn_exp.pack(fill="x", pady=2)
+
+        btn_custom = ttk.Button(
+            btn_box,
+            text=localization.tr("btn_confirm_custom", self.current_lang),
+            command=on_custom,
+        )
+        btn_custom.pack(fill="x", pady=2)
+
+        btn_skip = ttk.Button(
+            btn_box,
+            text=localization.tr("btn_skip_zero", self.current_lang),
+            command=lambda: choose(0),
+        )
+        btn_skip.pack(fill="x", pady=2)
+
+        btn_stop = ttk.Button(
+            btn_box,
+            text=localization.tr("btn_stop_bot", self.current_lang),
+            command=lambda: choose(None),
+        )
+        btn_stop.pack(fill="x", pady=2)
+
+        dialog.protocol("WM_DELETE_WINDOW", lambda: choose(None))
+
     def run_bot(self):
         try:
             auto_bot.auto_play_loop(
                 self.active_mode,
                 on_stats_update=lambda c, f, p: self.after(0, self.update_stats_display, c, f, p),
                 lang=self.current_lang,
+                on_prompt_settlement=self.prompt_settlement_dialog,
             )
         except Exception as e:
             err_msg = localization.format_error(e, self.current_lang)

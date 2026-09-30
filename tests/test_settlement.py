@@ -8,7 +8,7 @@ import contextlib
 import io
 import unittest
 
-from settlement import SettlementReader, SettlementManager
+from settlement import SettlementReader, SettlementManager, is_valid_settlement_amount, SettlementTimeoutError
 
 
 class SettlementTests(unittest.TestCase):
@@ -114,6 +114,75 @@ class SettlementTests(unittest.TestCase):
         self.assertTrue(can_proceed)
         self.assertEqual(coins, 16200)
 
+    def test_is_valid_settlement_amount(self):
+        self.assertFalse(is_valid_settlement_amount(160015))
+        self.assertFalse(is_valid_settlement_amount(0))
+        self.assertFalse(is_valid_settlement_amount(-200))
+        self.assertFalse(is_valid_settlement_amount(70000))
+        self.assertFalse(is_valid_settlement_amount("1600"))
+        self.assertTrue(is_valid_settlement_amount(1600))
+        self.assertTrue(is_valid_settlement_amount(200))
+        self.assertTrue(is_valid_settlement_amount(12800))
+        self.assertTrue(is_valid_settlement_amount(50))
+
+    def test_impossible_amount_rejected_by_reader(self):
+        reader = SettlementReader(timeout=8.0)
+        # Observing impossible amount (160015) 10 times does not produce candidate
+        for i in range(10):
+            self.assertIsNone(reader.observe(160015, i * 0.25))
+        self.assertIsNone(reader.candidate)
+
+    def test_auto_recovery_uses_expected_cashout_on_timeout(self):
+        reader = SettlementReader(timeout=2.0)
+        mgr = SettlementManager(settlement_reader=reader, recovery_mode="auto")
+        mgr.expected_cashout = 1600
+
+        coins = 1200
+        with contextlib.redirect_stdout(io.StringIO()):
+            # Simulate 10 frames of impossible OCR noise (160015) over 2.5s
+            for i in range(11):
+                coins, can_proceed = mgr.process_result(
+                    amount=160015,
+                    now=i * 0.25,
+                    daily_coins=coins,
+                    daily_fails=5,
+                )
+                if can_proceed:
+                    break
+        self.assertTrue(can_proceed)
+        self.assertEqual(coins, 2800)  # 1200 + 1600
+
+    def test_manual_recovery_invokes_prompt_callback(self):
+        reader = SettlementReader(timeout=2.0)
+        prompt_called = []
+
+        def mock_prompt(expected, observed):
+            prompt_called.append((expected, observed))
+            return 1600
+
+        mgr = SettlementManager(
+            settlement_reader=reader,
+            recovery_mode="manual",
+            on_prompt_settlement=mock_prompt,
+        )
+        mgr.expected_cashout = 1600
+
+        coins = 1200
+        with contextlib.redirect_stdout(io.StringIO()):
+            for i in range(11):
+                coins, can_proceed = mgr.process_result(
+                    amount=160015,
+                    now=i * 0.25,
+                    daily_coins=coins,
+                    daily_fails=5,
+                )
+                if can_proceed:
+                    break
+        self.assertTrue(can_proceed)
+        self.assertEqual(prompt_called, [(1600, 160015)])
+        self.assertEqual(coins, 2800)
+
 
 if __name__ == '__main__':
     unittest.main()
+

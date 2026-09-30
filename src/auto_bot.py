@@ -11,7 +11,7 @@ import ddddocr
 
 from recognizer import CardRecognizer
 from poker_core import calculate_best, JOKER_ID
-from settlement import SettlementReader, SettlementManager
+from settlement import SettlementReader, SettlementManager, is_valid_settlement_amount
 from reward_vision import read_challenge_number
 from challenge_reward import ChallengeRewardReader
 from strategies import BaseStrategy, get_strategy
@@ -354,7 +354,7 @@ _SETTLEMENT_TRANS = str.maketrans({
 })
 
 
-def read_settlement_payout(img, search_zone):
+def read_settlement_payout(img, search_zone, expected=None):
     sx, sy, sw, sh = search_zone
     if sw == 0 or sh == 0:
         return 0
@@ -372,10 +372,52 @@ def read_settlement_payout(img, search_zone):
     text = text.translate(_SETTLEMENT_TRANS)
     digits = ''.join(filter(str.isdigit, text))
 
+    # Priority 1: If expected cashout is known, check if it's contained in the OCR digits
+    # (e.g. '1600' inside '160015' due to noise or trailing characters)
+    if expected is not None and expected > 0:
+        exp_str = str(expected)
+        if exp_str in digits:
+            return expected
+
+    # Priority 2: Parse raw digits and validate against Hololive Dreams game rules
     try:
-        return int(digits) if digits else 0
+        val = int(digits) if digits else 0
+        if is_valid_settlement_amount(val):
+            return val
+        return 0
     except ValueError:
         return 0
+
+
+def save_pending_cashout(cash: int):
+    current = load_config()
+    current["pending_cashout"] = cash
+    current["pending_cashout_date"] = time.strftime("%Y-%m-%d")
+    temporary = Path(DATA_FILE).with_suffix('.tmp')
+    with temporary.open('w', encoding='utf-8') as f:
+        json.dump(current, f, ensure_ascii=False, indent=2)
+    os.replace(temporary, DATA_FILE)
+
+
+def clear_pending_cashout():
+    current = load_config()
+    if "pending_cashout" in current or "pending_cashout_date" in current:
+        current.pop("pending_cashout", None)
+        current.pop("pending_cashout_date", None)
+        temporary = Path(DATA_FILE).with_suffix('.tmp')
+        with temporary.open('w', encoding='utf-8') as f:
+            json.dump(current, f, ensure_ascii=False, indent=2)
+        os.replace(temporary, DATA_FILE)
+
+
+def load_pending_cashout() -> int | None:
+    data = load_config()
+    if data.get("pending_cashout_date") == time.strftime("%Y-%m-%d"):
+        val = data.get("pending_cashout")
+        if isinstance(val, int) and is_valid_settlement_amount(val):
+            return val
+    return None
+
 
 
 # ================= 3. Data & Main Loop =================
@@ -436,13 +478,15 @@ def save_daily_data(coins, fails, stage=None, **settings):
     os.replace(temporary, DATA_FILE)
 
 
-def auto_play_loop(mode='legacy_101', on_stats_update=None, lang=None):
+def auto_play_loop(mode='legacy_101', on_stats_update=None, lang=None, on_prompt_settlement=None):
     upcoming_card_val = None
     if lang is not None:
         set_lang(lang)
     config = load_config()
     target_limit = int(config.get("target_limit", TARGET_LIMIT))
     ticket_cost = int(config.get("ticket_cost", 50))
+    recovery_mode = config.get("settlement_recovery_mode", "auto")
+    ocr_timeout = float(config.get("settlement_ocr_timeout", 8.0))
 
     strat_kwargs = {}
     if mode == "custom_parametric":
@@ -474,15 +518,25 @@ def auto_play_loop(mode='legacy_101', on_stats_update=None, lang=None):
         on_stats_update(daily_coins, daily_fails, net_profit)
 
     reward_reader = ChallengeRewardReader()
-    settlement_mgr = SettlementManager(SettlementReader(), save_data_fn=save_daily_data)
+    settlement_mgr = SettlementManager(
+        SettlementReader(timeout=ocr_timeout),
+        save_data_fn=save_daily_data,
+        recovery_mode=recovery_mode,
+        on_prompt_settlement=on_prompt_settlement,
+    )
     # Ensure settlement manager is fresh on each bot start to avoid stale has_tallied preventing credit on resume
     settlement_mgr.reset_round(strategy)
+    pending_cash = load_pending_cashout()
+    if pending_cash:
+        settlement_mgr.expected_cashout = pending_cash
+
     has_recorded_fail = False  # Prevent duplicate fee deduction during FAIL animation
     has_confirmed_success = False  # Prevent duplicate success count during multi-frame ASK_CHALLENGE prompt
 
     def request_cashout(frame, left, top, cash):
         if find_and_click_icon(frame, TPL_CASHOUT, left, top):
             settlement_mgr.expected_cashout = cash
+            save_pending_cashout(cash)
             return True
         return False
 
@@ -500,6 +554,7 @@ def auto_play_loop(mode='legacy_101', on_stats_update=None, lang=None):
             settlement_mgr.reset_round(strategy)
             reward_reader.reset_round()
             has_confirmed_success = False
+            clear_pending_cashout()
         elif current_state in ('HIGH_LOW', 'FAIL', 'RESULT'):
             reward_reader.reset_prompt()
             has_confirmed_success = False
@@ -670,6 +725,8 @@ def auto_play_loop(mode='legacy_101', on_stats_update=None, lang=None):
                         print(tr('tracking_start'))
                         upcoming_card_val = None
                         DEBUG_DIR.mkdir(exist_ok=True)
+                        candidate_card = None
+                        stable_count = 0
 
                         for i in range(25):
                             time.sleep(0.04)
@@ -687,15 +744,25 @@ def auto_play_loop(mode='legacy_101', on_stats_update=None, lang=None):
                                         # indicates a new card flipped face-up
                                         if newest_rect[0] > old_right_x + 50:
                                             newest_card = card_rec.recognize_card(flip_img, newest_rect)
-                                            if newest_card.card_id != JOKER_ID:
-                                                upcoming_card_val = get_card_point_value(newest_card)
-                                                print(tr('tracking_found', frame=i + 1, rank=newest_card.rank))
+                                            # Require minimum confidence to avoid capturing mid-flip blur
+                                            if (newest_card.card_id != JOKER_ID
+                                                    and getattr(newest_card, 'rank_score', 1.0) >= 0.65):
+                                                if candidate_card is not None and candidate_card.rank == newest_card.rank:
+                                                    stable_count += 1
+                                                else:
+                                                    candidate_card = newest_card
+                                                    stable_count = 1
 
-                                                cx, cy, cw, ch = newest_rect
-                                                cv2.imwrite(str(DEBUG_DIR / "2_next_card.png"),
-                                                            flip_img[max(0, cy - 40):cy + ch + 40,
-                                                            max(0, cx - 40):cx + cw + 40])
-                                                break
+                                                # Accept immediately if high confidence, or require 2 stabilized frames
+                                                if stable_count >= 2 or getattr(newest_card, 'rank_score', 0) >= 0.80:
+                                                    upcoming_card_val = get_card_point_value(newest_card)
+                                                    print(tr('tracking_found', frame=i + 1, rank=newest_card.rank))
+
+                                                    cx, cy, cw, ch = newest_rect
+                                                    cv2.imwrite(str(DEBUG_DIR / "2_next_card.png"),
+                                                                flip_img[max(0, cy - 40):cy + ch + 40,
+                                                                max(0, cx - 40):cx + cw + 40])
+                                                    break
                                 except Exception:
                                     continue
 
@@ -709,6 +776,7 @@ def auto_play_loop(mode='legacy_101', on_stats_update=None, lang=None):
                 print(tr('err_high_low', error=e))
 
         elif current_state == "FAIL":
+            clear_pending_cashout()
             if not has_recorded_fail:
                 daily_fails += 1
                 loss = daily_fails * ticket_cost
@@ -726,7 +794,7 @@ def auto_play_loop(mode='legacy_101', on_stats_update=None, lang=None):
             time.sleep(1)
 
         elif current_state == "RESULT":
-            amount = read_settlement_payout(img, RESULT_REWARD_ZONE)
+            amount = read_settlement_payout(img, RESULT_REWARD_ZONE, expected=settlement_mgr.expected_cashout)
             daily_coins, can_proceed = settlement_mgr.process_result(
                 amount=amount,
                 now=time.monotonic(),
@@ -735,11 +803,13 @@ def auto_play_loop(mode='legacy_101', on_stats_update=None, lang=None):
                 strategy=strategy,
                 on_stats_update=on_stats_update,
                 ticket_cost=ticket_cost,
+                on_prompt_settlement=on_prompt_settlement,
             )
             if not can_proceed:
                 time.sleep(0.2)
                 continue
 
+            clear_pending_cashout()
             time.sleep(0.8)
             find_and_click_icon(img, TPL_CONFIRM_DOUBLE, win_left, win_top, threshold=0.55)
             time.sleep(1)
