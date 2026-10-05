@@ -1058,16 +1058,18 @@ class HololiveBotUI(tk.Tk):
             self.canvas.itemconfig(self.btn_clear_logs_win, state="hidden")
             self.canvas.itemconfig(self.btn_open_custom_dialog_win, state="hidden")
 
-            # Row 1: Hotkey (clean row under top tabs)
-            hotkey_row_y = tab_y + tab_btn_h / 2 + 18
-            hotkey_btn_h = 38
+            # Row 1: Hotkey (clean row under top tabs with proper padding)
+            tab_bottom = tab_y + tab_btn_h / 2
+            hotkey_gap_top = 10
+            hotkey_btn_h = 32
+            hotkey_row_y = tab_bottom + hotkey_gap_top + hotkey_btn_h / 2
             hotkey_btn_w = max(120, min(160, int(content_w * 0.36)))
             self.canvas.coords(self.hotkey_label_id, pad_x, hotkey_row_y)
             self.canvas.coords(self.hotkey_window, w - pad_x, hotkey_row_y)
             self.canvas.itemconfig(self.hotkey_window, width=hotkey_btn_w, height=hotkey_btn_h, state="normal")
 
             # Status & Coin Stats (clean card with generous padding)
-            stats_card_top = hotkey_row_y + hotkey_btn_h / 2 + 12
+            stats_card_top = hotkey_row_y + hotkey_btn_h / 2 + 10
             status_y = stats_card_top + 18
             coins_y = status_y + 30
             fails_y = coins_y + 30
