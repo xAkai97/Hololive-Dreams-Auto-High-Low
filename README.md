@@ -29,6 +29,7 @@ An advanced automated assistant, card-counting engine, and simulation suite for 
 ## 📁 Project Structure
 
 ```text
+├── AGENTS.md                  # Development guide & system context for AI coding assistants
 ├── main_ui.py                 # Main application graphical launcher
 ├── requirements.txt           # Python dependencies
 ├── Hololive Dreams-Auto.spec  # PyInstaller packaging configuration
@@ -58,8 +59,9 @@ An advanced automated assistant, card-counting engine, and simulation suite for 
 ├── assets/                    # Application icons and static assets
 ├── locales/                   # External JSON translations (en.json, zh.json, ja.json, tw.json)
 ├── templates/                 # Game recognition templates
-├── docs/                      # Documentation and detailed strategy guides
-│   └── strategies.md          # Comprehensive 7-strategy guide & modifiers
+├── docs/                      # Documentation and detailed technical guides
+│   ├── strategies.md          # Comprehensive 7-strategy guide & modifiers
+│   └── ALGORITHMS.md          # Mathematical formulas, probability models & Numba solver
 └── tests/                     # Unit test suite
 ```
 
