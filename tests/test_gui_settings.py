@@ -436,6 +436,8 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         self.app.refresh_texts()
         self.assertIn("94.1%", self.app.tooltips["opp_a2"].text)
         self.assertIn("6/7/8/9", self.app.tooltips["mod_drop_6789"].text)
+        self.assertIn("(≥19.8k)", self.app.tooltips["mod_sprint_floor"].text)
+        self.assertIn("(≥19.8k)", self.app.tooltips["mod_mega_sprint"].text)
 
         # In Japanese:
         self.app.current_lang = "ja"
