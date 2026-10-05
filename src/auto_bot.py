@@ -14,7 +14,7 @@ import ddddocr
 from recognizer import CardRecognizer
 from poker_core import calculate_best, JOKER_ID
 from settlement import SettlementReader, SettlementManager, is_valid_settlement_amount
-from reward_vision import read_challenge_number
+from reward_vision import read_challenge_number, read_result_number
 from challenge_reward import ChallengeRewardReader
 from strategies import get_strategy, apply_strategy_modifiers, strategy_kwargs_from_config
 import localization
@@ -400,6 +400,19 @@ def read_settlement_payout(img, search_zone, expected=None):
     if sw == 0 or sh == 0:
         return 0
 
+    # Primary pass: isolate cyan digits via HSV color segmentation
+    try:
+        cyan_amount = read_result_number(img, search_zone, ocr)
+        if cyan_amount > 0:
+            if expected is not None and expected > 0:
+                if cyan_amount == expected or str(expected) in str(cyan_amount):
+                    return expected
+            if is_valid_settlement_amount(cyan_amount):
+                return cyan_amount
+    except Exception:
+        pass
+
+    # Fallback pass: grayscale OCR extraction
     roi = img[sy:sy + sh, sx:sx + sw]
     roi = cv2.resize(roi, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
