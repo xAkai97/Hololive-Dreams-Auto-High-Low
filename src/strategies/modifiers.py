@@ -61,7 +61,7 @@ def apply_strategy_modifiers(
     daily_coins = daily_coins or 0
 
     # 1. Defensive Bailouts during cushion phase (< cushion_target)
-    if current_cashout > 0 and daily_coins < cushion_target and decision == "challenge":
+    if not mod_fast_build and current_cashout > 0 and daily_coins < cushion_target and decision == "challenge":
         if mod_drop_6789 and card_val in (6, 7, 8, 9):
             return "cashout", "mod_drop_6789"
         if mod_drop_78 and card_val in (7, 8):
@@ -90,7 +90,7 @@ def apply_strategy_modifiers(
         if mod_drop_8:
             bail_cards.add(8)
 
-    if decision == "cashout" and card_val is not None and card_val not in bail_cards:
+    if not mod_fast_build and decision == "cashout" and card_val is not None and card_val not in bail_cards:
         should_opp = (
             (card_val in (2, 14) and opp_a2) or
             (card_val in (3, 13) and opp_3k) or

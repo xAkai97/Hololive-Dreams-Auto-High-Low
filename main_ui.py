@@ -2411,6 +2411,7 @@ class HololiveBotUI(tk.Tk):
         )
 
     def _sync_modifier_states(self):
+        fast_build = bool(self.var_mod_fast_build.get())
         drop_6789 = bool(self.var_mod_drop_6789.get())
         drop_78 = bool(self.var_mod_drop_78.get())
         drop_8 = bool(self.var_mod_drop_8.get())
@@ -2422,52 +2423,71 @@ class HololiveBotUI(tk.Tk):
         sprint_floor = bool(self.var_mod_sprint_floor.get())
         mega_sprint = bool(self.var_mod_mega_sprint.get())
 
-        # Defensive Bailouts state
-        state_drop_6789 = "normal"
-        state_drop_78 = "normal"
-        state_drop_8 = "normal"
-
-        # Card Overrides state
-        state_opp_610 = "normal"
-        state_opp_79 = "normal"
-        state_opp_8 = "normal"
-
-        if drop_6789:
+        if fast_build:
+            # Fast Build forces doubling on all cards under cushion,
+            # superseding Card Overrides and Defensive Bailouts.
+            state_drop_6789 = "disabled"
             state_drop_78 = "disabled"
             state_drop_8 = "disabled"
+            state_opp_a2 = "disabled"
+            state_opp_3k = "disabled"
+            state_opp_4q = "disabled"
+            state_opp_5j = "disabled"
             state_opp_610 = "disabled"
             state_opp_79 = "disabled"
             state_opp_8 = "disabled"
-        elif drop_78:
-            state_drop_6789 = "disabled"
-            state_drop_8 = "disabled"
-            state_opp_79 = "disabled"
-            state_opp_8 = "disabled"
-        elif drop_8:
-            state_drop_6789 = "disabled"
-            state_drop_78 = "disabled"
-            state_opp_8 = "disabled"
         else:
-            if opp_8:
-                state_drop_6789 = "disabled"
+            state_drop_6789 = "normal"
+            state_drop_78 = "normal"
+            state_drop_8 = "normal"
+            state_opp_a2 = "normal"
+            state_opp_3k = "normal"
+            state_opp_4q = "normal"
+            state_opp_5j = "normal"
+            state_opp_610 = "normal"
+            state_opp_79 = "normal"
+            state_opp_8 = "normal"
+
+            if drop_6789:
                 state_drop_78 = "disabled"
                 state_drop_8 = "disabled"
-            elif opp_79:
+                state_opp_610 = "disabled"
+                state_opp_79 = "disabled"
+                state_opp_8 = "disabled"
+            elif drop_78:
+                state_drop_6789 = "disabled"
+                state_drop_8 = "disabled"
+                state_opp_79 = "disabled"
+                state_opp_8 = "disabled"
+            elif drop_8:
                 state_drop_6789 = "disabled"
                 state_drop_78 = "disabled"
-            elif opp_610:
-                state_drop_6789 = "disabled"
+                state_opp_8 = "disabled"
+            else:
+                if opp_8:
+                    state_drop_6789 = "disabled"
+                    state_drop_78 = "disabled"
+                    state_drop_8 = "disabled"
+                elif opp_79:
+                    state_drop_6789 = "disabled"
+                    state_drop_78 = "disabled"
+                elif opp_610:
+                    state_drop_6789 = "disabled"
 
         state_sprint_floor = "disabled" if mega_sprint else "normal"
         state_mega_sprint = "disabled" if sprint_floor else "normal"
 
         for widget, state in (
-            (getattr(self, "chk_mod_drop_6789", None), state_drop_6789),
-            (getattr(self, "chk_mod_drop_78", None), state_drop_78),
-            (getattr(self, "chk_mod_drop_8", None), state_drop_8),
+            (getattr(self, "chk_opp_a2", None), state_opp_a2),
+            (getattr(self, "chk_opp_3k", None), state_opp_3k),
+            (getattr(self, "chk_opp_4q", None), state_opp_4q),
+            (getattr(self, "chk_opp_5j", None), state_opp_5j),
             (getattr(self, "chk_opp_610", None), state_opp_610),
             (getattr(self, "chk_opp_79", None), state_opp_79),
             (getattr(self, "chk_opp_8", None), state_opp_8),
+            (getattr(self, "chk_mod_drop_6789", None), state_drop_6789),
+            (getattr(self, "chk_mod_drop_78", None), state_drop_78),
+            (getattr(self, "chk_mod_drop_8", None), state_drop_8),
             (getattr(self, "chk_mod_sprint_floor", None), state_sprint_floor),
             (getattr(self, "chk_mod_mega_sprint", None), state_mega_sprint),
         ):
@@ -2562,22 +2582,31 @@ class HololiveBotUI(tk.Tk):
 
     def refresh_modifiers_ui(self):
         self._sync_modifier_states()
-        active = sum([
-            bool(self.var_opp_a2.get()),
-            bool(self.var_opp_3k.get()),
-            bool(self.var_opp_4q.get()),
-            bool(self.var_opp_5j.get()),
-            bool(self.var_opp_610.get()),
-            bool(self.var_opp_79.get()),
-            bool(self.var_opp_8.get()),
-            bool(self.var_mod_fast_build.get()),
-            bool(self.var_mod_drop_78.get()),
-            bool(self.var_mod_drop_6789.get()),
-            bool(self.var_mod_drop_8.get()),
-            bool(self.var_mod_free_roll.get()),
-            bool(self.var_mod_sprint_floor.get()),
-            bool(self.var_mod_mega_sprint.get()),
-        ])
+        fast_build = bool(self.var_mod_fast_build.get())
+        if fast_build:
+            active_list = [
+                fast_build,
+                bool(self.var_mod_free_roll.get()),
+                bool(self.var_mod_sprint_floor.get()),
+                bool(self.var_mod_mega_sprint.get()),
+            ]
+        else:
+            active_list = [
+                bool(self.var_opp_a2.get()),
+                bool(self.var_opp_3k.get()),
+                bool(self.var_opp_4q.get()),
+                bool(self.var_opp_5j.get()),
+                bool(self.var_opp_610.get()),
+                bool(self.var_opp_79.get()),
+                bool(self.var_opp_8.get()),
+                bool(self.var_mod_drop_78.get()),
+                bool(self.var_mod_drop_6789.get()),
+                bool(self.var_mod_drop_8.get()),
+                bool(self.var_mod_free_roll.get()),
+                bool(self.var_mod_sprint_floor.get()),
+                bool(self.var_mod_mega_sprint.get()),
+            ]
+        active = sum(active_list)
         arrow = "▼" if getattr(self, "modifiers_expanded", True) else "▶"
         header_text = f"{arrow} {localization.tr('lbl_modifiers_header', self.current_lang, active=active)}"
         if hasattr(self, "btn_toggle_modifiers"):

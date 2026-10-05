@@ -140,6 +140,7 @@ $$\text{daily\_coins} + \text{next\_reward} < \text{target\_limit}$$
 
 ### 4. UI Mutual Exclusion Logic
 To eliminate conflicting automated decisions, the UI enforces automatic mutual exclusion:
+- **Fast Build > Overrides & Bailouts**: Enabling *Fast Build* forces doubling on all cards under cushion (19,800), automatically greying out and superseding all Card Overrides and Defensive Bailouts.
 - **Defensive Bailouts > Overrides**: Enabling *Bail 6/7/8/9* automatically unchecks and disables *6/10*, *7/9*, and *8*; enabling *Bail 7/8* disables *7/9* and *8*; enabling *Bail 8* disables *8*.
 - **Overrides > Bailouts**: Enabling a middle-card override (*8*, *7/9*, or *6/10*) automatically unchecks any contradictory bailouts.
 - **Sprint Floors**: Enabling *Mega Sprint* automatically unchecks *Sprint Floor*, and vice versa.

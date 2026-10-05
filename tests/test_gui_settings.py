@@ -514,9 +514,29 @@ class TestToolTip(unittest.TestCase):
         tip._hide()
         self.assertIsNone(tip._tip_window)
 
+    def test_fast_build_disables_card_overrides_in_gui(self):
+        # Enable Fast Build
+        self.app.var_mod_fast_build.set(True)
+        self.app._sync_modifier_states()
+
+        # All card overrides and bailouts should be disabled
+        self.assertEqual(str(self.app.chk_opp_a2.cget("state")), "disabled")
+        self.assertEqual(str(self.app.chk_opp_3k.cget("state")), "disabled")
+        self.assertEqual(str(self.app.chk_opp_4q.cget("state")), "disabled")
+        self.assertEqual(str(self.app.chk_mod_drop_78.cget("state")), "disabled")
+        self.assertEqual(str(self.app.chk_mod_drop_8.cget("state")), "disabled")
+
+        # Disable Fast Build -> should return to normal
+        self.app.var_mod_fast_build.set(False)
+        self.app._sync_modifier_states()
+        self.assertEqual(str(self.app.chk_opp_a2.cget("state")), "normal")
+        self.assertEqual(str(self.app.chk_opp_3k.cget("state")), "normal")
+        self.assertEqual(str(self.app.chk_opp_4q.cget("state")), "normal")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 

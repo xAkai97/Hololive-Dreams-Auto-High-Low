@@ -423,6 +423,36 @@ class TestStrategyModifiers(unittest.TestCase):
         self.assertEqual(dec6, "cashout")
         self.assertIsNone(reason6)
 
+    def test_fast_build_supersedes_bailouts_and_card_overrides(self):
+        # Even with mod_drop_78=True, mod_fast_build forces doubling under cushion
+        dec, reason = apply_strategy_modifiers(
+            decision="challenge",
+            card_val=7,
+            current_cashout=800,
+            next_reward=1600,
+            daily_coins=5000,
+            cushion_target=19800,
+            target_limit=20000,
+            mod_fast_build=True,
+            mod_drop_78=True,
+        )
+        self.assertEqual(dec, "challenge")
+
+        # When strategy wanted to cash out on card 7 with mod_fast_build
+        dec2, reason2 = apply_strategy_modifiers(
+            decision="cashout",
+            card_val=7,
+            current_cashout=800,
+            next_reward=1600,
+            daily_coins=5000,
+            cushion_target=19800,
+            target_limit=20000,
+            mod_fast_build=True,
+            mod_drop_78=True,
+        )
+        self.assertEqual(dec2, "challenge")
+        self.assertEqual(reason2, "mod_fast_build")
+
 
 if __name__ == "__main__":
     unittest.main()
