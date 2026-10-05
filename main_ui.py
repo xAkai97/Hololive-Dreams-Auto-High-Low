@@ -1832,7 +1832,11 @@ class HololiveBotUI(tk.Tk):
             "- Monte Carlo Simulation & Strategy Comparison Engine\n"
             "- Multi-Resolution Scaling & Win32 PrintWindow Background Capture\n"
             "- Multilingual GUI (English, 简体中文, 繁體中文, 日本語)\n"
-            "- Automated State Machine with Vision OCR & Self-Healing"
+            "- Automated State Machine with Vision OCR & Self-Healing\n\n"
+            "Credits & Acknowledgments:\n"
+            "• Original Author: mwty-0415\n"
+            "• Computer Vision Insights: harrykuang-dev\n"
+            "• Poker Hand Solver: Oreki0504"
         )
         messagebox.showinfo(title, body)
 

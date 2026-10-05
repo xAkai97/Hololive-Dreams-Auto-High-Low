@@ -151,11 +151,15 @@ The application operates in **Portable Mode** by default and automatically falls
 
 ---
 
-## 🙏 Acknowledgments
+## 🙏 Credits & Acknowledgments
 
-- **Original Author**: [mwty-0415](https://github.com/mwty-0415) (Bilibili: [hmr0000](https://space.bilibili.com/519062381) / YouTube: [@hmr0000](https://www.youtube.com/@hmr0000))
-- **Enhancements & Strategies**: [harrykuang-dev](https://github.com/harrykuang-dev)
-- **Poker Card Recognition & Hand Logic**: [Oreki0504/hololive-dreams-helper](https://github.com/Oreki0504/hololive-dreams-helper)
+This project originated as an enhanced extension of foundational automation work created by the open-source community:
+
+- **Original Project & Concept**: [mwty-0415/Hololive-Dreams-Auto-High-Low](https://github.com/mwty-0415/Hololive-Dreams-Auto-High-Low) by [mwty-0415](https://github.com/mwty-0415) (Bilibili: [hmr0000](https://space.bilibili.com/519062381) / YouTube: [@hmr0000](https://www.youtube.com/@hmr0000)) for the initial game automation architecture and High-Low core.
+- **Computer Vision & Strategy Insights**: [harrykuang-dev/Hololive-Dreams-Auto-High-Low](https://github.com/harrykuang-dev/Hololive-Dreams-Auto-High-Low) by [harrykuang-dev](https://github.com/harrykuang-dev) for OCR enhancements and diagnostic insights.
+- **Poker Card Recognition & Hand Solver**: [Oreki0504/hololive-dreams-helper](https://github.com/Oreki0504/hololive-dreams-helper) by [Oreki0504](https://github.com/Oreki0504) for card recognition templates and poker hand evaluation logic.
+
+All original copyrights and licenses are respected and retained.
 
 ---
 
