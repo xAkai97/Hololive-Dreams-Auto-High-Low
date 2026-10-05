@@ -8,15 +8,17 @@ class BaseStrategy(ABC):
 
     name: str = "Base Strategy"
 
-    @abstractmethod
+    base_cash: Optional[int] = None
+    last_cashout: Optional[int] = None
+
     def reset_round(self) -> None:
         """Reset internal round-specific state (e.g. at START_BET or HOLD_CARDS)."""
-        pass
+        self.base_cash = None
+        self.last_cashout = None
 
-    @abstractmethod
     def start_round(self, base_cash: int, coins: int) -> None:
         """Initialize round parameters upon detecting initial payout."""
-        pass
+        self.base_cash = base_cash
 
     @abstractmethod
     def decide(
@@ -41,19 +43,18 @@ class BaseStrategy(ABC):
         """Hook called when transitioning to RESULT state."""
         pass
 
-    def stage_after_credit(self, earned: int) -> Optional[int]:
-        """Return the next stage index to persist, or None if strategy has no stages."""
-        return None
+    def notify_win(self) -> None:
+        """Hook called when a round completes with a win/cashout."""
+        pass
+
+    def notify_fail(self) -> None:
+        """Hook called when a round ends in a fail/bust."""
+        pass
 
     @property
     def expected_cash(self) -> Optional[int]:
         """Expected payout amount for this round, or None if uncalculated."""
-        return None
-
-    @property
-    def complete(self) -> bool:
-        """Whether this strategy has completed all its target goals."""
-        return False
+        return self.last_cashout
 
     @property
     def requires_ongoing_ocr(self) -> bool:

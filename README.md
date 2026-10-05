@@ -7,14 +7,18 @@ An automated assistant and decision-making bot for the casino mini-game in *Holo
 ## ✨ Key Features
 
 - **Optimal Hand Selection**: Powered by Numba JIT acceleration to evaluate initial poker hands and hold the mathematically optimal card combinations.
-- **Dynamic Card Counting**: Tracks remaining cards across the 53-card deck during the High-Low phase, accurately factoring in equal-rank tie-losses to calculate exact real-time winning probabilities.
+- **Dynamic Card Counting**: Tracks remaining cards across the 52-card deck during the High-Low phase (and 53-card deck with Joker in poker), accurately factoring in equal-rank tie-losses to calculate exact real-time winning probabilities.
 - **Multi-Resolution & High-DPI Support**: Native support for any display resolution (720p, 1080p, 1440p / 2K, 2160p / 4K) and Windows display scaling (100%–200%+). Automatically normalizes frames using Per-Monitor DPI V2 awareness and area-averaged anti-aliasing, with proportional subpixel mouse click mapping.
-- **Smart Risk Control & Sprint Modes (1.0.1 Legacy)**:
-  - **Staging Phase**: Automatically drops/cashes out when odds are unfavorable to steadily build bankroll.
-  - **Sprint Phase**: Unlocks aggressive play once total coins reach 19,800, pushing for 10,000+ coins in a single run.
-  - See [1.0.1 Legacy Strategy Guide](docs/LEGACY_STRATEGY.md).
-- **Three-Stage Doubling Strategy**: Supports customizable progression where stages cash out based on confirmed win counts rather than unstable readings. See [Three-Stage Doubling Strategy Guide](docs/THREE_STAGE.md).
-- **Opportunistic High-Chance Doubling**: Toggleable on-canvas checkboxes (`A & 2` default ON, `3 & K`, `4 & Q`) to automatically continue doubling on high-win-rate cards while strictly under the daily cap ($< 20,000$ / max 19,800). See [Strategy Guide](docs/strategies.md).
+- **Smart Cushion & Sprint Mechanics**:
+  - **Cushion Phase**: Automatically cashes out when odds are unfavorable to steadily build bankroll toward 19,800 without prematurely crossing the 20,000 daily cap.
+  - **Sprint Phase**: Unlocks aggressive play once total coins reach 19,800, pushing for 10,000+ coins in a single final run for maximum daily profit (~29k-32k).
+- **Strategy Modifiers Drawer & Mutual Exclusion**:
+  - **Strategic Overrides**: Fast Build (double to cushion limit), Free-Roll (bankroll safety), Sprint Floor ($\ge 11,200$), and Mega Sprint Floor ($\ge 12,800$).
+  - **Defensive Bailouts**: Middle-card protection against volatility (Bail on 8, Bail on 7/8, Bail on 6/7/8/9).
+  - **Card Overrides**: Opportunistic doubling overrides for high-value cards (A/2, 3/K, 4/Q, 5/J, 6/10, 7/9, 8) with strict daily cap lockout prevention guard ($< 20,000$).
+  - **Intelligent Mutual Exclusion**: Automatically prevents contradictory modifier combinations directly in the UI.
+- **Automated Daily Rollover**: Synchronized with the 4:00 PM EST daily reset cycle to seamlessly reset session counters and data without manual intervention.
+- **Interactive Tooltips**: Built-in hover tooltips explaining every setting and modifier in detail across all supported languages.
 - **Custom Backgrounds**: Drop any `.png`, `.jpg`, or `.webp` into `backgrounds/`. The bot auto-detects them and lets you cycle through them directly from the UI.
 - **Extensible Multilingual Support**: Built-in support for English, Simplified Chinese, Traditional Chinese, and Japanese. Custom translation files can be dropped directly into `locales/`.
 - **Profit & Loss Tracking**: Tracks failed runs and ticket fees (50 coins/entry), calculating net profit in real time.
@@ -34,20 +38,19 @@ An automated assistant and decision-making bot for the casino mini-game in *Holo
 │   ├── simulation.py          # Offline Monte Carlo simulation and benchmark engine
 │   ├── localization.py        # Dynamic language registry and translation helper
 │   ├── poker_core.py          # Numba JIT accelerated hand strategy solver
-│   ├── strategies/            # 9 modular doubling policy engines
+│   ├── strategies/            # 7 modular doubling policy engines & modifiers
 │   │   ├── base.py            # BaseStrategy abstract interface
-│   │   ├── max_profit.py      # Max profit ~32k cushion/sprint policy
-│   │   ├── legacy_101.py      # 1.0.1 risk control & sprint policy
-│   │   ├── three_stages.py    # Three-stage doubling strategy
+│   │   ├── max_profit.py      # Max profit ~29-32k cushion/sprint policy
 │   │   ├── fastest_clear.py   # Speedrun all-or-nothing policy
 │   │   ├── balanced.py        # Moderate risk ~25k policy
 │   │   ├── aggressive_balanced.py # Aggressive ~28k policy
 │   │   ├── adaptive_rush.py   # Auto-downshifting rush policy
 │   │   ├── grinder.py         # Ultra-safe conservative policy
-│   │   └── custom_parametric.py # User-tunable parametric policy
-│   ├── challenge_reward.py    # Hand payout vision and OCR
-│   ├── settlement.py          # Settlement balance verification
-│   └── reward_vision.py       # Ongoing reward OCR
+│   │   ├── custom_parametric.py # User-tunable parametric policy
+│   │   └── modifiers.py       # Fast Build, Sprint Floor, Bail 7/8, Opportunistic overrides
+│   ├── challenge_reward.py    # Challenge payout validation and stabilization
+│   ├── settlement.py          # Settlement balance verification & recovery
+│   └── reward_vision.py       # Real-time challenge bonus OCR
 ├── config.json                # User settings, window coordinates, and daily stats (auto-generated)
 ├── log.txt                    # Active UI session log (auto-generated)
 ├── logs/                      # Archived session logs rotated on launch (auto-generated)
@@ -56,9 +59,7 @@ An automated assistant and decision-making bot for the casino mini-game in *Holo
 ├── locales/                   # External JSON translations (en.json, zh.json, ja.json, tw.json)
 ├── templates/                 # Game recognition templates
 ├── docs/                      # Documentation and detailed strategy guides
-│   ├── strategies.md          # Comprehensive 9-strategy guide & opportunistic doubling
-│   ├── LEGACY_STRATEGY.md     # 1.0.1 Legacy strategy deep dive
-│   └── THREE_STAGE.md         # Three-stage doubling strategy guide
+│   └── strategies.md          # Comprehensive 7-strategy guide & modifiers
 └── tests/                     # Unit test suite
 ```
 
@@ -67,7 +68,7 @@ An automated assistant and decision-making bot for the casino mini-game in *Holo
 ## 🛠️ Running from Source
 
 ### Prerequisites
-- Python 3.10 – 3.12 recommended
+- Python 3.10+ (tested through 3.14)
 - Windows OS (game window scaling and background capture support)
 
 ```bash
@@ -133,7 +134,7 @@ The application operates in **Portable Mode** by default and automatically falls
 | **AppData Fallback** | `%APPDATA%\HololiveDreamsAuto\` | Automatically engaged if the application folder is write-protected or read-only (e.g. installed under `C:\Program Files\`). |
 
 ### Generated Files & Folders
-- `config.json`: Stores user preferences (language, hotkeys, strategy selection, opportunistic doubling toggles, log retention settings, and daily coin stats).
+- `config.json`: Stores user preferences (language, hotkeys, strategy selection, strategy modifiers toggles, log retention settings, and daily coin stats).
 - `log.txt`: Active session execution log. You can view or export this from the **Logs** menu bar.
 - `logs/`: Timestamped archives of previous sessions (`log_YYYY-MM-DD_HH-MM-SS.txt`), automatically rotated on launch and pruned according to your configured retention settings (default: 14 days or 20 MB).
 - `debug/`: Debug screenshots captured during vision or OCR failures (when debug mode is active).

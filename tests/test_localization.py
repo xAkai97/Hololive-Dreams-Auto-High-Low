@@ -35,6 +35,55 @@ class I18nTests(unittest.TestCase):
             self.assertEqual(missing, set(), f"{lang} missing keys: {missing}")
             self.assertEqual(extra, set(), f"{lang} unexpected extra keys: {extra}")
 
+    def test_format_placeholders_match_across_all_languages(self):
+        import re
+        pattern = re.compile(r"\{([a-zA-Z0-9_]+)(?::[^}]*)?\}")
+        for key, en_text in localization.TRANSLATIONS["en"].items():
+            en_vars = set(pattern.findall(en_text))
+            for lang in ("zh", "tw", "ja"):
+                target_text = localization.TRANSLATIONS[lang].get(key, "")
+                target_vars = set(pattern.findall(target_text))
+                self.assertEqual(
+                    en_vars,
+                    target_vars,
+                    f"Placeholder mismatch for '{key}' in {lang}: expected {en_vars}, got {target_vars}",
+                )
+
+    def test_nested_namespaced_locale_loading(self):
+        import tempfile
+        import json
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            nested_data = {
+                "language_name": "TestLang",
+                "translations": {
+                    "ui": {
+                        "buttons": {
+                            "start": "Start",
+                            "stop": "Stop",
+                        },
+                        "title": "Application Title",
+                    },
+                    "modifiers": {
+                        "cards": {
+                            "opp_5j": "5 & J",
+                        }
+                    }
+                }
+            }
+            (tmp_path / "tl.json").write_text(json.dumps(nested_data), encoding="utf-8")
+            languages = localization.load_external_locales(tmp_path)
+            lang_codes = [c for c, _ in languages]
+            self.assertIn("tl", lang_codes)
+
+            # Both dotted full-path and leaf key should resolve
+            self.assertEqual(localization.tr("ui.buttons.start", _lang="tl"), "Start")
+            self.assertEqual(localization.tr("start", _lang="tl"), "Start")
+            self.assertEqual(localization.tr("ui.title", _lang="tl"), "Application Title")
+            self.assertEqual(localization.tr("title", _lang="tl"), "Application Title")
+            self.assertEqual(localization.tr("modifiers.cards.opp_5j", _lang="tl"), "5 & J")
+            self.assertEqual(localization.tr("opp_5j", _lang="tl"), "5 & J")
+
     def test_format_parameters_resolve_without_error(self):
         sample_params = {
             "coins": 12800,
@@ -92,7 +141,7 @@ class I18nTests(unittest.TestCase):
     def test_strategy_labels_exist_for_all_languages(self):
         for lang in ("zh", "tw", "en", "ja"):
             self.assertIn(lang, localization.STRATEGY_LABELS)
-            self.assertEqual(len(localization.STRATEGY_LABELS[lang]), 9)
+            self.assertEqual(len(localization.STRATEGY_LABELS[lang]), 7)
 
 
     @unittest.skipIf(bot is None, "auto_bot dependencies not installed")
@@ -108,7 +157,7 @@ class I18nTests(unittest.TestCase):
              patch.object(bot, 'capture_game_window', return_value=(None, 0, 0)), \
              contextlib.redirect_stdout(io.StringIO()) as buf:
             bot.bot_running = False
-            bot.auto_play_loop(mode='legacy_101', on_stats_update=on_stats, lang='en')
+            bot.auto_play_loop(mode='max_profit', on_stats_update=on_stats, lang='en')
 
         self.assertEqual(localization.get_lang(), 'en')
         self.assertEqual(stats_calls, [(500, 1, 450)])
@@ -156,7 +205,7 @@ class I18nTests(unittest.TestCase):
                  patch.object(bot, 'capture_game_window', return_value=(None, 0, 0)), \
                  contextlib.redirect_stdout(io.StringIO()) as buf:
                 bot.bot_running = False
-                bot.auto_play_loop(mode='legacy_101', lang=lang)
+                bot.auto_play_loop(mode='max_profit', lang=lang)
 
             self.assertIn(expected_token, buf.getvalue(), f"Log output did not match {lang}")
 

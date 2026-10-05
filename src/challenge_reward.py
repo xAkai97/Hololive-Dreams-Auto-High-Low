@@ -6,8 +6,11 @@ except ImportError:
     PRIZES = (200, 400, 700, 800, 1500, 3000, 7000, 10000)
 
 
+VALID_NEXT_REWARDS = frozenset(prize * 2**n for prize in PRIZES for n in range(1, 33))
+
+
 def valid_next_reward(value):
-    return any(value == prize * 2**n for prize in PRIZES for n in range(1, 33))
+    return value in VALID_NEXT_REWARDS
 
 
 class ChallengeRewardReader:

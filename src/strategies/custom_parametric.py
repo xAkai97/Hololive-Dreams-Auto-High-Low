@@ -59,6 +59,9 @@ class CustomParametricStrategy(BaseStrategy):
     def expected_cash(self) -> Optional[int]:
         return self.last_cashout
 
+    def guess_clicked(self) -> None:
+        self._doubles_this_round += 1
+
     def decide(
         self,
         current_cashout: Optional[int] = None,
@@ -70,7 +73,6 @@ class CustomParametricStrategy(BaseStrategy):
         next_reward = next_reward or (current_cashout * 2)
         win_rate = win_rate if win_rate is not None else 1.0
         daily_coins = daily_coins or 0
-        self._doubles_this_round += 1
 
         # 1. Sprint check
         if daily_coins >= self.sprint_threshold:

@@ -107,17 +107,13 @@ class SettlementManager:
         """
         if not self.has_tallied:
             from localization import tr
-            from strategies import ThreeStagesStrategy
 
             if self.settlement_reader.started is None:
                 print(tr('state_settlement_wait'))
             if strategy is not None:
                 cashout_requested = (self.expected_cashout is not None)
                 strategy.begin_settlement(cashout_requested)
-                if isinstance(strategy, ThreeStagesStrategy):
-                    if getattr(strategy, "expected_cash", None) is not None:
-                        self.expected_cashout = strategy.expected_cash
-                elif cashout_requested:
+                if cashout_requested:
                     if getattr(strategy, "expected_cash", None) is not None:
                         self.expected_cashout = strategy.expected_cash
                 else:
@@ -126,7 +122,7 @@ class SettlementManager:
             prompt_fn = on_prompt_settlement or self.on_prompt_settlement
             try:
                 earned = self.settlement_reader.observe(amount, now, self.expected_cashout)
-            except (SettlementTimeoutError, RuntimeError) as err:
+            except RuntimeError as err:
                 recovery = self.recovery_mode or "auto"
                 last_amt = getattr(err, "last_amount", amount)
                 if recovery == "auto" and self.expected_cashout:
@@ -152,13 +148,11 @@ class SettlementManager:
             if on_stats_update:
                 on_stats_update(daily_coins, daily_fails, net_profit)
 
+            if strategy is not None:
+                strategy.notify_win()
+
             if self.save_data_fn:
-                if strategy is not None and strategy.stage_after_credit(earned) is not None:
-                    next_stage = strategy.stage_after_credit(earned)
-                    self.save_data_fn(daily_coins, daily_fails, next_stage)
-                    strategy.stage = next_stage
-                else:
-                    self.save_data_fn(daily_coins, daily_fails)
+                self.save_data_fn(daily_coins, daily_fails)
             self.has_tallied = True
 
         return daily_coins, True

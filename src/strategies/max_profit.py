@@ -1,7 +1,7 @@
 """Max Profit strategy — cushion to 19,800 then sprint for ~10k+ final win.
 
 Mirrors the upstream legacy logic exactly. The optimal daily strategy for
-~30,000-32,000 coins: carefully build to 19,800 then go all-in on a final
+~29,000-32,000 coins: carefully build to 19,800 then go all-in on a final
 max double-up round.
 """
 from typing import Optional
@@ -10,7 +10,7 @@ from strategies.base import BaseStrategy
 
 
 class MaxProfitStrategy(BaseStrategy):
-    """Maximize daily profit to ~32,000 coins.
+    """Maximize daily profit to ~29,000-32,000 coins.
 
     Cushion phase (daily < 19,800):
         - Cashout if next double overshoots 19,800
@@ -20,7 +20,8 @@ class MaxProfitStrategy(BaseStrategy):
         - Ignore win_rate, keep doubling until cashout >= 10,000
     """
 
-    name: str = "Max Profit (~32k)"
+    name: str = "Max Profit (~29-32k)"
+    cushion_target: int = 19800
 
     def __init__(self):
         self.reset_round()

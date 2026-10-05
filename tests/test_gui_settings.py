@@ -43,12 +43,15 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         # Test switching to all 3 tabs and invalid tab guard
         self.app.switch_tab("sim")
         self.assertEqual(self.app.current_tab, "sim")
+        self.assertEqual(self.app.canvas.itemcget(self.app.btn_toggle_modifiers_win, "state"), "normal")
 
         self.app.switch_tab("settings")
         self.assertEqual(self.app.current_tab, "settings")
+        self.assertEqual(self.app.canvas.itemcget(self.app.btn_toggle_modifiers_win, "state"), "hidden")
 
         self.app.switch_tab("bot")
         self.assertEqual(self.app.current_tab, "bot")
+        self.assertEqual(self.app.canvas.itemcget(self.app.btn_toggle_modifiers_win, "state"), "normal")
 
         # Invalid tab should be ignored
         self.app.switch_tab("nonexistent")
@@ -77,7 +80,7 @@ class TestGUISettingsAndMenus(unittest.TestCase):
             self.assertEqual(self.app.entry_setting_target.get(), "20000")
             self.assertEqual(self.app.entry_setting_ticket.get(), "50")
             self.assertEqual(self.app.param_min_win_rate, 60)
-            self.assertEqual(self.app.param_cushion_target, 20000)
+            self.assertEqual(self.app.param_cushion_target, 19800)
             self.assertEqual(self.app.param_sprint_target, 10000)
             self.assertEqual(self.app.param_max_doubles, 10)
             self.assertFalse(self.app.param_drop_seven_eight)
@@ -223,9 +226,9 @@ class TestGUISettingsAndMenus(unittest.TestCase):
     def test_config_strat_button_visibility_on_strategy_change(self):
         with patch.object(self.app, "save_settings"):
             self.app.switch_tab("bot")
-            # Select non-custom strategy (e.g. legacy_101)
-            legacy_idx = STRATEGY_KEYS.index("legacy_101")
-            self.app.combo_strategy.current(legacy_idx)
+            # Select non-custom strategy (e.g. max_profit)
+            max_profit_idx = STRATEGY_KEYS.index("max_profit")
+            self.app.combo_strategy.current(max_profit_idx)
             self.app.on_strategy_change()
             self.assertEqual(self.app.canvas.itemcget(self.app.btn_config_strat_win, "state"), "hidden")
 
@@ -240,6 +243,30 @@ class TestGUISettingsAndMenus(unittest.TestCase):
             self.app.combo_strategy.current(fast_idx)
             self.app.on_strategy_change()
             self.assertEqual(self.app.canvas.itemcget(self.app.btn_config_strat_win, "state"), "hidden")
+
+    def test_modifiers_drawer_toggle(self):
+        initial_state = self.app.modifiers_expanded
+        with patch.object(self.app, "save_settings") as mock_save:
+            self.app.toggle_modifiers_drawer()
+            self.assertEqual(self.app.modifiers_expanded, not initial_state)
+            mock_save.assert_called_once()
+
+        # Toggle back
+        with patch.object(self.app, "save_settings") as mock_save:
+            self.app.toggle_modifiers_drawer()
+            self.assertEqual(self.app.modifiers_expanded, initial_state)
+
+    def test_modifiers_checkbuttons(self):
+        self.app.var_mod_fast_build.set(True)
+        self.app.var_mod_drop_78.set(True)
+        self.app.var_mod_sprint_floor.set(True)
+        with patch.object(self.app, "save_settings") as mock_save:
+            self.app.on_modifier_toggle()
+            self.assertTrue(self.app.mod_fast_build)
+            self.assertTrue(self.app.mod_drop_78)
+            self.assertTrue(self.app.mod_sprint_floor)
+            self.assertTrue(self.app.param_drop_seven_eight)
+            mock_save.assert_called_once()
 
     def test_file_menu_has_clear_logs(self):
         menubar_labels = [self.app.menubar.entrycget(i, "label") for i in range(self.app.menubar.index("end") + 1)]
@@ -398,6 +425,38 @@ class TestGUISettingsAndMenus(unittest.TestCase):
                 self.assertEqual(len(remaining), 1)
                 self.assertEqual(remaining[0].name, "log_2026-09-22_00-00-00.txt")
 
+    def test_tooltips_registered_and_localized(self):
+        self.assertIn("opp_a2", self.app.tooltips)
+        self.assertIn("mod_drop_6789", self.app.tooltips)
+        self.assertIn("mod_free_roll", self.app.tooltips)
+        self.assertIn("mod_mega_sprint", self.app.tooltips)
+
+        # In English:
+        self.app.current_lang = "en"
+        self.app.refresh_texts()
+        self.assertIn("94.1%", self.app.tooltips["opp_a2"].text)
+        self.assertIn("6/7/8/9", self.app.tooltips["mod_drop_6789"].text)
+
+        # In Japanese:
+        self.app.current_lang = "ja"
+        self.app.refresh_texts()
+        self.assertIn("94.1%", self.app.tooltips["opp_a2"].text)
+        self.assertIn("クッション", self.app.tooltips["mod_drop_6789"].text)
+
+        # In Simplified Chinese:
+        self.app.current_lang = "zh"
+        self.app.refresh_texts()
+        self.assertIn("垫刀", self.app.tooltips["mod_drop_6789"].text)
+
+        # In Traditional Chinese:
+        self.app.current_lang = "tw"
+        self.app.refresh_texts()
+        self.assertIn("墊刀", self.app.tooltips["mod_drop_6789"].text)
+
+        # Reset to English
+        self.app.current_lang = "en"
+        self.app.refresh_texts()
+
 
 @unittest.skipUnless(HAVE_GUI, 'GUI dependencies not installed')
 class TestAppDirResolution(unittest.TestCase):
@@ -415,6 +474,45 @@ class TestAppDirResolution(unittest.TestCase):
                     res = auto_bot._resolve_app_dir()
                     self.assertEqual(res, Path(fake_appdata) / "HololiveDreamsAuto")
                     self.assertTrue(res.exists())
+
+
+class TestToolTip(unittest.TestCase):
+    def setUp(self):
+        try:
+            self.root = tk.Tk()
+            self.root.withdraw()
+        except Exception:
+            self.skipTest("Tkinter display not available")
+
+    def tearDown(self):
+        if hasattr(self, "root"):
+            try:
+                self.root.destroy()
+            except Exception:
+                pass
+
+    def test_tooltip_lifecycle(self):
+        from main_ui import ToolTip
+        btn = ttk.Button(self.root, text="Test")
+        btn.pack()
+        tip = ToolTip(btn, text="Initial Tooltip", delay_ms=10)
+        self.assertEqual(tip.text, "Initial Tooltip")
+
+        # Test show
+        tip._show()
+        self.assertIsNotNone(tip._tip_window)
+        self.assertTrue(tip._tip_window.winfo_exists())
+
+        # Test update_text
+        tip.update_text("Updated Tooltip")
+        self.assertEqual(tip.text, "Updated Tooltip")
+        self.assertIsNone(tip._tip_window)
+
+        # Test hide
+        tip._show()
+        self.assertIsNotNone(tip._tip_window)
+        tip._hide()
+        self.assertIsNone(tip._tip_window)
 
 
 if __name__ == "__main__":

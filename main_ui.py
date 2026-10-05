@@ -39,7 +39,6 @@ except Exception:
     pass
 
 TRANSLATIONS = localization.TRANSLATIONS
-STRATEGY_LABELS = localization.STRATEGY_LABELS
 
 
 def load_saved_stats():
@@ -47,6 +46,82 @@ def load_saved_stats():
     data = auto_bot.load_config()
     ticket_cost = int(data.get("ticket_cost", 50))
     return c, fl, c - (fl * ticket_cost)
+
+
+class ToolTip:
+    """Lightweight hover tooltip for Tkinter widgets."""
+
+    def __init__(self, widget, text: str = "", delay_ms: int = 400):
+        self.widget = widget
+        self.text = text
+        self.delay_ms = delay_ms
+        self._tip_window = None
+        self._after_id = None
+
+        if self.widget:
+            self.widget.bind("<Enter>", self._on_enter, add="+")
+            self.widget.bind("<Leave>", self._on_leave, add="+")
+            self.widget.bind("<ButtonPress>", self._on_leave, add="+")
+
+    def _on_enter(self, event=None):
+        self._cancel()
+        if self.text and self.widget:
+            self._after_id = self.widget.after(self.delay_ms, self._show)
+
+    def _on_leave(self, event=None):
+        self._cancel()
+        self._hide()
+
+    def _cancel(self):
+        if self._after_id and self.widget:
+            try:
+                self.widget.after_cancel(self._after_id)
+            except Exception:
+                pass
+            self._after_id = None
+
+    def _show(self):
+        if self._tip_window or not self.text or not self.widget:
+            return
+        try:
+            x = self.widget.winfo_rootx() + 15
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+            self._tip_window = tw = tk.Toplevel(self.widget)
+            tw.wm_overrideredirect(True)
+            tw.wm_geometry(f"+{x}+{y}")
+            try:
+                tw.wm_attributes("-topmost", True)
+            except Exception:
+                pass
+            frame = tk.Frame(tw, background="#334155", borderwidth=1, relief="solid")
+            frame.pack()
+            lbl = tk.Label(
+                frame,
+                text=self.text,
+                justify="left",
+                background="#1E293B",
+                foreground="#F8FAFC",
+                font=("Segoe UI", 8),
+                padx=6,
+                pady=4,
+                wraplength=320,
+            )
+            lbl.pack()
+        except Exception:
+            self._hide()
+
+    def _hide(self):
+        if self._tip_window:
+            try:
+                self._tip_window.destroy()
+            except Exception:
+                pass
+            self._tip_window = None
+
+    def update_text(self, text: str):
+        self.text = text
+        if self._tip_window:
+            self._hide()
 
 
 # ================= Output Interceptor & Virtual Scrolling Engine =================
@@ -58,7 +133,10 @@ class RedirectText:
     def write(self, string):
         if not string:
             return
-        self.ui.after(0, self._write, string)
+        if hasattr(self.ui, "ui_queue"):
+            self.ui.ui_queue.put(("log", string))
+        else:
+            self._write(string)
 
     def _write(self, string):
         if not string:
@@ -73,7 +151,10 @@ class RedirectText:
 
     def clear(self):
         self.raw_text = ""
-        self.ui.after(0, self.ui.clear_log_text)
+        if hasattr(self.ui, "ui_queue"):
+            self.ui.ui_queue.put(("clear_log", None))
+        else:
+            self.ui.clear_log_text()
 
 
 def get_locale_font_family(lang: str = "en") -> str:
@@ -181,6 +262,18 @@ def rotate_previous_log(max_days: int = 14, max_size_mb: int = 20, lang: str = "
                 counter += 1
 
             log_file.replace(target_file)
+
+        debug_file = auto_bot.APP_DIR / "debug_log.txt"
+        if debug_file.exists() and debug_file.stat().st_size > 0:
+            auto_bot.LOGS_DIR.mkdir(parents=True, exist_ok=True)
+            mtime = debug_file.stat().st_mtime
+            timestamp_str = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime(mtime))
+            target_debug = auto_bot.LOGS_DIR / f"debug_log_{timestamp_str}.txt"
+            counter = 1
+            while target_debug.exists():
+                target_debug = auto_bot.LOGS_DIR / f"debug_log_{timestamp_str}_{counter}.txt"
+                counter += 1
+            debug_file.replace(target_debug)
     except Exception as e:
         print(f"[Warning] Failed to rotate log file: {e}")
 
@@ -240,8 +333,8 @@ class HololiveBotUI(tk.Tk):
         except Exception as e:
             print(f"[Warning] Failed to load application icon: {e}")
 
-        self.geometry("450x800")
-        self.minsize(360, 640)
+        self.geometry("480x850")
+        self.minsize(420, 680)
 
         self.last_w = 0
         self.last_h = 0
@@ -274,6 +367,7 @@ class HololiveBotUI(tk.Tk):
         self.style.configure("Tab.TButton", font=(self.font_family, 9, "bold"), padding=(4, 3))
         self.style.configure("ActiveTab.TButton", font=(self.font_family, 9, "bold"), padding=(4, 3))
         self.style.configure("Config.TButton", font=(self.font_family, 9, "bold"), padding=(4, 2))
+        self.style.configure("ModifierDrawer.TButton", font=(self.font_family, 9, "bold"), padding=(8, 4))
 
         font_normal = (self.font_family, 12, "bold")
         font_log = (self.font_family, 12, "bold")
@@ -316,20 +410,45 @@ class HololiveBotUI(tk.Tk):
         self.ticket_cost = int(saved_config.get("ticket_cost", 50))
         self.param_min_win_rate = int(saved_config.get("param_min_win_rate", 60))
         saved_cushion = saved_config.get("param_cushion_target")
-        self.param_cushion_target = 20000 if (saved_cushion is None or saved_cushion == 19800) else int(saved_cushion)
+        self.param_cushion_target = 19800 if (saved_cushion is None or saved_cushion == 20000) else int(saved_cushion)
         self.param_sprint_target = int(saved_config.get("param_sprint_target", 10000))
         self.param_max_doubles = int(saved_config.get("param_max_doubles", 10))
         self.param_drop_seven_eight = bool(saved_config.get("param_drop_seven_eight", False))
-        self.opportunistic_double_mode = str(saved_config.get("opportunistic_double_mode", "a_2_only"))
-        default_a2 = saved_config.get("opp_a2", self.opportunistic_double_mode in ("a_2_only", "include_3_k", "include_4_q"))
-        default_3k = saved_config.get("opp_3k", self.opportunistic_double_mode in ("include_3_k", "include_4_q"))
-        default_4q = saved_config.get("opp_4q", self.opportunistic_double_mode == "include_4_q")
+        self.modifiers_expanded = bool(saved_config.get("modifiers_expanded", True))
+        self.mod_fast_build = bool(saved_config.get("mod_fast_build", False))
+        self.mod_drop_78 = bool(saved_config.get("mod_drop_78", self.param_drop_seven_eight))
+        self.mod_drop_6789 = bool(saved_config.get("mod_drop_6789", False))
+        self.mod_drop_8 = bool(saved_config.get("mod_drop_8", False))
+        self.mod_free_roll = bool(saved_config.get("mod_free_roll", False))
+        self.mod_sprint_floor = bool(saved_config.get("mod_sprint_floor", False))
+        self.mod_mega_sprint = bool(saved_config.get("mod_mega_sprint", False))
+        self.var_mod_fast_build = tk.BooleanVar(value=self.mod_fast_build)
+        self.var_mod_drop_78 = tk.BooleanVar(value=self.mod_drop_78)
+        self.var_mod_drop_6789 = tk.BooleanVar(value=self.mod_drop_6789)
+        self.var_mod_drop_8 = tk.BooleanVar(value=self.mod_drop_8)
+        self.var_mod_free_roll = tk.BooleanVar(value=self.mod_free_roll)
+        self.var_mod_sprint_floor = tk.BooleanVar(value=self.mod_sprint_floor)
+        self.var_mod_mega_sprint = tk.BooleanVar(value=self.mod_mega_sprint)
+        self.debug_logging = bool(saved_config.get("debug_logging", False))
+        self.var_debug_logging = tk.BooleanVar(value=self.debug_logging)
+        default_a2 = saved_config.get("opp_a2", True)
+        default_3k = saved_config.get("opp_3k", True)
+        default_4q = saved_config.get("opp_4q", True)
+        default_5j = saved_config.get("opp_5j", False)
+        default_610 = saved_config.get("opp_610", False)
+        default_79 = saved_config.get("opp_79", False)
+        default_8 = saved_config.get("opp_8", False)
         self.var_opp_a2 = tk.BooleanVar(value=bool(default_a2))
         self.var_opp_3k = tk.BooleanVar(value=bool(default_3k))
         self.var_opp_4q = tk.BooleanVar(value=bool(default_4q))
+        self.var_opp_5j = tk.BooleanVar(value=bool(default_5j))
+        self.var_opp_610 = tk.BooleanVar(value=bool(default_610))
+        self.var_opp_79 = tk.BooleanVar(value=bool(default_79))
+        self.var_opp_8 = tk.BooleanVar(value=bool(default_8))
 
         self.last_benchmark_results: list[dict] = []
         self.is_simulating = False
+        self.tooltips: dict[str, ToolTip] = {}
 
         # --- Top Menu Bar ---
         self.menubar = tk.Menu(self)
@@ -413,15 +532,82 @@ class HololiveBotUI(tk.Tk):
         font_desc = (self.font_family, 9)
         self.strategy_desc_id = self.canvas.create_text(0, 0, font=font_desc, fill="#222222", anchor="nw")
 
-        # Opportunistic Doubling Toggles on Auto Bot Tab
-        self.lbl_opp_title_id = self.canvas.create_text(0, 0, font=(self.font_family, 9, "bold"), fill="#111111", anchor="nw")
+        # Strategy Modifiers Drawer on Auto Bot Tab
+        self.btn_toggle_modifiers = ttk.Button(
+            self,
+            text="",
+            command=self.toggle_modifiers_drawer,
+            style="ModifierDrawer.TButton",
+        )
+        self.btn_toggle_modifiers_win = self.canvas.create_window(0, 0, window=self.btn_toggle_modifiers, anchor="nw")
+
         self.opp_frame = ttk.Frame(self)
-        self.chk_opp_a2 = ttk.Checkbutton(self.opp_frame, variable=self.var_opp_a2, command=self.on_opp_toggle)
-        self.chk_opp_3k = ttk.Checkbutton(self.opp_frame, variable=self.var_opp_3k, command=self.on_opp_toggle)
-        self.chk_opp_4q = ttk.Checkbutton(self.opp_frame, variable=self.var_opp_4q, command=self.on_opp_toggle)
-        self.chk_opp_a2.pack(side="left", padx=(0, 10))
-        self.chk_opp_3k.pack(side="left", padx=(0, 10))
-        self.chk_opp_4q.pack(side="left", padx=(0, 0))
+
+        # Section 1: Card Overrides (Double Under Cap) - 3 Columns
+        self.lbl_sec_cards = ttk.Label(self.opp_frame, font=(self.font_family, 8, "bold"), foreground="#475569")
+        self.lbl_sec_cards.pack(anchor="w", pady=(2, 2))
+        self.frame_cards_grid = ttk.Frame(self.opp_frame)
+        self.frame_cards1 = self.frame_cards_grid
+        self.frame_cards2 = self.frame_cards_grid
+        self.frame_cards = self.frame_cards_grid
+        self.frame_cards_grid.pack(fill="x", pady=(0, 4))
+        for col in range(3):
+            self.frame_cards_grid.columnconfigure(col, weight=1, uniform="card_col")
+
+        self.chk_opp_a2 = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_a2, command=self.on_opp_toggle)
+        self.chk_opp_3k = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_3k, command=self.on_opp_toggle)
+        self.chk_opp_4q = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_4q, command=self.on_opp_toggle)
+        self.chk_opp_5j = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_5j, command=self.on_opp_toggle)
+        self.chk_opp_610 = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_610, command=self.on_opp_toggle)
+        self.chk_opp_79 = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_79, command=self.on_opp_toggle)
+        self.chk_opp_8 = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_8, command=self.on_opp_toggle)
+
+        self.chk_opp_a2.grid(row=0, column=0, sticky="w", padx=(0, 2), pady=1)
+        self.chk_opp_3k.grid(row=0, column=1, sticky="w", padx=(0, 2), pady=1)
+        self.chk_opp_4q.grid(row=0, column=2, sticky="w", padx=(0, 2), pady=1)
+        self.chk_opp_5j.grid(row=1, column=0, sticky="w", padx=(0, 2), pady=1)
+        self.chk_opp_610.grid(row=1, column=1, sticky="w", padx=(0, 2), pady=1)
+        self.chk_opp_79.grid(row=1, column=2, sticky="w", padx=(0, 2), pady=1)
+        self.chk_opp_8.grid(row=2, column=0, sticky="w", padx=(0, 2), pady=1)
+
+        # Section 2: Defensive Bailouts (<19.8k Cushion) - 2 Columns
+        self.lbl_sec_bail = ttk.Label(self.opp_frame, font=(self.font_family, 8, "bold"), foreground="#475569")
+        self.lbl_sec_bail.pack(anchor="w", pady=(3, 2))
+        self.frame_bail_grid = ttk.Frame(self.opp_frame)
+        self.frame_bail = self.frame_bail_grid
+        self.frame_mods = self.frame_bail_grid
+        self.frame_bail_grid.pack(fill="x", pady=(0, 4))
+        for col in range(2):
+            self.frame_bail_grid.columnconfigure(col, weight=1, uniform="mod_col")
+
+        self.chk_mod_drop_78 = ttk.Checkbutton(self.frame_bail_grid, variable=self.var_mod_drop_78, command=self.on_modifier_toggle)
+        self.chk_mod_drop_6789 = ttk.Checkbutton(self.frame_bail_grid, variable=self.var_mod_drop_6789, command=self.on_modifier_toggle)
+        self.chk_mod_drop_8 = ttk.Checkbutton(self.frame_bail_grid, variable=self.var_mod_drop_8, command=self.on_modifier_toggle)
+
+        self.chk_mod_drop_78.grid(row=0, column=0, sticky="w", padx=(0, 4), pady=1)
+        self.chk_mod_drop_6789.grid(row=0, column=1, sticky="w", padx=(0, 4), pady=1)
+        self.chk_mod_drop_8.grid(row=1, column=0, sticky="w", padx=(0, 4), pady=1)
+
+        # Section 3: Progression & Sprint Phase - 2 Columns
+        self.lbl_sec_prog = ttk.Label(self.opp_frame, font=(self.font_family, 8, "bold"), foreground="#475569")
+        self.lbl_sec_prog.pack(anchor="w", pady=(3, 2))
+        self.frame_prog_grid = ttk.Frame(self.opp_frame)
+        self.frame_prog1 = self.frame_prog_grid
+        self.frame_prog2 = self.frame_prog_grid
+        self.frame_prog_grid.pack(fill="x", pady=(0, 6))
+        for col in range(2):
+            self.frame_prog_grid.columnconfigure(col, weight=1, uniform="mod_col")
+
+        self.chk_mod_fast_build = ttk.Checkbutton(self.frame_prog_grid, variable=self.var_mod_fast_build, command=self.on_modifier_toggle)
+        self.chk_mod_free_roll = ttk.Checkbutton(self.frame_prog_grid, variable=self.var_mod_free_roll, command=self.on_modifier_toggle)
+        self.chk_mod_sprint_floor = ttk.Checkbutton(self.frame_prog_grid, variable=self.var_mod_sprint_floor, command=self.on_modifier_toggle)
+        self.chk_mod_mega_sprint = ttk.Checkbutton(self.frame_prog_grid, variable=self.var_mod_mega_sprint, command=self.on_modifier_toggle)
+
+        self.chk_mod_fast_build.grid(row=0, column=0, sticky="w", padx=(0, 4), pady=1)
+        self.chk_mod_free_roll.grid(row=0, column=1, sticky="w", padx=(0, 4), pady=1)
+        self.chk_mod_sprint_floor.grid(row=1, column=0, sticky="w", padx=(0, 4), pady=1)
+        self.chk_mod_mega_sprint.grid(row=1, column=1, sticky="w", padx=(0, 4), pady=1)
+
         self.opp_frame_win = self.canvas.create_window(0, 0, window=self.opp_frame, anchor="nw")
 
         # --- Simulation Tab Specific Widgets ---
@@ -474,6 +660,13 @@ class HololiveBotUI(tk.Tk):
 
         self.btn_open_custom_dialog = ttk.Button(self, command=self.open_custom_parametric_dialog)
         self.btn_open_custom_dialog_win = self.canvas.create_window(0, 0, window=self.btn_open_custom_dialog, state="hidden")
+
+        self.chk_setting_debug_log = ttk.Checkbutton(
+            self,
+            variable=self.var_debug_logging,
+            command=self.on_debug_logging_toggle,
+        )
+        self.chk_setting_debug_log_win = self.canvas.create_window(0, 0, window=self.chk_setting_debug_log, anchor="w")
 
         self.btn_save_settings = ttk.Button(self, command=self.save_user_settings)
         self.btn_save_settings_win = self.canvas.create_window(0, 0, window=self.btn_save_settings)
@@ -565,7 +758,7 @@ class HololiveBotUI(tk.Tk):
             self.btn_preset_balanced_win,
             self.btn_preset_profit_win,
             self.btn_config_strat_win,
-            self.lbl_opp_title_id,
+            self.btn_toggle_modifiers_win,
             self.opp_frame_win,
         ]
 
@@ -573,6 +766,8 @@ class HololiveBotUI(tk.Tk):
             self.btn_preset_fast_win,
             self.btn_preset_balanced_win,
             self.btn_preset_profit_win,
+            self.btn_toggle_modifiers_win,
+            self.opp_frame_win,
             self.sim_days_label_id,
             self.spin_sim_days_win,
             self.btn_sim_run_win,
@@ -592,11 +787,17 @@ class HololiveBotUI(tk.Tk):
             self.entry_setting_ticket_win,
             self.lbl_setting_opacity_id,
             self.scale_setting_opacity_win,
+            self.chk_setting_debug_log_win,
             self.btn_save_settings_win,
             self.btn_restore_defaults_win,
             self.btn_back_to_bot_win,
             self.settings_feedback_id,
         ]
+
+        self.ui_queue = queue.Queue()
+        self._is_destroyed = False
+        self.last_game_date = auto_bot.get_game_date()
+        self._process_ui_queue()
 
         self.sys_redirector = RedirectText(self)
         self.original_stdout = sys.stdout
@@ -605,8 +806,69 @@ class HololiveBotUI(tk.Tk):
         self.canvas.bind("<Configure>", self.on_resize)
         self.resize_after_id = None
 
+        # Register widget hover tooltips
+        self.tooltips["opp_a2"] = ToolTip(self.chk_opp_a2)
+        self.tooltips["opp_3k"] = ToolTip(self.chk_opp_3k)
+        self.tooltips["opp_4q"] = ToolTip(self.chk_opp_4q)
+        self.tooltips["opp_5j"] = ToolTip(self.chk_opp_5j)
+        self.tooltips["opp_610"] = ToolTip(self.chk_opp_610)
+        self.tooltips["opp_79"] = ToolTip(self.chk_opp_79)
+        self.tooltips["opp_8"] = ToolTip(self.chk_opp_8)
+        self.tooltips["mod_drop_78"] = ToolTip(self.chk_mod_drop_78)
+        self.tooltips["mod_drop_6789"] = ToolTip(self.chk_mod_drop_6789)
+        self.tooltips["mod_drop_8"] = ToolTip(self.chk_mod_drop_8)
+        self.tooltips["mod_fast_build"] = ToolTip(self.chk_mod_fast_build)
+        self.tooltips["mod_free_roll"] = ToolTip(self.chk_mod_free_roll)
+        self.tooltips["mod_sprint_floor"] = ToolTip(self.chk_mod_sprint_floor)
+        self.tooltips["mod_mega_sprint"] = ToolTip(self.chk_mod_mega_sprint)
+        self.tooltips["btn_toggle_modifiers"] = ToolTip(self.btn_toggle_modifiers)
+        self.tooltips["btn_config_strat"] = ToolTip(self.btn_config_strat)
+        self.tooltips["field_box_opacity"] = ToolTip(self.scale_setting_opacity)
+        self.tooltips["debug_log"] = ToolTip(self.chk_setting_debug_log)
+
         self.refresh_texts()
-        self.draw_ui(450, 800)
+        self.draw_ui(480, 850)
+        threading.Thread(target=self._warm_up_engine, daemon=True).start()
+
+    def _warm_up_engine(self):
+        try:
+            import poker_core
+            poker_core.warm_up()
+        except Exception:
+            pass
+
+    def _process_ui_queue(self):
+        if getattr(self, "_is_destroyed", False):
+            return
+
+        current_game_date = auto_bot.get_game_date()
+        if getattr(self, "last_game_date", None) != current_game_date:
+            self.last_game_date = current_game_date
+            if not self.is_running:
+                self.current_coins, self.current_fails, self.current_profit = load_saved_stats()
+                self.update_stats_display()
+
+        try:
+            for _ in range(100):
+                item = self.ui_queue.get_nowait()
+                msg_type, payload = item
+                if msg_type == "log":
+                    self.sys_redirector._write(payload)
+                elif msg_type == "clear_log":
+                    self.clear_log_text()
+                elif msg_type == "stats":
+                    c, f, p = payload
+                    self.update_stats_display(c, f, p)
+                elif msg_type == "callback":
+                    payload()
+                self.ui_queue.task_done()
+        except queue.Empty:
+            pass
+        except Exception:
+            pass
+        finally:
+            if not getattr(self, "_is_destroyed", False):
+                self.after(30, self._process_ui_queue)
 
     def start_listen_hotkey(self):
         if self.is_running:
@@ -644,9 +906,9 @@ class HololiveBotUI(tk.Tk):
                 pass
 
         if key:
-            self.after(0, self._apply_new_hotkey, key)
+            self.ui_queue.put(("callback", lambda: self._apply_new_hotkey(key)))
         else:
-            self.after(0, self._cancel_listen_hotkey)
+            self.ui_queue.put(("callback", self._cancel_listen_hotkey))
 
     def _cancel_listen_hotkey(self):
         self.is_listening = False
@@ -859,10 +1121,9 @@ class HololiveBotUI(tk.Tk):
             self.canvas.coords(self.profit_id, entry_fails_x + 54 + 10, fails_y)
 
             # 1-Row Action Buttons: Start Bot & Stop Bot (50/50 balanced split)
-            # 16px vertical gap below stats card
             btn_gap = 14
-            btn_h = 40
-            btn_row_top = stats_card_bottom + 16
+            btn_h = 38
+            btn_row_top = stats_card_bottom + 12
             btn_row_y = btn_row_top + btn_h / 2
             btn_w = (content_w - btn_gap) / 2
 
@@ -875,11 +1136,10 @@ class HololiveBotUI(tk.Tk):
             self.canvas.itemconfig(self.btn_exit_win, state="hidden")
 
             # Quick Goal Presets (Fastest / Balanced / Max Profit)
-            # 16px vertical gap below action buttons
             preset_gap = 6
             preset_btn_w = (content_w - 2 * preset_gap) / 3
-            preset_btn_h = 34
-            preset_top = btn_row_top + btn_h + 16
+            preset_btn_h = 30
+            preset_top = btn_row_top + btn_h + 10
             preset_y = preset_top + preset_btn_h / 2
 
             self.canvas.coords(self.btn_preset_fast_win, pad_x + preset_btn_w / 2, preset_y)
@@ -890,9 +1150,8 @@ class HololiveBotUI(tk.Tk):
             self.canvas.itemconfig(self.btn_preset_profit_win, width=preset_btn_w, height=preset_btn_h, state="normal")
 
             # Strategy Row (full width dropdown or with config button if custom parametric)
-            # 16px vertical gap below presets
-            strat_top = preset_top + preset_btn_h + 16
-            strat_field_h = 32
+            strat_top = preset_top + preset_btn_h + 10
+            strat_field_h = 30
             is_custom = (self.active_mode == "custom_parametric")
             if is_custom:
                 config_btn_w = max(100, min(120, int(content_w * 0.28)))
@@ -907,26 +1166,31 @@ class HololiveBotUI(tk.Tk):
                 self.canvas.itemconfig(self.btn_config_strat_win, state="hidden")
 
             # Strategy Description (with clear guidance)
-            # 10px vertical gap below dropdown
-            desc_y = strat_top + strat_field_h + 10
+            desc_y = strat_top + strat_field_h + 6
             self.canvas.coords(self.strategy_desc_id, pad_x, desc_y)
             self.canvas.itemconfig(self.strategy_desc_id, width=content_w, state="normal")
 
             desc_bbox = self.canvas.bbox(self.strategy_desc_id)
-            desc_bottom = desc_bbox[3] if (desc_bbox and desc_bbox[3] > desc_y) else (desc_y + 32)
+            desc_bottom = desc_bbox[3] if (desc_bbox and desc_bbox[3] > desc_y) else (desc_y + 30)
 
-            # Opportunistic Doubling Toggles on Auto Bot Tab
-            opp_title_y = desc_bottom + 10
-            self.canvas.coords(self.lbl_opp_title_id, pad_x, opp_title_y)
-            self.canvas.itemconfig(self.lbl_opp_title_id, state="normal")
+            # Strategy Modifiers Drawer on Auto Bot Tab
+            mod_btn_y = desc_bottom + 8
+            mod_btn_h = 30
+            self.canvas.coords(self.btn_toggle_modifiers_win, pad_x, mod_btn_y)
+            self.canvas.itemconfig(self.btn_toggle_modifiers_win, width=content_w, height=mod_btn_h, state="normal")
 
-            opp_frame_y = opp_title_y + 18
-            opp_frame_h = 26
-            self.canvas.coords(self.opp_frame_win, pad_x, opp_frame_y)
-            self.canvas.itemconfig(self.opp_frame_win, width=content_w, height=opp_frame_h, state="normal")
+            if self.modifiers_expanded:
+                opp_frame_y = mod_btn_y + mod_btn_h + 6
+                self.opp_frame.update_idletasks()
+                opp_frame_h = max(235, self.opp_frame.winfo_reqheight())
+                self.canvas.coords(self.opp_frame_win, pad_x, opp_frame_y)
+                self.canvas.itemconfig(self.opp_frame_win, width=content_w, height=opp_frame_h, state="normal")
+                log_y = opp_frame_y + opp_frame_h + 8
+            else:
+                self.canvas.itemconfig(self.opp_frame_win, state="hidden")
+                log_y = mod_btn_y + mod_btn_h + 8
 
             # Log Box
-            log_y = opp_frame_y + opp_frame_h + 12
             log_bottom = h - max(16, int(h * 0.025))
             log_h = max(60, log_bottom - log_y)
             scrollbar_w = 16
@@ -958,8 +1222,8 @@ class HololiveBotUI(tk.Tk):
             # Quick Goal Presets on Simulation tab
             preset_gap = 6
             preset_btn_w = (content_w - 2 * preset_gap) / 3
-            preset_btn_h = 34
-            preset_top = tab_y + tab_btn_h / 2 + 16
+            preset_btn_h = 30
+            preset_top = tab_y + tab_btn_h / 2 + 10
             preset_y = preset_top + preset_btn_h / 2
 
             self.canvas.coords(self.btn_preset_fast_win, pad_x + preset_btn_w / 2, preset_y)
@@ -970,8 +1234,8 @@ class HololiveBotUI(tk.Tk):
             self.canvas.itemconfig(self.btn_preset_profit_win, width=preset_btn_w, height=preset_btn_h, state="normal")
 
             # Strategy Row (full width or with config button if custom parametric)
-            strat_top = preset_top + preset_btn_h + 16
-            strat_field_h = 32
+            strat_top = preset_top + preset_btn_h + 10
+            strat_field_h = 30
             is_custom = (self.active_mode == "custom_parametric")
             if is_custom:
                 config_btn_w = max(100, min(120, int(content_w * 0.28)))
@@ -986,16 +1250,32 @@ class HololiveBotUI(tk.Tk):
                 self.canvas.itemconfig(self.btn_config_strat_win, state="hidden")
 
             # Strategy Description
-            desc_y = strat_top + strat_field_h + 10
+            desc_y = strat_top + strat_field_h + 6
             self.canvas.coords(self.strategy_desc_id, pad_x, desc_y)
             self.canvas.itemconfig(self.strategy_desc_id, width=content_w, state="normal")
 
             # Dynamic spacing to guarantee no overlap with description text
             desc_bbox = self.canvas.bbox(self.strategy_desc_id)
-            desc_bottom = desc_bbox[3] if (desc_bbox and desc_bbox[3] > desc_y) else (desc_y + 36)
+            desc_bottom = desc_bbox[3] if (desc_bbox and desc_bbox[3] > desc_y) else (desc_y + 30)
+
+            # Strategy Modifiers Drawer on Simulation Tab
+            mod_btn_y = desc_bottom + 8
+            mod_btn_h = 30
+            self.canvas.coords(self.btn_toggle_modifiers_win, pad_x, mod_btn_y)
+            self.canvas.itemconfig(self.btn_toggle_modifiers_win, width=content_w, height=mod_btn_h, state="normal")
+
+            if self.modifiers_expanded:
+                opp_frame_y = mod_btn_y + mod_btn_h + 6
+                self.opp_frame.update_idletasks()
+                opp_frame_h = max(235, self.opp_frame.winfo_reqheight())
+                self.canvas.coords(self.opp_frame_win, pad_x, opp_frame_y)
+                self.canvas.itemconfig(self.opp_frame_win, width=content_w, height=opp_frame_h, state="normal")
+                days_row_top = opp_frame_y + opp_frame_h + 8
+            else:
+                self.canvas.itemconfig(self.opp_frame_win, state="hidden")
+                days_row_top = mod_btn_y + mod_btn_h + 8
 
             # Days input row (Sim Days + Spinbox on left, Clear Logs on right)
-            days_row_top = desc_bottom + 14
             days_row_h = 30
             days_y = days_row_top + days_row_h / 2
             self.canvas.coords(self.sim_days_label_id, pad_x, days_y)
@@ -1085,8 +1365,13 @@ class HololiveBotUI(tk.Tk):
             self.canvas.coords(self.entry_setting_ticket_win, w - pad_x, r5_y)
             self.canvas.itemconfig(self.entry_setting_ticket_win, width=input_w, height=field_h, state="normal")
 
-            # Row 6: Buttons: Save & Restore
-            btn_sett_y = r5_y + row_gap + 10
+            # Row 6: Debug Logging Toggle
+            r6_y = r5_y + row_gap
+            self.canvas.coords(self.chk_setting_debug_log_win, pad_x, r6_y)
+            self.canvas.itemconfig(self.chk_setting_debug_log_win, width=content_w, height=field_h, state="normal")
+
+            # Row 7: Buttons: Save & Restore
+            btn_sett_y = r6_y + row_gap + 10
             btn_sett_w = (content_w - 8) / 2
             btn_sett_h = 36
             self.canvas.coords(self.btn_save_settings_win, pad_x + btn_sett_w / 2, btn_sett_y)
@@ -1154,7 +1439,7 @@ class HololiveBotUI(tk.Tk):
                 return
             except Exception as e:
                 print(f"[Warning] Failed to open background image {self.bg_candidates[self.bg_index]}: {e}")
-        self.original_bg = Image.new('RGB', (450, 800), color='#F0F0F0')
+        self.original_bg = Image.new('RGB', (480, 850), color='#F0F0F0')
         self.show_bg = False
 
     def select_background(self, idx: int):
@@ -1190,8 +1475,8 @@ class HololiveBotUI(tk.Tk):
                 self.lbl_setting_opacity_val.configure(text=f"{self.field_box_opacity}%")
             except Exception:
                 pass
-        w = self.last_w if (self.last_w and self.last_w > 50) else (self.winfo_width() if self.winfo_width() > 50 else 450)
-        h = self.last_h if (self.last_h and self.last_h > 50) else (self.winfo_height() if self.winfo_height() > 50 else 800)
+        w = self.last_w if (self.last_w and self.last_w > 50) else (self.winfo_width() if self.winfo_width() > 50 else 480)
+        h = self.last_h if (self.last_h and self.last_h > 50) else (self.winfo_height() if self.winfo_height() > 50 else 850)
         self.draw_ui(w, h)
         if save:
             self.save_settings()
@@ -1284,8 +1569,8 @@ class HololiveBotUI(tk.Tk):
             return
         self.current_tab = tab
         self.refresh_texts()
-        w = self.last_w if self.last_w else 450
-        h = self.last_h if self.last_h else 800
+        w = self.last_w if self.last_w else 480
+        h = self.last_h if self.last_h else 850
         self.draw_ui(w, h)
 
     def _safe_open_path(self, path: Path):
@@ -1356,11 +1641,20 @@ class HololiveBotUI(tk.Tk):
             label=localization.tr("menu_open_logs_dir", self.current_lang),
             command=lambda: self._safe_open_path(auto_bot.LOGS_DIR),
         )
+        self.logs_menu.add_command(
+            label=localization.tr("menu_open_debug_log", self.current_lang),
+            command=self.open_debug_log,
+        )
         self.logs_menu.add_separator()
         self.logs_menu.add_checkbutton(
             label=f"{localization.tr('menu_toggle_log', self.current_lang)} (Ctrl+L)",
             variable=self.var_show_log,
             command=self.toggle_log_console,
+        )
+        self.logs_menu.add_checkbutton(
+            label=localization.tr("menu_enable_debug_log", self.current_lang),
+            variable=self.var_debug_logging,
+            command=self.on_debug_logging_toggle,
         )
 
         # Background Menu (Top-level in menubar)
@@ -1488,6 +1782,9 @@ class HololiveBotUI(tk.Tk):
             log_file = auto_bot.APP_DIR / "log.txt"
             if log_file.exists():
                 log_file.write_text("", encoding="utf-8")
+            debug_file = auto_bot.DEBUG_LOG_FILE
+            if debug_file.exists():
+                debug_file.write_text("", encoding="utf-8")
         except Exception:
             pass
 
@@ -1513,18 +1810,14 @@ class HololiveBotUI(tk.Tk):
     def show_help_strategies(self):
         title = localization.tr("menu_strategy_guide", self.current_lang)
         body = (
-            "=== 11 Strategy Catalog & Risk Profiles ===\n\n"
-            "1. Pure Sprint (YOLO): Uncapped doubling. Highest jackpot (avg 520k).\n"
-            "2. Three-Stage: 10k sprint -> 5k-6k milestone -> mega sprint (avg 390k).\n"
-            "3. Adaptive Three-Stage: 3-stage with middle-card bailout (avg 385k).\n"
-            "4. 1.0.1 Legacy: Classic dynamic odds with 19.8k cushion (avg 31.9k).\n"
-            "5. Two-Stage Precision: Mathematical 19.5k cushion + sprint (avg 31.5k).\n"
-            "6. Kelly-Optimal: Fractional Kelly compounding growth (avg 31.7k).\n"
-            "7. Custom Parametric: User-configured thresholds.\n"
-            "8. CRRA Utility: Economic risk-averse utility curve.\n"
-            "9. Fast-Cap: Quick 20k speedrun in minimum rounds.\n"
-            "10. Smart Bailout: Slump protection on mid cards (lowest fail rate).\n"
-            "11. Fixed Milestone: Conservative fixed locks (1.6k/3.2k)."
+            f"=== {len(STRATEGY_KEYS)} Strategy Catalog & Risk Profiles ===\n\n"
+            "1. Max Profit (Recommended): Safe cushion to 19.8k, then sprint for 10k+ (~29k-32k).\n"
+            "2. Fastest Clear: Max double-up every round until 20k (~20k-22k, highest risk).\n"
+            "3. Balanced: Build/Push/Sprint phases with win-rate floors (~25k-28k).\n"
+            "4. Aggressive Balanced: Balanced with lower floors, pushes harder (~28k-30k).\n"
+            "5. Adaptive Rush: Rush mode with cushion fallback (~25k-32k).\n"
+            "6. Grinder: Small cashouts, capped doubles, one final sprint (~20k-25k, lowest risk).\n"
+            "7. Custom Parametric: User-configured thresholds."
         )
         messagebox.showinfo(title, body)
 
@@ -1533,7 +1826,7 @@ class HololiveBotUI(tk.Tk):
         body = (
             "Hololive Dreams Auto High-Low Bot v2.0\n\n"
             "Features:\n"
-            "- 11 Modular High-Low Doubling Policies\n"
+            f"- {len(STRATEGY_KEYS)} Modular High-Low Doubling Policies\n"
             "- Monte Carlo Simulation & Strategy Comparison Engine\n"
             "- Multi-Resolution Scaling & Win32 PrintWindow Background Capture\n"
             "- Multilingual GUI (English, 简体中文, 繁體中文, 日本語)\n"
@@ -1585,20 +1878,6 @@ class HololiveBotUI(tk.Tk):
         ent_ticket = ttk.Entry(lf_game, width=14, justify="center")
         ent_ticket.insert(0, str(self.ticket_cost))
         ent_ticket.grid(row=1, column=1, sticky="e", pady=6)
-
-        ttk.Label(lf_game, text=localization.tr("opportunistic_double_label", self.current_lang), font=font_label).grid(row=2, column=0, sticky="w", pady=6)
-        opp_options = [
-            ("a_2_only", localization.tr("opp_mode_a_2_only", self.current_lang)),
-            ("include_3_k", localization.tr("opp_mode_include_3_k", self.current_lang)),
-            ("include_4_q", localization.tr("opp_mode_include_4_q", self.current_lang)),
-            ("disabled", localization.tr("opp_mode_disabled", self.current_lang)),
-        ]
-        opp_keys = [k for k, _ in opp_options]
-        opp_labels = [lbl for _, lbl in opp_options]
-        combo_opp = ttk.Combobox(lf_game, values=opp_labels, state="readonly", width=28)
-        opp_idx = opp_keys.index(self.opportunistic_double_mode) if self.opportunistic_double_mode in opp_keys else 0
-        combo_opp.current(opp_idx)
-        combo_opp.grid(row=2, column=1, sticky="e", pady=6)
 
         # --- Section 2: Log Maintenance & Archival ---
         lf_logs = ttk.LabelFrame(frame, text=f" {localization.tr('section_log_maintenance', self.current_lang)} ", padding=(14, 10))
@@ -1680,12 +1959,6 @@ class HololiveBotUI(tk.Tk):
                 self.ticket_cost = max(0, ticket)
                 self.log_retention_days = max(0, retention)
                 self.log_max_size_mb = max(0, size_mb)
-                selected_opp_idx = combo_opp.current()
-                if 0 <= selected_opp_idx < len(opp_keys):
-                    self.opportunistic_double_mode = opp_keys[selected_opp_idx]
-                    self.var_opp_a2.set(self.opportunistic_double_mode in ("a_2_only", "include_3_k", "include_4_q"))
-                    self.var_opp_3k.set(self.opportunistic_double_mode in ("include_3_k", "include_4_q"))
-                    self.var_opp_4q.set(self.opportunistic_double_mode == "include_4_q")
                 selected_rec_idx = combo_recovery.current()
                 if 0 <= selected_rec_idx < len(rec_keys):
                     self.settlement_recovery_mode = rec_keys[selected_rec_idx]
@@ -1716,7 +1989,6 @@ class HololiveBotUI(tk.Tk):
             ent_retention.insert(0, str(self.log_retention_days))
             ent_size.delete(0, "end")
             ent_size.insert(0, str(self.log_max_size_mb))
-            combo_opp.current(0)
             combo_recovery.current(0)
             ent_settle_timeout.delete(0, "end")
             ent_settle_timeout.insert(0, "8")
@@ -1831,10 +2103,22 @@ class HololiveBotUI(tk.Tk):
                 ticket_cost=self.ticket_cost,
                 log_retention_days=self.log_retention_days,
                 log_max_size_mb=self.log_max_size_mb,
-                opportunistic_double_mode=self.opportunistic_double_mode,
                 opp_a2=bool(self.var_opp_a2.get()),
                 opp_3k=bool(self.var_opp_3k.get()),
                 opp_4q=bool(self.var_opp_4q.get()),
+                opp_5j=bool(self.var_opp_5j.get()),
+                opp_610=bool(self.var_opp_610.get()),
+                opp_79=bool(self.var_opp_79.get()),
+                opp_8=bool(self.var_opp_8.get()),
+                modifiers_expanded=getattr(self, "modifiers_expanded", True),
+                mod_fast_build=bool(self.var_mod_fast_build.get()),
+                mod_drop_78=bool(self.var_mod_drop_78.get()),
+                mod_drop_6789=bool(self.var_mod_drop_6789.get()),
+                mod_drop_8=bool(self.var_mod_drop_8.get()),
+                mod_free_roll=bool(self.var_mod_free_roll.get()),
+                mod_sprint_floor=bool(self.var_mod_sprint_floor.get()),
+                mod_mega_sprint=bool(self.var_mod_mega_sprint.get()),
+                debug_logging=bool(self.var_debug_logging.get()),
                 param_min_win_rate=self.param_min_win_rate,
                 param_cushion_target=self.param_cushion_target,
                 param_sprint_target=self.param_sprint_target,
@@ -1864,12 +2148,24 @@ class HololiveBotUI(tk.Tk):
         self.log_max_size_mb = 20
         self.settlement_recovery_mode = "auto"
         self.settlement_ocr_timeout = 8.0
-        self.opportunistic_double_mode = "a_2_only"
         self.var_opp_a2.set(True)
         self.var_opp_3k.set(False)
         self.var_opp_4q.set(False)
+        self.var_opp_5j.set(False)
+        self.var_opp_610.set(False)
+        self.var_opp_79.set(False)
+        self.var_opp_8.set(False)
+        self.var_mod_fast_build.set(False)
+        self.var_mod_drop_78.set(False)
+        self.var_mod_drop_6789.set(False)
+        self.var_mod_drop_8.set(False)
+        self.var_mod_free_roll.set(False)
+        self.var_mod_sprint_floor.set(False)
+        self.var_mod_mega_sprint.set(False)
+        self.var_debug_logging.set(False)
+        self.refresh_modifiers_ui()
         self.param_min_win_rate = 60
-        self.param_cushion_target = 20000
+        self.param_cushion_target = 19800
         self.param_sprint_target = 10000
         self.param_max_doubles = 10
         self.param_drop_seven_eight = False
@@ -1903,17 +2199,28 @@ class HololiveBotUI(tk.Tk):
             sim = simulation.HighLowSimulator(
                 num_decks=1,
                 tie_loses=True,
-                opportunistic_double_mode=self.opportunistic_double_mode,
                 opp_a2=bool(self.var_opp_a2.get()),
                 opp_3k=bool(self.var_opp_3k.get()),
                 opp_4q=bool(self.var_opp_4q.get()),
+                opp_5j=bool(self.var_opp_5j.get()),
+                opp_610=bool(self.var_opp_610.get()),
+                opp_79=bool(self.var_opp_79.get()),
+                opp_8=bool(self.var_opp_8.get()),
+                mod_fast_build=bool(self.var_mod_fast_build.get()),
+                mod_drop_78=bool(self.var_mod_drop_78.get()),
+                mod_drop_6789=bool(self.var_mod_drop_6789.get()),
+                mod_drop_8=bool(self.var_mod_drop_8.get()),
+                mod_free_roll=bool(self.var_mod_free_roll.get()),
+                mod_sprint_floor=bool(self.var_mod_sprint_floor.get()),
+                mod_mega_sprint=bool(self.var_mod_mega_sprint.get()),
+                cushion_target=int(self.param_cushion_target),
             )
             try:
                 days = max(10, int(self.spin_sim_days.get().strip()))
             except ValueError:
                 days = 100
 
-            print(f"\n[Benchmark] Comparing all 11 strategies ({days} days each)...")
+            print(f"\n[Benchmark] Comparing all {len(STRATEGY_KEYS)} strategies ({days} days each)...")
             results = sim.run_comparison(days=days, target_limit=self.target_limit)
             self.last_benchmark_results = [
                 {
@@ -1941,12 +2248,12 @@ class HololiveBotUI(tk.Tk):
                 print(f"#{rank:<4} {clean_name[:25]:<26} {r['MeanCoins']:>11,.0f} {r['HitCapPct']:>6.1f}%")
             print(f"{'=' * 56}\n")
 
-            self.after(0, lambda: self.show_benchmark_results_dialog(self.last_benchmark_results))
+            self.ui_queue.put(("callback", lambda: self.show_benchmark_results_dialog(self.last_benchmark_results)))
         except Exception as e:
             print(f"[Benchmark Error] {e}")
         finally:
             self.is_simulating = False
-            self.after(0, lambda: self._set_sim_buttons_state("normal"))
+            self.ui_queue.put(("callback", lambda: self._set_sim_buttons_state("normal")))
 
     def show_benchmark_results_dialog(self, results):
         """Display comparative benchmark results in a clean, human-friendly GUI table window."""
@@ -2067,8 +2374,8 @@ class HololiveBotUI(tk.Tk):
         self.update_strategy_description()
         self._update_preset_styles()
         self.save_settings()
-        w = self.last_w if self.last_w else 450
-        h = self.last_h if self.last_h else 800
+        w = self.last_w if self.last_w else 480
+        h = self.last_h if self.last_h else 850
         self.draw_ui(w, h)
 
     def apply_strategy_preset(self, key: str):
@@ -2081,14 +2388,14 @@ class HololiveBotUI(tk.Tk):
             self.update_strategy_description()
             self._update_preset_styles()
             self.save_settings()
-            w = self.last_w if self.last_w else 450
-            h = self.last_h if self.last_h else 800
+            w = self.last_w if self.last_w else 480
+            h = self.last_h if self.last_h else 850
             self.draw_ui(w, h)
 
     def _update_preset_styles(self):
         fast_active = (self.active_mode == "fastest_clear")
         bal_active = (self.active_mode == "balanced")
-        profit_active = (self.active_mode in ("max_profit", "three_stages"))
+        profit_active = (self.active_mode == "max_profit")
 
         self.btn_preset_fast.configure(
             style="ActiveTab.TButton" if fast_active else "Tab.TButton",
@@ -2103,23 +2410,178 @@ class HololiveBotUI(tk.Tk):
             text=localization.tr("preset_profit", self.current_lang),
         )
 
-    def on_opp_toggle(self):
-        a2 = bool(self.var_opp_a2.get())
-        k3 = bool(self.var_opp_3k.get())
-        q4 = bool(self.var_opp_4q.get())
+    def _sync_modifier_states(self):
+        drop_6789 = bool(self.var_mod_drop_6789.get())
+        drop_78 = bool(self.var_mod_drop_78.get())
+        drop_8 = bool(self.var_mod_drop_8.get())
 
-        if q4 and k3 and a2:
-            self.opportunistic_double_mode = "include_4_q"
-        elif k3 and a2:
-            self.opportunistic_double_mode = "include_3_k"
-        elif a2:
-            self.opportunistic_double_mode = "a_2_only"
-        elif not (a2 or k3 or q4):
-            self.opportunistic_double_mode = "disabled"
+        opp_610 = bool(self.var_opp_610.get())
+        opp_79 = bool(self.var_opp_79.get())
+        opp_8 = bool(self.var_opp_8.get())
+
+        sprint_floor = bool(self.var_mod_sprint_floor.get())
+        mega_sprint = bool(self.var_mod_mega_sprint.get())
+
+        # Defensive Bailouts state
+        state_drop_6789 = "normal"
+        state_drop_78 = "normal"
+        state_drop_8 = "normal"
+
+        # Card Overrides state
+        state_opp_610 = "normal"
+        state_opp_79 = "normal"
+        state_opp_8 = "normal"
+
+        if drop_6789:
+            state_drop_78 = "disabled"
+            state_drop_8 = "disabled"
+            state_opp_610 = "disabled"
+            state_opp_79 = "disabled"
+            state_opp_8 = "disabled"
+        elif drop_78:
+            state_drop_6789 = "disabled"
+            state_drop_8 = "disabled"
+            state_opp_79 = "disabled"
+            state_opp_8 = "disabled"
+        elif drop_8:
+            state_drop_6789 = "disabled"
+            state_drop_78 = "disabled"
+            state_opp_8 = "disabled"
         else:
-            self.opportunistic_double_mode = "custom"
+            if opp_8:
+                state_drop_6789 = "disabled"
+                state_drop_78 = "disabled"
+                state_drop_8 = "disabled"
+            elif opp_79:
+                state_drop_6789 = "disabled"
+                state_drop_78 = "disabled"
+            elif opp_610:
+                state_drop_6789 = "disabled"
 
+        state_sprint_floor = "disabled" if mega_sprint else "normal"
+        state_mega_sprint = "disabled" if sprint_floor else "normal"
+
+        for widget, state in (
+            (getattr(self, "chk_mod_drop_6789", None), state_drop_6789),
+            (getattr(self, "chk_mod_drop_78", None), state_drop_78),
+            (getattr(self, "chk_mod_drop_8", None), state_drop_8),
+            (getattr(self, "chk_opp_610", None), state_opp_610),
+            (getattr(self, "chk_opp_79", None), state_opp_79),
+            (getattr(self, "chk_opp_8", None), state_opp_8),
+            (getattr(self, "chk_mod_sprint_floor", None), state_sprint_floor),
+            (getattr(self, "chk_mod_mega_sprint", None), state_mega_sprint),
+        ):
+            if widget:
+                try:
+                    widget.configure(state=state)
+                except Exception:
+                    pass
+
+    def on_opp_toggle(self):
+        if bool(self.var_opp_8.get()):
+            self.var_mod_drop_8.set(False)
+            self.var_mod_drop_78.set(False)
+            self.var_mod_drop_6789.set(False)
+            self.mod_drop_8 = False
+            self.mod_drop_78 = False
+            self.mod_drop_6789 = False
+            self.param_drop_seven_eight = False
+        if bool(self.var_opp_79.get()):
+            self.var_mod_drop_78.set(False)
+            self.var_mod_drop_6789.set(False)
+            self.mod_drop_78 = False
+            self.mod_drop_6789 = False
+            self.param_drop_seven_eight = False
+        if bool(self.var_opp_610.get()):
+            self.var_mod_drop_6789.set(False)
+            self.mod_drop_6789 = False
+
+        self._sync_modifier_states()
         self.save_settings()
+        self.refresh_modifiers_ui()
+
+    def toggle_modifiers_drawer(self):
+        self.modifiers_expanded = not self.modifiers_expanded
+        self.save_settings()
+        self.refresh_modifiers_ui()
+        w = self.last_w if self.last_w else 480
+        h = self.last_h if self.last_h else 850
+        self.draw_ui(w, h)
+
+    def on_modifier_toggle(self):
+        curr_6789 = bool(self.var_mod_drop_6789.get())
+        curr_78 = bool(self.var_mod_drop_78.get())
+        curr_8 = bool(self.var_mod_drop_8.get())
+
+        if curr_6789 and (not self.mod_drop_6789 or curr_78 or curr_8):
+            self.var_mod_drop_78.set(False)
+            self.var_mod_drop_8.set(False)
+            self.var_opp_610.set(False)
+            self.var_opp_79.set(False)
+            self.var_opp_8.set(False)
+        elif curr_78 and (not self.mod_drop_78 or curr_6789 or curr_8):
+            self.var_mod_drop_6789.set(False)
+            self.var_mod_drop_8.set(False)
+            self.var_opp_79.set(False)
+            self.var_opp_8.set(False)
+        elif curr_8 and (not self.mod_drop_8 or curr_6789 or curr_78):
+            self.var_mod_drop_6789.set(False)
+            self.var_mod_drop_78.set(False)
+            self.var_opp_8.set(False)
+
+        curr_mega = bool(self.var_mod_mega_sprint.get())
+        curr_sprint = bool(self.var_mod_sprint_floor.get())
+        if curr_mega and curr_sprint:
+            if not self.mod_mega_sprint:
+                self.var_mod_sprint_floor.set(False)
+            else:
+                self.var_mod_mega_sprint.set(False)
+
+        self._sync_modifier_states()
+
+        self.mod_fast_build = bool(self.var_mod_fast_build.get())
+        self.mod_drop_78 = bool(self.var_mod_drop_78.get())
+        self.mod_drop_6789 = bool(self.var_mod_drop_6789.get())
+        self.mod_drop_8 = bool(self.var_mod_drop_8.get())
+        self.mod_free_roll = bool(self.var_mod_free_roll.get())
+        self.mod_sprint_floor = bool(self.var_mod_sprint_floor.get())
+        self.mod_mega_sprint = bool(self.var_mod_mega_sprint.get())
+        self.param_drop_seven_eight = self.mod_drop_78
+        self.save_settings()
+        self.refresh_modifiers_ui()
+
+    def on_debug_logging_toggle(self):
+        self.debug_logging = bool(self.var_debug_logging.get())
+        self.save_settings()
+
+    def open_debug_log(self):
+        debug_file = auto_bot.DEBUG_LOG_FILE
+        if not debug_file.exists():
+            debug_file.write_text(f"=== Hololive Dreams Debug Log ({time.strftime('%Y-%m-%d %H:%M:%S')}) ===\n", encoding="utf-8")
+        self._safe_open_path(debug_file)
+
+    def refresh_modifiers_ui(self):
+        self._sync_modifier_states()
+        active = sum([
+            bool(self.var_opp_a2.get()),
+            bool(self.var_opp_3k.get()),
+            bool(self.var_opp_4q.get()),
+            bool(self.var_opp_5j.get()),
+            bool(self.var_opp_610.get()),
+            bool(self.var_opp_79.get()),
+            bool(self.var_opp_8.get()),
+            bool(self.var_mod_fast_build.get()),
+            bool(self.var_mod_drop_78.get()),
+            bool(self.var_mod_drop_6789.get()),
+            bool(self.var_mod_drop_8.get()),
+            bool(self.var_mod_free_roll.get()),
+            bool(self.var_mod_sprint_floor.get()),
+            bool(self.var_mod_mega_sprint.get()),
+        ])
+        arrow = "▼" if getattr(self, "modifiers_expanded", True) else "▶"
+        header_text = f"{arrow} {localization.tr('lbl_modifiers_header', self.current_lang, active=active)}"
+        if hasattr(self, "btn_toggle_modifiers"):
+            self.btn_toggle_modifiers.configure(text=header_text)
 
     def save_settings(self):
         auto_bot.save_daily_data(
@@ -2131,10 +2593,22 @@ class HololiveBotUI(tk.Tk):
             strategy_index=self.combo_strategy.current(),
             target_limit=self.target_limit,
             ticket_cost=self.ticket_cost,
-            opportunistic_double_mode=self.opportunistic_double_mode,
             opp_a2=bool(self.var_opp_a2.get()),
             opp_3k=bool(self.var_opp_3k.get()),
             opp_4q=bool(self.var_opp_4q.get()),
+            opp_5j=bool(self.var_opp_5j.get()),
+            opp_610=bool(self.var_opp_610.get()),
+            opp_79=bool(self.var_opp_79.get()),
+            opp_8=bool(self.var_opp_8.get()),
+            modifiers_expanded=self.modifiers_expanded,
+            mod_fast_build=bool(self.var_mod_fast_build.get()),
+            mod_drop_78=bool(self.var_mod_drop_78.get()),
+            mod_drop_6789=bool(self.var_mod_drop_6789.get()),
+            mod_drop_8=bool(self.var_mod_drop_8.get()),
+            mod_free_roll=bool(self.var_mod_free_roll.get()),
+            mod_sprint_floor=bool(self.var_mod_sprint_floor.get()),
+            mod_mega_sprint=bool(self.var_mod_mega_sprint.get()),
+            debug_logging=bool(self.var_debug_logging.get()),
             param_min_win_rate=self.param_min_win_rate,
             param_cushion_target=self.param_cushion_target,
             param_sprint_target=self.param_sprint_target,
@@ -2207,6 +2681,7 @@ class HololiveBotUI(tk.Tk):
         self.style.configure("Tab.TButton", font=font_button)
         self.style.configure("ActiveTab.TButton", font=font_button)
         self.style.configure("Config.TButton", font=font_button)
+        self.style.configure("ModifierDrawer.TButton", font=font_button, padding=(8, 4))
 
         for item_id in (
             getattr(self, "hotkey_label_id", None),
@@ -2237,12 +2712,32 @@ class HololiveBotUI(tk.Tk):
             self.canvas.itemconfig(self.lbl_setting_ticket_id, font=font_small_bold)
         if getattr(self, "settings_feedback_id", None):
             self.canvas.itemconfig(self.settings_feedback_id, font=font_small_bold)
-        if getattr(self, "lbl_opp_title_id", None):
-            self.canvas.itemconfig(self.lbl_opp_title_id, font=font_small_bold)
+        font_section = (family, 8, "bold")
+        for lbl in (
+            getattr(self, "lbl_sec_cards", None),
+            getattr(self, "lbl_sec_bail", None),
+            getattr(self, "lbl_sec_prog", None),
+        ):
+            if lbl:
+                try:
+                    lbl.configure(font=font_section)
+                except Exception:
+                    pass
         for chk in (
             getattr(self, "chk_opp_a2", None),
             getattr(self, "chk_opp_3k", None),
             getattr(self, "chk_opp_4q", None),
+            getattr(self, "chk_opp_5j", None),
+            getattr(self, "chk_opp_610", None),
+            getattr(self, "chk_opp_79", None),
+            getattr(self, "chk_opp_8", None),
+            getattr(self, "chk_mod_fast_build", None),
+            getattr(self, "chk_mod_drop_78", None),
+            getattr(self, "chk_mod_drop_6789", None),
+            getattr(self, "chk_mod_drop_8", None),
+            getattr(self, "chk_mod_free_roll", None),
+            getattr(self, "chk_mod_sprint_floor", None),
+            getattr(self, "chk_mod_mega_sprint", None),
         ):
             if chk:
                 try:
@@ -2274,7 +2769,7 @@ class HololiveBotUI(tk.Tk):
         if labels:
             valid_idx = min(max(0, selected_strategy), len(labels) - 1)
             self.combo_strategy.current(valid_idx)
-            self.active_mode = STRATEGY_KEYS[valid_idx] if valid_idx < len(STRATEGY_KEYS) else 'legacy_101'
+            self.active_mode = STRATEGY_KEYS[valid_idx] if valid_idx < len(STRATEGY_KEYS) else 'max_profit'
         title = localization.tr("title", self.current_lang)
         self.title(title)
         self.canvas.itemconfig(self.title_id, text="", state="hidden")
@@ -2304,12 +2799,33 @@ class HololiveBotUI(tk.Tk):
         self.btn_bg.configure(text=localization.tr("btn_bg", self.current_lang))
         self.btn_exit.configure(text=localization.tr("btn_exit", self.current_lang))
         self.btn_config_strat.configure(text=localization.tr("btn_config_params", self.current_lang))
-        self.canvas.itemconfig(self.lbl_opp_title_id, text=localization.tr("lbl_opp_tab_title", self.current_lang))
+        if hasattr(self, "lbl_sec_cards"):
+            self.lbl_sec_cards.configure(text=localization.tr("sec_card_overrides", self.current_lang))
+        if hasattr(self, "lbl_sec_bail"):
+            self.lbl_sec_bail.configure(text=localization.tr("sec_defensive_bailouts", self.current_lang))
+        if hasattr(self, "lbl_sec_prog"):
+            self.lbl_sec_prog.configure(text=localization.tr("sec_progression_sprint", self.current_lang))
         self.chk_opp_a2.configure(text=localization.tr("chk_opp_a2", self.current_lang))
         self.chk_opp_3k.configure(text=localization.tr("chk_opp_3k", self.current_lang))
         self.chk_opp_4q.configure(text=localization.tr("chk_opp_4q", self.current_lang))
+        self.chk_opp_5j.configure(text=localization.tr("chk_opp_5j", self.current_lang))
+        self.chk_opp_610.configure(text=localization.tr("chk_opp_610", self.current_lang))
+        self.chk_opp_79.configure(text=localization.tr("chk_opp_79", self.current_lang))
+        self.chk_opp_8.configure(text=localization.tr("chk_opp_8", self.current_lang))
+        self.chk_mod_drop_78.configure(text=localization.tr("lbl_mod_drop_78", self.current_lang))
+        self.chk_mod_drop_6789.configure(text=localization.tr("lbl_mod_drop_6789", self.current_lang))
+        self.chk_mod_drop_8.configure(text=localization.tr("lbl_mod_drop_8", self.current_lang))
+        self.chk_mod_fast_build.configure(text=localization.tr("lbl_mod_fast_build", self.current_lang))
+        self.chk_mod_free_roll.configure(text=localization.tr("lbl_mod_free_roll", self.current_lang))
+        self.chk_mod_sprint_floor.configure(text=localization.tr("lbl_mod_sprint_floor", self.current_lang))
+        self.chk_mod_mega_sprint.configure(text=localization.tr("lbl_mod_mega_sprint", self.current_lang))
+        self.refresh_modifiers_ui()
         self.update_strategy_description()
         self._update_preset_styles()
+
+        # Update localized hover tooltips
+        for key, tip in getattr(self, "tooltips", {}).items():
+            tip.update_text(localization.tr(f"tip_{key}", self.current_lang))
 
         # Simulation tab widgets
         self.canvas.itemconfig(self.sim_days_label_id, text=localization.tr("sim_days_label", self.current_lang))
@@ -2327,6 +2843,7 @@ class HololiveBotUI(tk.Tk):
         self.canvas.itemconfig(self.lbl_setting_ticket_id, text=localization.tr("ticket_cost_label", self.current_lang))
         self.canvas.itemconfig(self.lbl_setting_opacity_id, text=localization.tr("field_box_opacity_label", self.current_lang))
         self.btn_open_custom_dialog.configure(text=localization.tr("btn_custom_strategy_config", self.current_lang))
+        self.chk_setting_debug_log.configure(text=localization.tr("debug_logging_label", self.current_lang))
         self.btn_save_settings.configure(text=localization.tr("btn_save_settings", self.current_lang))
         self.btn_restore_defaults.configure(text=localization.tr("btn_restore_defaults", self.current_lang))
         self.btn_back_to_bot.configure(text=localization.tr("btn_back_to_bot", self.current_lang, default="← Back to Auto Bot"))
@@ -2363,9 +2880,9 @@ class HololiveBotUI(tk.Tk):
     def _simulation_worker(self):
         try:
             import simulation
-            from strategies import STRATEGY_REGISTRY
+            from strategies import strategy_kwargs_from_config
             idx = self.combo_strategy.current()
-            key = STRATEGY_KEYS[idx] if (isinstance(idx, int) and 0 <= idx < len(STRATEGY_KEYS)) else 'legacy_101'
+            key = STRATEGY_KEYS[idx] if (isinstance(idx, int) and 0 <= idx < len(STRATEGY_KEYS)) else 'max_profit'
             labels = localization.get_strategy_labels(self.current_lang)
             strat_name = labels[idx] if (0 <= idx < len(labels)) else key
             try:
@@ -2377,21 +2894,30 @@ class HololiveBotUI(tk.Tk):
             sim = simulation.HighLowSimulator(
                 num_decks=1,
                 tie_loses=True,
-                opportunistic_double_mode=self.opportunistic_double_mode,
                 opp_a2=bool(self.var_opp_a2.get()),
                 opp_3k=bool(self.var_opp_3k.get()),
                 opp_4q=bool(self.var_opp_4q.get()),
+                opp_5j=bool(self.var_opp_5j.get()),
+                opp_610=bool(self.var_opp_610.get()),
+                opp_79=bool(self.var_opp_79.get()),
+                opp_8=bool(self.var_opp_8.get()),
+                mod_fast_build=bool(self.var_mod_fast_build.get()),
+                mod_drop_78=bool(self.var_mod_drop_78.get()),
+                mod_drop_6789=bool(self.var_mod_drop_6789.get()),
+                mod_drop_8=bool(self.var_mod_drop_8.get()),
+                mod_free_roll=bool(self.var_mod_free_roll.get()),
+                mod_sprint_floor=bool(self.var_mod_sprint_floor.get()),
+                mod_mega_sprint=bool(self.var_mod_mega_sprint.get()),
+                cushion_target=int(self.param_cushion_target),
             )
             strat = STRATEGY_REGISTRY[key]
-            strat_kwargs = None
-            if key == "custom_parametric":
-                strat_kwargs = {
-                    "min_win_rate": float(self.param_min_win_rate) / 100.0,
-                    "cushion_target": int(self.param_cushion_target),
-                    "sprint_target": int(self.param_sprint_target),
-                    "max_doubles": int(self.param_max_doubles),
-                    "drop_on_seven_eight": bool(self.param_drop_seven_eight),
-                }
+            strat_kwargs = strategy_kwargs_from_config(key, {
+                "param_min_win_rate": self.param_min_win_rate,
+                "param_cushion_target": self.param_cushion_target,
+                "param_sprint_target": self.param_sprint_target,
+                "param_max_doubles": self.param_max_doubles,
+                "param_drop_seven_eight": self.param_drop_seven_eight,
+            }) or None
             res = sim.run_monte_carlo(strat, strategy_kwargs=strat_kwargs, days=days, target_limit=self.target_limit)
 
             self.last_benchmark_results = [{
@@ -2416,7 +2942,7 @@ class HololiveBotUI(tk.Tk):
             print(f"[Simulation Error] {e}")
         finally:
             self.is_simulating = False
-            self.after(0, lambda: self._set_sim_buttons_state("normal" if not self.is_running else "disabled"))
+            self.ui_queue.put(("callback", lambda: self._set_sim_buttons_state("normal" if not self.is_running else "disabled")))
 
     def change_language(self, event=None):
         idx = self.combo_lang.current()
@@ -2429,7 +2955,7 @@ class HololiveBotUI(tk.Tk):
         if self.is_running or self.is_simulating:
             return
         idx = self.combo_strategy.current()
-        self.active_mode = STRATEGY_KEYS[idx] if (isinstance(idx, int) and 0 <= idx < len(STRATEGY_KEYS)) else 'legacy_101'
+        self.active_mode = STRATEGY_KEYS[idx] if (isinstance(idx, int) and 0 <= idx < len(STRATEGY_KEYS)) else 'max_profit'
         self.is_running = True
         self._set_sim_buttons_state("disabled")
         self.refresh_texts()
@@ -2557,20 +3083,21 @@ class HololiveBotUI(tk.Tk):
         try:
             auto_bot.auto_play_loop(
                 self.active_mode,
-                on_stats_update=lambda c, f, p: self.after(0, self.update_stats_display, c, f, p),
+                on_stats_update=lambda c, f, p: self.ui_queue.put(("stats", (c, f, p))),
                 lang=self.current_lang,
                 on_prompt_settlement=self.prompt_settlement_dialog,
             )
         except Exception as e:
             err_msg = localization.format_error(e, self.current_lang)
             print(localization.tr("system_crash", self.current_lang, error=err_msg))
-            self.after(0, self._on_bot_crashed, err_msg)
+            self.ui_queue.put(("callback", lambda msg=err_msg: self._on_bot_crashed(msg)))
         finally:
             auto_bot.bot_running = False
-            self.after(0, self._on_bot_finished)
+            self.ui_queue.put(("callback", self._on_bot_finished))
             print(localization.tr("system_stopped", self.current_lang))
 
     def destroy(self):
+        self._is_destroyed = True
         try:
             log_file = auto_bot.APP_DIR / "log.txt"
             with open(log_file, "a", encoding="utf-8", errors="replace") as f:

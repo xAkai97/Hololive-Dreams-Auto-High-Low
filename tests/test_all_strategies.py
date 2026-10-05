@@ -9,8 +9,6 @@ if str(SRC_DIR) not in sys.path:
 from strategies import (
     STRATEGY_REGISTRY,
     get_strategy,
-    Legacy101Strategy,
-    ThreeStagesStrategy,
     MaxProfitStrategy,
     FastestClearStrategy,
     BalancedStrategy,
@@ -24,8 +22,6 @@ from strategies import (
 class TestStrategyRegistry(unittest.TestCase):
     def test_registry_completeness(self):
         expected_keys = {
-            "legacy_101",
-            "three_stages",
             "max_profit",
             "fastest_clear",
             "balanced",
@@ -41,61 +37,6 @@ class TestStrategyRegistry(unittest.TestCase):
             strat = get_strategy(key)
             self.assertIsNotNone(strat)
             self.assertTrue(hasattr(strat, "decide"))
-
-
-class TestLegacy101Strategy(unittest.TestCase):
-    def setUp(self):
-        self.strat = Legacy101Strategy()
-
-    def test_target_achieved(self):
-        # daily >= 19800 and cashout >= 10000 -> cashout
-        self.assertEqual(self.strat.decide(12800, 25600, 0.70, 20000), "cashout")
-        self.assertEqual(self.strat.last_reason, "legacy_sprint_goal")
-
-    def test_sprint_continue(self):
-        # daily >= 19800 and cashout < 10000 -> challenge
-        self.assertEqual(self.strat.decide(3200, 6400, 0.70, 20000), "challenge")
-        self.assertEqual(self.strat.last_reason, "legacy_sprint_chase")
-
-    def test_cushion_warning(self):
-        # total + current <= 19800 and total + next > 19800 -> cashout
-        self.assertEqual(self.strat.decide(3200, 6400, 0.70, 15000), "cashout")
-        self.assertEqual(self.strat.last_reason, "legacy_cushion_brake")
-
-    def test_force_double(self):
-        # total + current > 19800 and current < 10000 -> challenge
-        self.assertEqual(self.strat.decide(400, 800, 0.70, 19800), "challenge")
-        self.assertEqual(self.strat.last_reason, "legacy_sprint_chase")
-
-    def test_lucky_cashout(self):
-        # total + current > 19800 and current >= 10000 -> cashout
-        self.assertEqual(self.strat.decide(10000, 20000, 0.70, 11000), "cashout")
-        self.assertEqual(self.strat.last_reason, "legacy_cushion_windfall")
-
-    def test_low_rate_cashout(self):
-        # win_rate < 0.60 -> cashout
-        self.assertEqual(self.strat.decide(800, 1600, 0.55, 5000), "cashout")
-        self.assertEqual(self.strat.last_reason, "legacy_low_winrate")
-
-
-class TestThreeStagesStrategy(unittest.TestCase):
-    def test_stage_0_and_2_always_challenge(self):
-        for stage in (0, 2):
-            strat = ThreeStagesStrategy(stage=stage)
-            strat.start_round(400, 0)
-            self.assertEqual(strat.decide(), "challenge")
-
-    def test_stage_1_targets_cushion(self):
-        strat = ThreeStagesStrategy(stage=1)
-        # 12800 coins + 400 base -> target_wins = 4 (400 * 2^4 = 6400, 12800 + 6400 < 20000)
-        strat.start_round(400, 12800)
-        self.assertEqual(strat.target_wins, 4)
-        for _ in range(4):
-            self.assertEqual(strat.decide(), "challenge")
-            strat.guess_clicked()
-            strat.confirm_success()
-        self.assertEqual(strat.decide(), "cashout")
-        self.assertEqual(strat.expected_cash, 6400)
 
 
 class TestMaxProfitStrategy(unittest.TestCase):
@@ -204,7 +145,8 @@ class TestGrinderStrategy(unittest.TestCase):
         # Grinder has max 4 doubles per round
         self.strat.start_round(base_cash=200, coins=1000)
         for _ in range(4):
-            self.strat.decide(400, 800, 0.70, 1000)
+            self.assertEqual(self.strat.decide(400, 800, 0.70, 1000), "challenge")
+            self.strat.guess_clicked()
         # 5th double attempt hits MAX_DOUBLES limit -> cashout
         self.assertEqual(self.strat.decide(800, 1600, 0.70, 1000), "cashout")
 
@@ -228,8 +170,9 @@ class TestCustomParametricStrategy(unittest.TestCase):
         self.assertEqual(strat.decide(200, 400, 0.58, 5000), "challenge")
 
         # 3 doubles completed -> max doubles hit
-        strat.decide(200, 400, 0.70, 5000)
-        strat.decide(400, 800, 0.70, 5000)
+        strat.guess_clicked()
+        strat.guess_clicked()
+        strat.guess_clicked()
         self.assertEqual(strat.decide(800, 1600, 0.70, 5000), "cashout")
 
 

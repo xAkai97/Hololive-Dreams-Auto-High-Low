@@ -45,12 +45,32 @@ def get_locales_dir() -> Path:
     return app_dir / "locales"
 
 
+def _flatten_dict(nested: dict, prefix: str = "") -> dict[str, str]:
+    """Recursively flattens nested dictionaries into dot-delimited keys.
+
+    Also preserves the un-prefixed leaf key for backward compatibility.
+    """
+    flat: dict[str, str] = {}
+    for k, v in nested.items():
+        if k in ("language_name", "strategy_labels", "error_translations") and not prefix:
+            continue
+        full_key = f"{prefix}.{k}" if prefix else str(k)
+        if isinstance(v, dict):
+            flat.update(_flatten_dict(v, prefix=full_key))
+        elif isinstance(v, str):
+            flat[full_key] = v
+            if str(k) not in flat:
+                flat[str(k)] = v
+    return flat
+
+
 def load_external_locales(locales_dir: Path | str | None = None) -> list[tuple[str, str]]:
     """Scan and load external JSON translation files.
 
     Translations, strategy labels, and error messages are loaded directly from JSON files
     in the 'locales' directory (e.g. en.json, zh.json, tw.json, ja.json). Users can add new
-    translations or edit existing ones without touching Python code.
+    translations or edit existing ones without touching Python code. Supports nested/namespaced
+    JSON structures with automatic dot-notation flattening.
     """
     target_dir = Path(locales_dir) if locales_dir else get_locales_dir()
     if not target_dir.exists() or not target_dir.is_dir():
@@ -72,12 +92,11 @@ def load_external_locales(locales_dir: Path | str | None = None) -> list[tuple[s
             elif lang_code not in STRATEGY_LABELS:
                 STRATEGY_LABELS[lang_code] = STRATEGY_LABELS.get("en", ())
 
-            translations = data.get("translations", data)
+            raw_translations = data.get("translations", data)
             if lang_code not in TRANSLATIONS:
                 TRANSLATIONS[lang_code] = {}
-            for k, v in translations.items():
-                if isinstance(v, str) and k not in ("language_name", "strategy_labels", "error_translations"):
-                    TRANSLATIONS[lang_code][k] = v
+            if isinstance(raw_translations, dict):
+                TRANSLATIONS[lang_code].update(_flatten_dict(raw_translations))
 
             error_translations = data.get("error_translations")
             if error_translations and isinstance(error_translations, dict):

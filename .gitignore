@@ -26,10 +26,12 @@ config.json
 debug/
 log.txt
 log_*.txt
+debug_log.txt
 logs/
 todo.md
 completed.md
 review.md
+plan.md
 
 # IDE configurations
 .idea/

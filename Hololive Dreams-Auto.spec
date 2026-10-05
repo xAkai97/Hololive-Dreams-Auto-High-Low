@@ -31,8 +31,6 @@ hiddenimports += [
     'ddddocr',
     'strategies',
     'strategies.base',
-    'strategies.legacy_101',
-    'strategies.three_stages',
     'strategies.max_profit',
     'strategies.fastest_clear',
     'strategies.balanced',

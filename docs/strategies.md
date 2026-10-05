@@ -15,47 +15,18 @@
 
 ## Available Strategies
 
-### 1. Legacy 1.0.1 (`legacy_101`)
+### 1. Max Profit (`max_profit`)
 
-The original strategy by the upstream developer. Decision logic:
-
-- **Cushion phase** (daily < 19,800):
-  - Cashout if next double overshoots 19,800
-  - Cashout if win rate < 60%
-  - Force double if cashing out would overshoot 19,800 without reaching 10k
-- **Sprint phase** (daily ≥ 19,800):
-  - Ignore win rate, keep doubling until cashout ≥ 10,000
-
-**Expected:** ~20k-30k | **Risk:** Medium | **Time:** Medium
-
----
-
-### 2. Three Stages (`three_stages`)
-
-The original 3-phase strategy by the upstream developer:
-
-- **Stage 1:** Max double-up (game auto-settles at ~10k)
-- **Stage 2:** Controlled wins targeting ~6,400 cashout
-- **Stage 3:** Max double-up again for final big win
-
-> ⚠️ This strategy uses stage persistence. If the bot is stopped mid-round, the stage may not save correctly. Use the stageless strategies for better stop/resume behavior.
-
-**Expected:** ~32k | **Risk:** Medium | **Time:** Long
-
----
-
-### 3. Max Profit (`max_profit`)
-
-Maximizes daily profit to ~32,000 coins. Same logic as Legacy but optimized:
+Maximizes daily profit to ~32,000 coins. The recommended default strategy:
 
 - **Cushion** (daily < 19,800): Safe cashouts, guard against overshooting 19,800
 - **Sprint** (daily ≥ 19,800): Chase 10k+ cashout, ignore win rate
 
-**Expected:** ~30k-32k | **Risk:** Medium-High | **Time:** Medium-Long
+**Expected:** ~29k-32k | **Risk:** Medium-High | **Time:** Medium-Long
 
 ---
 
-### 4. Fastest Clear (`fastest_clear`)
+### 2. Fastest Clear (`fastest_clear`)
 
 Reach 20,000+ coins as fast as possible. All-or-nothing:
 
@@ -67,7 +38,7 @@ Reach 20,000+ coins as fast as possible. All-or-nothing:
 
 ---
 
-### 5. Balanced (`balanced`)
+### 3. Balanced (`balanced`)
 
 Reliable ~25,000 coins with moderate risk:
 
@@ -79,7 +50,7 @@ Reliable ~25,000 coins with moderate risk:
 
 ---
 
-### 6. Aggressive Balanced (`aggressive_balanced`)
+### 4. Aggressive Balanced (`aggressive_balanced`)
 
 Like Balanced but pushes harder:
 
@@ -91,12 +62,12 @@ Like Balanced but pushes harder:
 
 ---
 
-### 7. Adaptive Rush (`adaptive_rush`)
+### 5. Adaptive Rush (`adaptive_rush`)
 
 Starts aggressive, auto-downshifts if failing too much:
 
 - **Rush mode (default):** Max double-up every round (like Fastest)
-- **Auto-adjust triggers:** 10+ consecutive fails OR net profit < -2,000
+- **Auto-adjust triggers:** 5+ consecutive fails OR net profit < -1,500
 - **Cushion mode (fallback):** Small cashouts (3,200+), win rate floor 55%
 - **Sprint** (daily ≥ 19,800): Max double-up for 10k+
 
@@ -106,7 +77,7 @@ Once in cushion mode, stays there (no switching back).
 
 ---
 
-### 8. Grinder (`grinder`)
+### 6. Grinder (`grinder`)
 
 Ultra-safe, minimum risk:
 
@@ -117,41 +88,61 @@ Ultra-safe, minimum risk:
 
 ---
 
-### 9. Custom Parametric (`custom_parametric`)
+### 7. Custom Parametric (`custom_parametric`)
 
 Fully user-configurable strategy. Set your own parameters via the GUI:
 
-| Parameter | Config Key | Default | Description |
-|-----------|-----------|---------|-------------|
-| Cashout Target | `param_cashout_target` | 6400 | Cashout threshold during build phase |
-| Min Win Rate | `param_min_win_rate` | 55 (%) | Minimum win rate before forced cashout |
-| Sprint Threshold | `param_sprint_threshold` | 19800 | Daily coins to enter sprint mode |
-| Sprint Cashout | `param_sprint_cashout` | 10000 | Min cashout to accept during sprint |
-| Max Doubles | `param_max_doubles` | 0 | Max doubles per round (0 = unlimited) |
+| Parameter | Config Key | GUI Default | Description |
+|-----------|-----------|-------------|-------------|
+| Cushion Target | `param_cushion_target` | 19,800 | Target cap room before switching to sprint |
+| Min Win Rate | `param_min_win_rate` | 60 (%) | Minimum win rate before forced cashout |
+| Sprint Target | `param_sprint_target` | 10,000 | Min cashout to accept during sprint |
+| Max Doubles | `param_max_doubles` | 10 | Max doubles per round |
 | Drop on 7/8 | `param_drop_seven_eight` | false | Always cashout when facing a 7 or 8 |
-| Fail Safety | `param_fail_safety_limit` | 0 | After N fails, switch to safe mode (0 = off) |
 
 **Expected:** Varies | **Risk:** User-defined | **Time:** Varies
 
 ---
 
-## Opportunistic High-Chance Doubling (Under Limit)
+## Strategy Modifiers & Overrides
 
-In addition to each strategy's built-in decision tree, the bot provides toggleable **Opportunistic Doubling** directly on the **Auto Bot** tab in the main UI:
+In addition to each strategy's built-in decision tree, the bot provides a collapsible **Strategy Modifiers** drawer directly on both the **Auto Bot** and **Simulation** tabs in the main UI:
 
-| Toggle | Default | Target Cards | Win Odds |
-|:---|:---:|:---|:---:|
-| **A & 2** | **Enabled (ON)** | Ace (14) & 2 | ~92.3% ($\ge 90\%$) |
-| **3 & K** | **Toggleable (OFF)** | 3 & King (13) | ~84.6% ($\ge 82\%$) |
-| **4 & Q** | **Toggleable (OFF)** | 4 & Queen (12) | ~76.9% ($\ge 74\%$) |
+### 1. Strategic Overrides
+- **Fast Build (`mod_fast_build`)**: Forces maximum doubling until reaching the cushion threshold (19,800), ignoring win rate floors to rapidly build bankroll from initial small hands.
+- **Free-Roll Phase (`mod_free_roll`)**: Doubles aggressively only while daily net profit is positive ($> 0$), protecting your starting bankroll if ticket costs accumulate.
+- **Sprint Floor (`mod_sprint_floor`)**: When daily coins reach $\ge 11,200$, cashes out sooner on marginal odds to secure the accumulated winnings before the final sprint.
+- **Mega Sprint Floor (`mod_mega_sprint`)**: Ultra-aggressive floor at $\ge 12,800$, reserving bankroll strictly for high-yield sprint opportunities (mutually exclusive with Sprint Floor).
 
-### Decision Override Logic
-1. Whenever the active strategy decides to **Cashout**, the bot checks the visible base card before taking the payout.
-2. If the visible card matches an enabled toggle (e.g. an Ace or 2), the bot **overrides the cashout** to continue doubling (`challenge`).
-3. **Strict Lockout Prevention Guard:**
-   $$\text{daily\_coins} + \text{next\_reward} < \text{target\_limit}$$
-   - With the default 20,000 target limit, the maximum post-double payout allowed under this rule is **19,800**.
-   - Landing on 20,000 on the dot (e.g. `18,400 + 1,600 = 20,000`) is strictly **disallowed**. This guarantees the bot never locks itself out of starting the final round, preserving the opportunity to sprint for a 10,000+ overflow payout.
+### 2. Defensive Bailouts
+Provides immediate cashout protection on volatile middle cards, eliminating coin tosses:
+- **Bail on 8 (`mod_drop_8`)**: Always cashes out when facing rank 8 (~50% win probability).
+- **Bail on 7 & 8 (`mod_drop_78`)**: Cashes out when facing rank 7 or 8.
+- **Bail on 6, 7, 8, 9 (`mod_drop_6789`)**: Cashes out across the entire middle band (6 through 9).
+
+### 3. Card Overrides (Opportunistic Doubling)
+Whenever the active strategy decides to **Cashout**, the bot inspects the visible base card before accepting payout. If the card matches an enabled override, the bot **overrides the cashout** to continue doubling:
+
+| Override Tier | Target Cards | Base Win Odds |
+|:---|:---|:---:|
+| **A & 2** *(Default ON)* | Ace (14) & 2 | ~92.3% ($\ge 90\%$) |
+| **3 & K** *(Default ON)* | 3 & King (13) | ~84.6% ($\ge 82\%$) |
+| **4 & Q** *(Default ON)* | 4 & Queen (12) | ~76.9% ($\ge 74\%$) |
+| **5 & J** | 5 & Jack (11) | ~69.2% |
+| **6 & 10** | 6 & 10 | ~61.5% |
+| **7 & 9** | 7 & 9 | ~53.8% |
+| **8** | 8 | ~50.0% |
+
+#### Strict Lockout Prevention Guard
+$$\text{daily\_coins} + \text{next\_reward} < \text{target\_limit}$$
+- With the default 20,000 target limit, the maximum post-double payout allowed under an override is **19,800**.
+- Landing on or over 20,000 on the dot (e.g. `18,400 + 1,600 = 20,000`) is strictly **disallowed**. This guarantees the bot never locks itself out of starting the final round, preserving the opportunity to sprint for a 10,000+ overflow payout.
+
+### 4. UI Mutual Exclusion Logic
+To eliminate conflicting automated decisions, the UI enforces automatic mutual exclusion:
+- **Defensive Bailouts > Overrides**: Enabling *Bail 6/7/8/9* automatically unchecks and disables *6/10*, *7/9*, and *8*; enabling *Bail 7/8* disables *7/9* and *8*; enabling *Bail 8* disables *8*.
+- **Overrides > Bailouts**: Enabling a middle-card override (*8*, *7/9*, or *6/10*) automatically unchecks any contradictory bailouts.
+- **Sprint Floors**: Enabling *Mega Sprint* automatically unchecks *Sprint Floor*, and vice versa.
 
 ---
 
@@ -159,12 +150,11 @@ In addition to each strategy's built-in decision tree, the bot provides toggleab
 
 | Strategy | Expected | Risk | Time | Best For |
 |----------|----------|------|------|----------|
-| Legacy | ~20-30k | Medium | Medium | Original experience |
-| Three Stages | ~32k | Medium | Long | Stage-based play |
-| Max Profit | ~32k | Med-High | Med-Long | Maximum coins |
+| Max Profit | ~29-32k | Med-High | Med-Long | Maximum coins (Recommended) |
 | Fastest Clear | ~20k | Highest | Fastest | Speed runs |
 | Balanced | ~25k | Moderate | Medium | Reliable daily |
 | Aggressive Balanced | ~28k | Med-High | Medium | Higher profit balance |
 | Adaptive Rush | ~25-32k | Adaptive | Adaptive | Smart risk management |
 | Grinder | ~20-25k | Lowest | Longest | Safety first |
 | Custom | Varies | Custom | Varies | Full control |
+

@@ -12,8 +12,7 @@ try:
 except ImportError:
     HAVE_SIMULATION = False
 
-from strategies.legacy_101 import Legacy101Strategy
-from strategies.three_stages import ThreeStagesStrategy
+from strategies.max_profit import MaxProfitStrategy
 
 
 @unittest.skipUnless(HAVE_SIMULATION, 'Simulation dependencies (numpy) not installed')
@@ -31,7 +30,7 @@ class TestGameSimulator(unittest.TestCase):
         self.assertIn(payout, [0, 200, 400, 700, 800, 1500, 3000, 7000, 10000])
 
     def test_play_high_low_round(self):
-        strategy = Legacy101Strategy()
+        strategy = MaxProfitStrategy()
         result = self.sim.play_high_low_round(
             strategy=strategy,
             initial_payout=400,
@@ -49,9 +48,9 @@ class TestGameSimulator(unittest.TestCase):
             self.assertEqual(result.final_payout, 0)
             self.assertTrue(result.busted)
 
-    def test_simulate_day_legacy(self):
+    def test_simulate_day(self):
         day_result = self.sim.simulate_day(
-            strategy_cls=Legacy101Strategy,
+            strategy_cls=MaxProfitStrategy,
             max_daily_rounds=50,
             exact_poker=False,
         )
@@ -61,7 +60,7 @@ class TestGameSimulator(unittest.TestCase):
 
     def test_run_monte_carlo_summary(self):
         summary = self.sim.run_monte_carlo(
-            strategy_cls=Legacy101Strategy,
+            strategy_cls=MaxProfitStrategy,
             days=3,
             exact_poker=False,
         )
@@ -73,7 +72,7 @@ class TestGameSimulator(unittest.TestCase):
     def test_simulate_day_custom_target_limit(self):
         # Setting a low limit (e.g. 1,000) should terminate when 1,000 is reached
         day_result = self.sim.simulate_day(
-            strategy_cls=Legacy101Strategy,
+            strategy_cls=MaxProfitStrategy,
             max_daily_rounds=100,
             target_limit=1000,
             exact_poker=False,
@@ -104,6 +103,31 @@ class TestGameSimulator(unittest.TestCase):
             strategy=GrinderStrategy(),
             initial_payout=200,
             daily_coins=0,
+            max_doubles=5,
+        )
+        self.assertTrue(result.won_poker)
+
+
+    def test_modifiers_in_simulator(self):
+        from strategies.grinder import GrinderStrategy
+        # Test GameSimulator initialization with modifiers
+        sim = GameSimulator(
+            seed=42,
+            mod_fast_build=True,
+            mod_drop_78=True,
+            mod_sprint_floor=True,
+            cushion_target=19800,
+        )
+        self.assertTrue(sim.mod_fast_build)
+        self.assertTrue(sim.mod_drop_78)
+        self.assertTrue(sim.mod_sprint_floor)
+        self.assertEqual(sim.cushion_target, 19800)
+
+        # Run a round with Grinder and ensure modifiers execute cleanly
+        result = sim.play_high_low_round(
+            strategy=GrinderStrategy(),
+            initial_payout=200,
+            daily_coins=5000,
             max_doubles=5,
         )
         self.assertTrue(result.won_poker)

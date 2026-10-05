@@ -15,7 +15,7 @@ class GrinderStrategy(BaseStrategy):
     """Minimum risk, guaranteed ~20,000+ coins.
 
     Build phase (daily < 19,800):
-        - Cashout at first opportunity >= 200
+        - Cashout at first opportunity >= 1,600
         - Never double more than 4 times voluntarily
         - Win_rate floor: 60%
     Sprint phase (daily >= 19,800):
@@ -23,10 +23,10 @@ class GrinderStrategy(BaseStrategy):
     """
 
     name: str = "Grinder (~20-25k)"
+    cushion_target: int = 19800
 
     def __init__(self):
         self.reset_round()
-        self._doubles_this_round = 0
 
     def reset_round(self) -> None:
         self.base_cash: Optional[int] = None
@@ -41,6 +41,9 @@ class GrinderStrategy(BaseStrategy):
     def expected_cash(self) -> Optional[int]:
         return self.last_cashout
 
+    def guess_clicked(self) -> None:
+        self._doubles_this_round += 1
+
     def decide(
         self,
         current_cashout: Optional[int] = None,
@@ -52,7 +55,6 @@ class GrinderStrategy(BaseStrategy):
         next_reward = next_reward or (current_cashout * 2)
         win_rate = win_rate if win_rate is not None else 1.0
         daily_coins = daily_coins or 0
-        self._doubles_this_round += 1
 
         # Sprint: daily >= 19,800
         if daily_coins >= 19800:

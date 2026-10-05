@@ -11,7 +11,7 @@ import random
 import sys
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Optional, Type, TYPE_CHECKING
+from typing import Optional, Type
 import numpy as np
 
 # Ensure src is on sys.path
@@ -26,10 +26,7 @@ from poker_core import (
 )
 from auto_bot import HighLowCounter
 from strategies.base import BaseStrategy
-from strategies import STRATEGY_REGISTRY
-
-if TYPE_CHECKING:
-    pass
+from strategies import STRATEGY_REGISTRY, apply_strategy_modifiers
 
 
 # Empirical Joker Poker payout distribution under optimal play (payout, probability)
@@ -130,6 +127,18 @@ class GameSimulator:
         opp_a2: Optional[bool] = None,
         opp_3k: Optional[bool] = None,
         opp_4q: Optional[bool] = None,
+        opp_5j: bool = False,
+        opp_610: bool = False,
+        opp_79: bool = False,
+        opp_8: bool = False,
+        mod_fast_build: bool = False,
+        mod_drop_78: bool = False,
+        mod_drop_6789: bool = False,
+        mod_drop_8: bool = False,
+        mod_free_roll: bool = False,
+        mod_sprint_floor: bool = False,
+        mod_mega_sprint: bool = False,
+        cushion_target: int = 19800,
     ):
         self.rng = random.Random(seed)
         self.num_decks = num_decks
@@ -138,6 +147,18 @@ class GameSimulator:
         self.opp_a2 = opp_a2 if opp_a2 is not None else (opportunistic_double_mode in ("a_2_only", "include_3_k", "include_4_q"))
         self.opp_3k = opp_3k if opp_3k is not None else (opportunistic_double_mode in ("include_3_k", "include_4_q"))
         self.opp_4q = opp_4q if opp_4q is not None else (opportunistic_double_mode == "include_4_q")
+        self.opp_5j = opp_5j
+        self.opp_610 = opp_610
+        self.opp_79 = opp_79
+        self.opp_8 = opp_8
+        self.mod_fast_build = mod_fast_build
+        self.mod_drop_78 = mod_drop_78
+        self.mod_drop_6789 = mod_drop_6789
+        self.mod_drop_8 = mod_drop_8
+        self.mod_free_roll = mod_free_roll
+        self.mod_sprint_floor = mod_sprint_floor
+        self.mod_mega_sprint = mod_mega_sprint
+        self.cushion_target = cushion_target
 
     def draw_poker_hand(self, exact_poker: bool = False) -> tuple[int, list[int], int]:
         """Simulate a single video poker game.
@@ -185,27 +206,7 @@ class GameSimulator:
         target_limit: int = 20000,
     ) -> RoundResult:
         strategy.reset_round()
-        try:
-            strategy.start_round(initial_payout, daily_coins)
-        except RuntimeError:
-            if hasattr(strategy, 'stage') and strategy.stage == 1:
-                strategy.stage = 2
-                strategy.reset_round()
-                try:
-                    strategy.start_round(initial_payout, daily_coins)
-                except Exception:
-                    pass
-            else:
-                return RoundResult(
-                    won_poker=True,
-                    initial_payout=initial_payout,
-                    final_payout=initial_payout,
-                    net_payout=initial_payout - int(ENTRY_FEE),
-                    doubling_steps=0,
-                    cashed_out=True,
-                    busted=False,
-                    reason="cap_room_fallback",
-                )
+        strategy.start_round(initial_payout, daily_coins)
 
         # High-Low uses ranks 2..14 (Ace = 14), 4 of each = 52 cards
         hl_deck: list[int] = []
@@ -246,25 +247,35 @@ class GameSimulator:
                 daily_coins=daily_coins,
             )
 
-            # Opportunistic high-chance card continuation override
-            if decision == "cashout" or decision == "stop":
-                opp_mode = getattr(self, "opportunistic_double_mode", "a_2_only")
-                opp_a2 = getattr(self, "opp_a2", opp_mode in ("a_2_only", "include_3_k", "include_4_q"))
-                opp_3k = getattr(self, "opp_3k", opp_mode in ("include_3_k", "include_4_q"))
-                opp_4q = getattr(self, "opp_4q", opp_mode == "include_4_q")
+            # Apply active strategy modifiers and opportunistic card overrides
+            decision, mod_reason = apply_strategy_modifiers(
+                decision=decision,
+                card_val=current_card,
+                current_cashout=current_cashout,
+                next_reward=next_reward,
+                daily_coins=daily_coins,
+                target_limit=target_limit,
+                cushion_target=self.cushion_target,
+                opp_a2=self.opp_a2,
+                opp_3k=self.opp_3k,
+                opp_4q=self.opp_4q,
+                opp_5j=self.opp_5j,
+                opp_610=self.opp_610,
+                opp_79=self.opp_79,
+                opp_8=self.opp_8,
+                mod_fast_build=self.mod_fast_build,
+                mod_drop_78=self.mod_drop_78,
+                mod_drop_6789=self.mod_drop_6789,
+                mod_drop_8=self.mod_drop_8,
+                mod_free_roll=self.mod_free_roll,
+                mod_sprint_floor=self.mod_sprint_floor,
+                mod_mega_sprint=self.mod_mega_sprint,
+                win_rate=win_rate,
+            )
 
-                should_double = False
-                if current_card in (2, 14) and opp_a2:
-                    should_double = True
-                elif current_card in (3, 13) and opp_3k:
-                    should_double = True
-                elif current_card in (4, 12) and opp_4q:
-                    should_double = True
-
-                if should_double and (daily_coins + next_reward < target_limit):
-                    decision = "challenge"
-                    if hasattr(strategy, "last_cashout"):
-                        strategy.last_cashout = None
+            if mod_reason and decision == "challenge":
+                if hasattr(strategy, "last_cashout"):
+                    strategy.last_cashout = None
 
             if decision == "cashout" or decision == "stop":
                 strategy.begin_settlement(cashout_requested=True)
@@ -276,7 +287,7 @@ class GameSimulator:
                     doubling_steps=doubling_steps,
                     cashed_out=True,
                     busted=False,
-                    reason=getattr(strategy, "last_reason", "cashout"),
+                    reason=mod_reason or "cashout",
                 )
 
             # Strategy chose 'challenge'
@@ -353,17 +364,19 @@ class GameSimulator:
     ) -> DaySimulationResult:
         """Simulate a complete day until the target coin cap stops new games."""
         strategy = strategy_cls(**(strategy_kwargs or {}))
+        if hasattr(strategy, "cushion_target"):
+            strategy.cushion_target = self.cushion_target
         daily_coins = 0
         daily_fails = 0
         rounds: list[RoundResult] = []
 
         while daily_coins < target_limit and len(rounds) < max_daily_rounds:
-            if getattr(strategy, "complete", False):
-                break
-
             payout, _, _ = self.draw_poker_hand(exact_poker=exact_poker)
             if payout == 0:
                 daily_fails += 1
+                strategy.notify_fail()
+                if hasattr(strategy, "_check_auto_adjust"):
+                    strategy._check_auto_adjust(daily_coins, daily_fails, int(ENTRY_FEE))
                 rounds.append(
                     RoundResult(
                         won_poker=False,
@@ -388,11 +401,12 @@ class GameSimulator:
 
             if round_result.final_payout > 0:
                 daily_coins += round_result.final_payout
-                next_stage = strategy.stage_after_credit(round_result.final_payout)
-                if next_stage is not None and hasattr(strategy, "stage"):
-                    strategy.stage = next_stage
+                strategy.notify_win()
             else:
                 daily_fails += 1
+                strategy.notify_fail()
+                if hasattr(strategy, "_check_auto_adjust"):
+                    strategy._check_auto_adjust(daily_coins, daily_fails, int(ENTRY_FEE))
 
         net_profit = daily_coins - (len(rounds) * int(ENTRY_FEE))
         return DaySimulationResult(
@@ -454,7 +468,6 @@ class GameSimulator:
         target_limit: int = 20000,
     ) -> list[MonteCarloSummary]:
         """Benchmark all registered strategies over N days and return sorted summaries."""
-        from strategies import STRATEGY_REGISTRY
         summaries: list[MonteCarloSummary] = []
         for _, cls in STRATEGY_REGISTRY.items():
             summary = self.run_monte_carlo(cls, days=days, exact_poker=exact_poker, target_limit=target_limit)
@@ -468,10 +481,9 @@ HighLowSimulator = GameSimulator
 
 if __name__ == "__main__":
     import argparse
-    from strategies import STRATEGY_REGISTRY
 
     parser = argparse.ArgumentParser(description="Hololive Dreams Strategy Simulator & Benchmarker")
-    parser.add_argument("--strategy", choices=list(STRATEGY_REGISTRY.keys()), default="legacy_101",
+    parser.add_argument("--strategy", choices=list(STRATEGY_REGISTRY.keys()), default="max_profit",
                         help="Select a specific strategy to simulate")
     parser.add_argument("--compare", action="store_true", help="Benchmark and compare all registered strategies")
     parser.add_argument("--days", type=int, default=100, help="Number of simulated days per strategy")
