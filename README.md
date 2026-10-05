@@ -1,6 +1,6 @@
 # Hololive Dreams Auto Bot
 
-An automated assistant and decision-making bot for the casino mini-game in *Hololive Dreams*, featuring optimal poker-hand calculation, dynamic High-Low card counting, and an extensible multilingual GUI.
+An advanced automated assistant, card-counting engine, and simulation suite for the casino mini-game in *Hololive Dreams*. Features Numba JIT accelerated poker hand optimization, dynamic High-Low odds tracking, 7 modular doubling policies with strategy modifiers, OCR self-healing, and an extensible multilingual GUI.
 
 ---
 
