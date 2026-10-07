@@ -18,8 +18,9 @@ import json
 import time
 import re
 import queue
-from PIL import Image, ImageTk, ImageDraw
+from PIL import Image, ImageTk, ImageDraw, ImageStat
 import keyboard
+import webbrowser
 
 # Ensure src directory is accessible when running from source or bundle
 SRC_DIR = Path(__file__).resolve().parent / "src"
@@ -307,7 +308,7 @@ class HololiveBotUI(tk.Tk):
         self.bot_thread = None
         self.is_running = False
         self.font_family = get_locale_font_family(self.current_lang)
-        self.show_bg = True
+        self.show_bg = False
 
         self.current_coins, self.current_fails, self.current_profit = load_saved_stats()
 
@@ -335,6 +336,7 @@ class HololiveBotUI(tk.Tk):
 
         self.geometry("480x850")
         self.minsize(420, 680)
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
 
         self.last_w = 0
         self.last_h = 0
@@ -345,7 +347,7 @@ class HololiveBotUI(tk.Tk):
         self.bg_candidates = self._discover_backgrounds()
         saved_bg = saved_config.get("background_index", -1)
         self.bg_index = saved_bg if (-1 <= saved_bg < len(self.bg_candidates)) else -1
-        self.field_box_opacity = max(0, min(100, int(saved_config.get("field_box_opacity", 80))))
+        self.field_box_opacity = max(0, min(100, int(saved_config.get("field_box_opacity", 30))))
         self.show_log = bool(saved_config.get("show_log", True))
         self.var_show_log = tk.BooleanVar(value=self.show_log)
         self.original_bg = None
@@ -368,6 +370,9 @@ class HololiveBotUI(tk.Tk):
         self.style.configure("ActiveTab.TButton", font=(self.font_family, 9, "bold"), padding=(4, 3))
         self.style.configure("Config.TButton", font=(self.font_family, 9, "bold"), padding=(4, 2))
         self.style.configure("ModifierDrawer.TButton", font=(self.font_family, 9, "bold"), padding=(8, 4))
+        self.style.configure("ModifierCard.TFrame", background="#FFFFFF")
+        self.style.configure("ModifierCard.TLabel", background="#FFFFFF")
+        self.style.configure("ModifierCard.TCheckbutton", background="#FFFFFF")
 
         font_normal = (self.font_family, 12, "bold")
         font_log = (self.font_family, 12, "bold")
@@ -415,6 +420,9 @@ class HololiveBotUI(tk.Tk):
         self.param_max_doubles = int(saved_config.get("param_max_doubles", 10))
         self.param_drop_seven_eight = bool(saved_config.get("param_drop_seven_eight", False))
         self.modifiers_expanded = bool(saved_config.get("modifiers_expanded", True))
+        self.cat_cards_expanded = bool(saved_config.get("mod_cat_cards_expanded", True))
+        self.cat_bail_expanded = bool(saved_config.get("mod_cat_bail_expanded", True))
+        self.cat_prog_expanded = bool(saved_config.get("mod_cat_prog_expanded", True))
         self.mod_fast_build = bool(saved_config.get("mod_fast_build", False))
         self.mod_drop_78 = bool(saved_config.get("mod_drop_78", self.param_drop_seven_eight))
         self.mod_drop_6789 = bool(saved_config.get("mod_drop_6789", False))
@@ -508,19 +516,17 @@ class HololiveBotUI(tk.Tk):
         self.btn_bg_win = self.canvas.create_window(0, 0, window=self.btn_bg, state="hidden")
         self.btn_exit_win = self.canvas.create_window(0, 0, window=self.btn_exit, state="hidden")
 
-        # Quick Goal Presets
-        self.btn_preset_fast = ttk.Button(self, command=lambda: self.apply_strategy_preset("fastest_clear"))
-        self.btn_preset_balanced = ttk.Button(self, command=lambda: self.apply_strategy_preset("balanced"))
-        self.btn_preset_profit = ttk.Button(self, command=lambda: self.apply_strategy_preset("max_profit"))
-
-        self.btn_preset_fast_win = self.canvas.create_window(0, 0, window=self.btn_preset_fast)
-        self.btn_preset_balanced_win = self.canvas.create_window(0, 0, window=self.btn_preset_balanced)
-        self.btn_preset_profit_win = self.canvas.create_window(0, 0, window=self.btn_preset_profit)
-
         self.combo_strategy = ttk.Combobox(self, state='readonly',
                                            values=localization.get_strategy_labels(self.current_lang))
         saved_strat = saved_config.get("strategy_index", 0)
-        initial_strat = saved_strat if (isinstance(saved_strat, int) and 0 <= saved_strat < len(STRATEGY_KEYS)) else 0
+        saved_key = saved_config.get("strategy_key")
+        if saved_key in STRATEGY_KEYS:
+            initial_strat = STRATEGY_KEYS.index(saved_key)
+        else:
+            try:
+                initial_strat = max(0, min(len(STRATEGY_KEYS) - 1, int(saved_strat)))
+            except (ValueError, TypeError):
+                initial_strat = 0
         self.combo_strategy.current(initial_strat)
         self.combo_strategy.bind("<<ComboboxSelected>>", self.on_strategy_change)
         self.strategy_window = self.canvas.create_window(0, 0, window=self.combo_strategy, anchor='nw')
@@ -538,29 +544,42 @@ class HololiveBotUI(tk.Tk):
             text="",
             command=self.toggle_modifiers_drawer,
             style="ModifierDrawer.TButton",
+            takefocus=False,
         )
         self.btn_toggle_modifiers_win = self.canvas.create_window(0, 0, window=self.btn_toggle_modifiers, anchor="nw")
 
-        self.opp_frame = ttk.Frame(self)
+        self.opp_frame = ttk.Frame(self, style="ModifierCard.TFrame")
 
-        # Section 1: Card Overrides (Double Under Cap) - 3 Columns
-        self.lbl_sec_cards = ttk.Label(self.opp_frame, font=(self.font_family, 8, "bold"), foreground="#475569")
-        self.lbl_sec_cards.pack(anchor="w", pady=(2, 2))
-        self.frame_cards_grid = ttk.Frame(self.opp_frame)
+        # --- Section 1: Card Overrides ---
+        self.sec_cards_frame = ttk.Frame(self.opp_frame, style="ModifierCard.TFrame")
+        self.sec_cards_frame.pack(fill="x", pady=(2, 2))
+
+        self.lbl_sec_cards = ttk.Label(
+            self.sec_cards_frame,
+            font=(self.font_family, 8, "bold"),
+            foreground="#334155",
+            style="ModifierCard.TLabel",
+            cursor="hand2",
+        )
+        self.lbl_sec_cards.pack(anchor="w", pady=(1, 2))
+        self.lbl_sec_cards.bind("<Button-1>", lambda e: self.toggle_mod_cat("cards"))
+
+        self.frame_cards_grid = ttk.Frame(self.sec_cards_frame, style="ModifierCard.TFrame")
         self.frame_cards1 = self.frame_cards_grid
         self.frame_cards2 = self.frame_cards_grid
         self.frame_cards = self.frame_cards_grid
-        self.frame_cards_grid.pack(fill="x", pady=(0, 4))
+        if self.cat_cards_expanded:
+            self.frame_cards_grid.pack(fill="x", pady=(0, 4))
         for col in range(3):
             self.frame_cards_grid.columnconfigure(col, weight=1, uniform="card_col")
 
-        self.chk_opp_a2 = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_a2, command=self.on_opp_toggle)
-        self.chk_opp_3k = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_3k, command=self.on_opp_toggle)
-        self.chk_opp_4q = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_4q, command=self.on_opp_toggle)
-        self.chk_opp_5j = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_5j, command=self.on_opp_toggle)
-        self.chk_opp_610 = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_610, command=self.on_opp_toggle)
-        self.chk_opp_79 = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_79, command=self.on_opp_toggle)
-        self.chk_opp_8 = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_8, command=self.on_opp_toggle)
+        self.chk_opp_a2 = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_a2, command=self.on_opp_toggle, style="ModifierCard.TCheckbutton")
+        self.chk_opp_3k = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_3k, command=self.on_opp_toggle, style="ModifierCard.TCheckbutton")
+        self.chk_opp_4q = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_4q, command=self.on_opp_toggle, style="ModifierCard.TCheckbutton")
+        self.chk_opp_5j = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_5j, command=self.on_opp_toggle, style="ModifierCard.TCheckbutton")
+        self.chk_opp_610 = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_610, command=self.on_opp_toggle, style="ModifierCard.TCheckbutton")
+        self.chk_opp_79 = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_79, command=self.on_opp_toggle, style="ModifierCard.TCheckbutton")
+        self.chk_opp_8 = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_8, command=self.on_opp_toggle, style="ModifierCard.TCheckbutton")
 
         self.chk_opp_a2.grid(row=0, column=0, sticky="w", padx=(0, 2), pady=1)
         self.chk_opp_3k.grid(row=0, column=1, sticky="w", padx=(0, 2), pady=1)
@@ -570,38 +589,62 @@ class HololiveBotUI(tk.Tk):
         self.chk_opp_79.grid(row=1, column=2, sticky="w", padx=(0, 2), pady=1)
         self.chk_opp_8.grid(row=2, column=0, sticky="w", padx=(0, 2), pady=1)
 
-        # Section 2: Defensive Bailouts (<19.8k Cushion) - 2 Columns
-        self.lbl_sec_bail = ttk.Label(self.opp_frame, font=(self.font_family, 8, "bold"), foreground="#475569")
-        self.lbl_sec_bail.pack(anchor="w", pady=(3, 2))
-        self.frame_bail_grid = ttk.Frame(self.opp_frame)
+        # --- Section 2: Defensive Bailouts ---
+        self.sec_bail_frame = ttk.Frame(self.opp_frame, style="ModifierCard.TFrame")
+        self.sec_bail_frame.pack(fill="x", pady=(2, 2))
+
+        self.lbl_sec_bail = ttk.Label(
+            self.sec_bail_frame,
+            font=(self.font_family, 8, "bold"),
+            foreground="#334155",
+            style="ModifierCard.TLabel",
+            cursor="hand2",
+        )
+        self.lbl_sec_bail.pack(anchor="w", pady=(1, 2))
+        self.lbl_sec_bail.bind("<Button-1>", lambda e: self.toggle_mod_cat("bail"))
+
+        self.frame_bail_grid = ttk.Frame(self.sec_bail_frame, style="ModifierCard.TFrame")
         self.frame_bail = self.frame_bail_grid
         self.frame_mods = self.frame_bail_grid
-        self.frame_bail_grid.pack(fill="x", pady=(0, 4))
+        if self.cat_bail_expanded:
+            self.frame_bail_grid.pack(fill="x", pady=(0, 4))
         for col in range(2):
             self.frame_bail_grid.columnconfigure(col, weight=1, uniform="mod_col")
 
-        self.chk_mod_drop_78 = ttk.Checkbutton(self.frame_bail_grid, variable=self.var_mod_drop_78, command=self.on_modifier_toggle)
-        self.chk_mod_drop_6789 = ttk.Checkbutton(self.frame_bail_grid, variable=self.var_mod_drop_6789, command=self.on_modifier_toggle)
-        self.chk_mod_drop_8 = ttk.Checkbutton(self.frame_bail_grid, variable=self.var_mod_drop_8, command=self.on_modifier_toggle)
+        self.chk_mod_drop_78 = ttk.Checkbutton(self.frame_bail_grid, variable=self.var_mod_drop_78, command=self.on_modifier_toggle, style="ModifierCard.TCheckbutton")
+        self.chk_mod_drop_6789 = ttk.Checkbutton(self.frame_bail_grid, variable=self.var_mod_drop_6789, command=self.on_modifier_toggle, style="ModifierCard.TCheckbutton")
+        self.chk_mod_drop_8 = ttk.Checkbutton(self.frame_bail_grid, variable=self.var_mod_drop_8, command=self.on_modifier_toggle, style="ModifierCard.TCheckbutton")
 
         self.chk_mod_drop_78.grid(row=0, column=0, sticky="w", padx=(0, 4), pady=1)
         self.chk_mod_drop_6789.grid(row=0, column=1, sticky="w", padx=(0, 4), pady=1)
         self.chk_mod_drop_8.grid(row=1, column=0, sticky="w", padx=(0, 4), pady=1)
 
-        # Section 3: Progression & Sprint Phase - 2 Columns
-        self.lbl_sec_prog = ttk.Label(self.opp_frame, font=(self.font_family, 8, "bold"), foreground="#475569")
-        self.lbl_sec_prog.pack(anchor="w", pady=(3, 2))
-        self.frame_prog_grid = ttk.Frame(self.opp_frame)
+        # --- Section 3: Progression & Sprint Phase ---
+        self.sec_prog_frame = ttk.Frame(self.opp_frame, style="ModifierCard.TFrame")
+        self.sec_prog_frame.pack(fill="x", pady=(2, 4))
+
+        self.lbl_sec_prog = ttk.Label(
+            self.sec_prog_frame,
+            font=(self.font_family, 8, "bold"),
+            foreground="#334155",
+            style="ModifierCard.TLabel",
+            cursor="hand2",
+        )
+        self.lbl_sec_prog.pack(anchor="w", pady=(1, 2))
+        self.lbl_sec_prog.bind("<Button-1>", lambda e: self.toggle_mod_cat("prog"))
+
+        self.frame_prog_grid = ttk.Frame(self.sec_prog_frame, style="ModifierCard.TFrame")
         self.frame_prog1 = self.frame_prog_grid
         self.frame_prog2 = self.frame_prog_grid
-        self.frame_prog_grid.pack(fill="x", pady=(0, 6))
+        if self.cat_prog_expanded:
+            self.frame_prog_grid.pack(fill="x", pady=(0, 4))
         for col in range(2):
             self.frame_prog_grid.columnconfigure(col, weight=1, uniform="mod_col")
 
-        self.chk_mod_fast_build = ttk.Checkbutton(self.frame_prog_grid, variable=self.var_mod_fast_build, command=self.on_modifier_toggle)
-        self.chk_mod_free_roll = ttk.Checkbutton(self.frame_prog_grid, variable=self.var_mod_free_roll, command=self.on_modifier_toggle)
-        self.chk_mod_sprint_floor = ttk.Checkbutton(self.frame_prog_grid, variable=self.var_mod_sprint_floor, command=self.on_modifier_toggle)
-        self.chk_mod_mega_sprint = ttk.Checkbutton(self.frame_prog_grid, variable=self.var_mod_mega_sprint, command=self.on_modifier_toggle)
+        self.chk_mod_fast_build = ttk.Checkbutton(self.frame_prog_grid, variable=self.var_mod_fast_build, command=self.on_modifier_toggle, style="ModifierCard.TCheckbutton")
+        self.chk_mod_free_roll = ttk.Checkbutton(self.frame_prog_grid, variable=self.var_mod_free_roll, command=self.on_modifier_toggle, style="ModifierCard.TCheckbutton")
+        self.chk_mod_sprint_floor = ttk.Checkbutton(self.frame_prog_grid, variable=self.var_mod_sprint_floor, command=self.on_modifier_toggle, style="ModifierCard.TCheckbutton")
+        self.chk_mod_mega_sprint = ttk.Checkbutton(self.frame_prog_grid, variable=self.var_mod_mega_sprint, command=self.on_modifier_toggle, style="ModifierCard.TCheckbutton")
 
         self.chk_mod_fast_build.grid(row=0, column=0, sticky="w", padx=(0, 4), pady=1)
         self.chk_mod_free_roll.grid(row=0, column=1, sticky="w", padx=(0, 4), pady=1)
@@ -685,8 +728,8 @@ class HololiveBotUI(tk.Tk):
             self,
             font=font_log,
             wrap="word",
-            relief="solid",
-            bd=1,
+            relief="flat",
+            bd=0,
             highlightthickness=0,
             bg="#FFFFFF",
             fg="#111827",
@@ -754,18 +797,12 @@ class HololiveBotUI(tk.Tk):
             self.profit_id,
             self.btn_start_win,
             self.btn_stop_win,
-            self.btn_preset_fast_win,
-            self.btn_preset_balanced_win,
-            self.btn_preset_profit_win,
             self.btn_config_strat_win,
             self.btn_toggle_modifiers_win,
             self.opp_frame_win,
         ]
 
         self._sim_items = [
-            self.btn_preset_fast_win,
-            self.btn_preset_balanced_win,
-            self.btn_preset_profit_win,
             self.btn_toggle_modifiers_win,
             self.opp_frame_win,
             self.sim_days_label_id,
@@ -1019,11 +1056,43 @@ class HololiveBotUI(tk.Tk):
     def draw_ui(self, w, h):
         if w <= 50 or h <= 50:
             return
-        # 1. Background image
-        if self.show_bg and self.original_bg:
-            img = self.original_bg.resize((w, h), Image.Resampling.LANCZOS).convert("RGBA")
+        # 1. Background image (Plain neutral background if no custom background selected)
+        bg_img = None
+        if self.show_bg and self.original_bg and 0 <= self.bg_index < len(self.bg_candidates):
+            bg_img = self.original_bg.resize((w, h), Image.Resampling.LANCZOS).convert("RGB")
+            img = bg_img.convert("RGBA")
         else:
-            img = Image.new("RGBA", (w, h), color=(255, 255, 255, 255))
+            img = Image.new("RGBA", (w, h), color=(240, 240, 240, 255))
+
+        # Dynamic opacity values & card fill color
+        op_ratio = self.field_box_opacity / 100.0
+        alpha = int(255 * op_ratio)
+
+        def _sample_card_bg(box):
+            if bg_img is not None:
+                bx1 = max(0, min(w - 1, int(box[0])))
+                by1 = max(0, min(h - 1, int(box[1])))
+                bx2 = max(bx1 + 1, min(w, int(box[2])))
+                by2 = max(by1 + 1, min(h, int(box[3])))
+                if bx2 > bx1 and by2 > by1:
+                    crop = bg_img.crop((bx1, by1, bx2, by2))
+                    stat = ImageStat.Stat(crop).mean
+                    r = int(stat[0] * (1.0 - op_ratio) + 255 * op_ratio)
+                    g = int(stat[1] * (1.0 - op_ratio) + 255 * op_ratio)
+                    b = int(stat[2] * (1.0 - op_ratio) + 255 * op_ratio)
+                    return f"#{max(0, min(255, r)):02x}{max(0, min(255, g)):02x}{max(0, min(255, b)):02x}"
+            val = int(240 * (1.0 - op_ratio) + 255 * op_ratio)
+            return f"#{val:02x}{val:02x}{val:02x}"
+
+        pad_x = max(16, int(w * 0.06))
+        card_bg_hex = _sample_card_bg((pad_x, int(h * 0.4), w - pad_x, int(h * 0.8)))
+
+        self.style.configure("ModifierCard.TFrame", background=card_bg_hex)
+        self.style.configure("ModifierCard.TLabel", background=card_bg_hex)
+        self.style.configure("ModifierCard.TCheckbutton", background=card_bg_hex)
+
+        card_fill = (255, 255, 255, alpha) if self.field_box_opacity > 0 else (255, 255, 255, 0)
+        card_border = None  # Transparent card box line
 
         # 2. Responsive layout dimensions
         pad_x = max(16, int(w * 0.06))
@@ -1080,25 +1149,18 @@ class HololiveBotUI(tk.Tk):
             sc_x2 = w - pad_x + 4
             sc_y2 = stats_card_bottom
 
-            if self.show_bg and self.original_bg:
-                self.canvas.itemconfig(self.stats_card_id, state="hidden")
-                if self.field_box_opacity > 0 and sc_x2 > sc_x1 and sc_y2 > sc_y1:
-                    alpha = int(255 * (self.field_box_opacity / 100.0))
-                    border_alpha = int(255 * min(1.0, (self.field_box_opacity + 30) / 100.0))
-                    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-                    draw = ImageDraw.Draw(overlay)
-                    draw.rounded_rectangle(
-                        (sc_x1, sc_y1, sc_x2, sc_y2),
-                        radius=8,
-                        fill=(255, 255, 255, alpha),
-                        outline=(226, 232, 240, border_alpha),
-                        width=1,
-                    )
-                    img = Image.alpha_composite(img, overlay)
-            else:
-                self.canvas.coords(self.stats_card_id, sc_x1, sc_y1, sc_x2, sc_y2)
-                self.canvas.tag_lower(self.stats_card_id, self.status_id)
-                self.canvas.itemconfig(self.stats_card_id, state="normal")
+            self.canvas.itemconfig(self.stats_card_id, state="hidden")
+            if sc_x2 > sc_x1 and sc_y2 > sc_y1:
+                overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                draw = ImageDraw.Draw(overlay)
+                draw.rounded_rectangle(
+                    (sc_x1, sc_y1, sc_x2, sc_y2),
+                    radius=8,
+                    fill=card_fill,
+                    outline=card_border,
+                    width=1,
+                )
+                img = Image.alpha_composite(img, overlay)
 
             # Internal card left padding: pad_x + 8
             card_inner_x = pad_x + 8
@@ -1137,22 +1199,8 @@ class HololiveBotUI(tk.Tk):
 
             self.canvas.itemconfig(self.btn_exit_win, state="hidden")
 
-            # Quick Goal Presets (Fastest / Balanced / Max Profit)
-            preset_gap = 6
-            preset_btn_w = (content_w - 2 * preset_gap) / 3
-            preset_btn_h = 30
-            preset_top = btn_row_top + btn_h + 10
-            preset_y = preset_top + preset_btn_h / 2
-
-            self.canvas.coords(self.btn_preset_fast_win, pad_x + preset_btn_w / 2, preset_y)
-            self.canvas.coords(self.btn_preset_balanced_win, pad_x + preset_btn_w + preset_gap + preset_btn_w / 2, preset_y)
-            self.canvas.coords(self.btn_preset_profit_win, pad_x + 2 * (preset_btn_w + preset_gap) + preset_btn_w / 2, preset_y)
-            self.canvas.itemconfig(self.btn_preset_fast_win, width=preset_btn_w, height=preset_btn_h, state="normal")
-            self.canvas.itemconfig(self.btn_preset_balanced_win, width=preset_btn_w, height=preset_btn_h, state="normal")
-            self.canvas.itemconfig(self.btn_preset_profit_win, width=preset_btn_w, height=preset_btn_h, state="normal")
-
             # Strategy Row (full width dropdown or with config button if custom parametric)
-            strat_top = preset_top + preset_btn_h + 10
+            strat_top = btn_row_top + btn_h + 10
             strat_field_h = 30
             is_custom = (self.active_mode == "custom_parametric")
             if is_custom:
@@ -1184,10 +1232,31 @@ class HololiveBotUI(tk.Tk):
             if self.modifiers_expanded:
                 opp_frame_y = mod_btn_y + mod_btn_h + 6
                 self.opp_frame.update_idletasks()
-                opp_frame_h = max(235, self.opp_frame.winfo_reqheight())
+                opp_frame_h = max(40, self.opp_frame.winfo_reqheight())
                 self.canvas.coords(self.opp_frame_win, pad_x, opp_frame_y)
                 self.canvas.itemconfig(self.opp_frame_win, width=content_w, height=opp_frame_h, state="normal")
                 log_y = opp_frame_y + opp_frame_h + 8
+
+                opp_x1 = pad_x - 4
+                opp_y1 = opp_frame_y - 4
+                opp_x2 = w - pad_x + 4
+                opp_y2 = opp_frame_y + opp_frame_h + 4
+                if opp_x2 > opp_x1 and opp_y2 > opp_y1:
+                    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                    draw = ImageDraw.Draw(overlay)
+                    draw.rounded_rectangle(
+                        (opp_x1, opp_y1, opp_x2, opp_y2),
+                        radius=8,
+                        fill=card_fill,
+                        outline=card_border,
+                        width=1,
+                    )
+                    img = Image.alpha_composite(img, overlay)
+                    # Sample background region for modifiers card
+                    mod_card_bg = _sample_card_bg((opp_x1, opp_y1, opp_x2, opp_y2))
+                    self.style.configure("ModifierCard.TFrame", background=mod_card_bg)
+                    self.style.configure("ModifierCard.TLabel", background=mod_card_bg)
+                    self.style.configure("ModifierCard.TCheckbutton", background=mod_card_bg)
             else:
                 self.canvas.itemconfig(self.opp_frame_win, state="hidden")
                 log_y = mod_btn_y + mod_btn_h + 8
@@ -1199,11 +1268,28 @@ class HololiveBotUI(tk.Tk):
             log_w = content_w - scrollbar_w - 4
 
             if self.show_log:
+                log_card_x1 = pad_x - 4
+                log_card_y1 = log_y - 4
+                log_card_x2 = pad_x + log_w + scrollbar_w + 8
+                log_card_y2 = log_y + log_h + 4
+                if log_card_x2 > log_card_x1 and log_card_y2 > log_card_y1:
+                    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                    draw = ImageDraw.Draw(overlay)
+                    draw.rounded_rectangle(
+                        (log_card_x1, log_card_y1, log_card_x2, log_card_y2),
+                        radius=8,
+                        fill=card_fill,
+                        outline=card_border,
+                        width=1,
+                    )
+                    img = Image.alpha_composite(img, overlay)
+
+                log_box_bg = _sample_card_bg((pad_x, log_y, pad_x + log_w, log_y + log_h))
                 self.canvas.coords(self.log_text_win, pad_x, log_y)
                 self.canvas.itemconfig(self.log_text_win, width=log_w, height=log_h, state="normal")
                 self.canvas.coords(self.scrollbar_win, pad_x + log_w + 4, log_y)
                 self.canvas.itemconfig(self.scrollbar_win, width=scrollbar_w, height=log_h, state="normal")
-                self.log_text.configure(bg="#F8FAFC" if self.field_box_opacity < 80 else "#FFFFFF")
+                self.log_text.configure(bg=log_box_bg)
             else:
                 self.canvas.itemconfig(self.log_text_win, state="hidden")
                 self.canvas.itemconfig(self.scrollbar_win, state="hidden")
@@ -1221,22 +1307,8 @@ class HololiveBotUI(tk.Tk):
             self.canvas.itemconfig(self.btn_clear_logs_win, state="hidden")
             self.canvas.itemconfig(self.btn_open_custom_dialog_win, state="hidden")
 
-            # Quick Goal Presets on Simulation tab
-            preset_gap = 6
-            preset_btn_w = (content_w - 2 * preset_gap) / 3
-            preset_btn_h = 30
-            preset_top = tab_y + tab_btn_h / 2 + 10
-            preset_y = preset_top + preset_btn_h / 2
-
-            self.canvas.coords(self.btn_preset_fast_win, pad_x + preset_btn_w / 2, preset_y)
-            self.canvas.coords(self.btn_preset_balanced_win, pad_x + preset_btn_w + preset_gap + preset_btn_w / 2, preset_y)
-            self.canvas.coords(self.btn_preset_profit_win, pad_x + 2 * (preset_btn_w + preset_gap) + preset_btn_w / 2, preset_y)
-            self.canvas.itemconfig(self.btn_preset_fast_win, width=preset_btn_w, height=preset_btn_h, state="normal")
-            self.canvas.itemconfig(self.btn_preset_balanced_win, width=preset_btn_w, height=preset_btn_h, state="normal")
-            self.canvas.itemconfig(self.btn_preset_profit_win, width=preset_btn_w, height=preset_btn_h, state="normal")
-
             # Strategy Row (full width or with config button if custom parametric)
-            strat_top = preset_top + preset_btn_h + 10
+            strat_top = tab_y + tab_btn_h / 2 + 10
             strat_field_h = 30
             is_custom = (self.active_mode == "custom_parametric")
             if is_custom:
@@ -1269,10 +1341,31 @@ class HololiveBotUI(tk.Tk):
             if self.modifiers_expanded:
                 opp_frame_y = mod_btn_y + mod_btn_h + 6
                 self.opp_frame.update_idletasks()
-                opp_frame_h = max(235, self.opp_frame.winfo_reqheight())
+                opp_frame_h = max(40, self.opp_frame.winfo_reqheight())
                 self.canvas.coords(self.opp_frame_win, pad_x, opp_frame_y)
                 self.canvas.itemconfig(self.opp_frame_win, width=content_w, height=opp_frame_h, state="normal")
                 days_row_top = opp_frame_y + opp_frame_h + 8
+
+                opp_x1 = pad_x - 4
+                opp_y1 = opp_frame_y - 4
+                opp_x2 = w - pad_x + 4
+                opp_y2 = opp_frame_y + opp_frame_h + 4
+                if opp_x2 > opp_x1 and opp_y2 > opp_y1:
+                    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                    draw = ImageDraw.Draw(overlay)
+                    draw.rounded_rectangle(
+                        (opp_x1, opp_y1, opp_x2, opp_y2),
+                        radius=8,
+                        fill=card_fill,
+                        outline=card_border,
+                        width=1,
+                    )
+                    img = Image.alpha_composite(img, overlay)
+                    # Sample background region for modifiers card
+                    mod_card_bg = _sample_card_bg((opp_x1, opp_y1, opp_x2, opp_y2))
+                    self.style.configure("ModifierCard.TFrame", background=mod_card_bg)
+                    self.style.configure("ModifierCard.TLabel", background=mod_card_bg)
+                    self.style.configure("ModifierCard.TCheckbutton", background=mod_card_bg)
             else:
                 self.canvas.itemconfig(self.opp_frame_win, state="hidden")
                 days_row_top = mod_btn_y + mod_btn_h + 8
@@ -1310,11 +1403,28 @@ class HololiveBotUI(tk.Tk):
             log_w = content_w - scrollbar_w - 4
 
             if self.show_log:
+                log_card_x1 = pad_x - 4
+                log_card_y1 = log_y - 4
+                log_card_x2 = pad_x + log_w + scrollbar_w + 8
+                log_card_y2 = log_y + log_h + 4
+                if log_card_x2 > log_card_x1 and log_card_y2 > log_card_y1:
+                    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                    draw = ImageDraw.Draw(overlay)
+                    draw.rounded_rectangle(
+                        (log_card_x1, log_card_y1, log_card_x2, log_card_y2),
+                        radius=8,
+                        fill=card_fill,
+                        outline=card_border,
+                        width=1,
+                    )
+                    img = Image.alpha_composite(img, overlay)
+
+                log_box_bg = _sample_card_bg((pad_x, log_y, pad_x + log_w, log_y + log_h))
                 self.canvas.coords(self.log_text_win, pad_x, log_y)
                 self.canvas.itemconfig(self.log_text_win, width=log_w, height=log_h, state="normal")
                 self.canvas.coords(self.scrollbar_win, pad_x + log_w + 4, log_y)
                 self.canvas.itemconfig(self.scrollbar_win, width=scrollbar_w, height=log_h, state="normal")
-                self.log_text.configure(bg="#F8FAFC" if self.field_box_opacity < 80 else "#FFFFFF")
+                self.log_text.configure(bg=log_box_bg)
             else:
                 self.canvas.itemconfig(self.log_text_win, state="hidden")
                 self.canvas.itemconfig(self.scrollbar_win, state="hidden")
@@ -1392,25 +1502,18 @@ class HololiveBotUI(tk.Tk):
             sett_x2 = w - pad_x + 8
             sett_y2 = btn_back_y + btn_sett_h / 2 + 12
 
-            if self.show_bg and self.original_bg:
-                self.canvas.itemconfig(self.settings_card_id, state="hidden")
-                if self.field_box_opacity > 0 and sett_x2 > sett_x1 and sett_y2 > sett_y1:
-                    alpha = int(255 * (self.field_box_opacity / 100.0))
-                    border_alpha = int(255 * min(1.0, (self.field_box_opacity + 30) / 100.0))
-                    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-                    draw = ImageDraw.Draw(overlay)
-                    draw.rounded_rectangle(
-                        (sett_x1, sett_y1, sett_x2, sett_y2),
-                        radius=8,
-                        fill=(255, 255, 255, alpha),
-                        outline=(226, 232, 240, border_alpha),
-                        width=1,
-                    )
-                    img = Image.alpha_composite(img, overlay)
-            else:
-                self.canvas.coords(self.settings_card_id, sett_x1, sett_y1, sett_x2, sett_y2)
-                self.canvas.tag_lower(self.settings_card_id, self.lbl_setting_title_id)
-                self.canvas.itemconfig(self.settings_card_id, state="normal")
+            self.canvas.itemconfig(self.settings_card_id, state="hidden")
+            if sett_x2 > sett_x1 and sett_y2 > sett_y1:
+                overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                draw = ImageDraw.Draw(overlay)
+                draw.rounded_rectangle(
+                    (sett_x1, sett_y1, sett_x2, sett_y2),
+                    radius=8,
+                    fill=card_fill,
+                    outline=card_border,
+                    width=1,
+                )
+                img = Image.alpha_composite(img, overlay)
 
             # Feedback label
             self.canvas.coords(self.settings_feedback_id, w / 2, btn_back_y + btn_sett_h / 2 + 20)
@@ -1649,12 +1752,12 @@ class HololiveBotUI(tk.Tk):
         )
         self.logs_menu.add_separator()
         self.logs_menu.add_checkbutton(
-            label=f"{localization.tr('menu_toggle_log', self.current_lang)} (Ctrl+L)",
+            label=f"    {localization.tr('menu_toggle_log', self.current_lang)} (Ctrl+L)",
             variable=self.var_show_log,
             command=self.toggle_log_console,
         )
         self.logs_menu.add_checkbutton(
-            label=localization.tr("menu_enable_debug_log", self.current_lang),
+            label=f"    {localization.tr('menu_enable_debug_log', self.current_lang)}",
             variable=self.var_debug_logging,
             command=self.on_debug_logging_toggle,
         )
@@ -1662,7 +1765,7 @@ class HololiveBotUI(tk.Tk):
         # Background Menu (Top-level in menubar)
         self.bg_menu.delete(0, "end")
         self.bg_menu.add_radiobutton(
-            label=localization.tr("menu_bg_disabled", self.current_lang),
+            label=f"    {localization.tr('menu_bg_disabled', self.current_lang)}",
             variable=self.bg_var,
             value=-1,
             command=lambda: self.select_background(-1),
@@ -1672,7 +1775,7 @@ class HololiveBotUI(tk.Tk):
             for i, cand in enumerate(self.bg_candidates):
                 label_text = "Minato Aqua" if cand.stem.lower() in ("default", "minato_aqua") else cand.stem.replace("_", " ").title()
                 self.bg_menu.add_radiobutton(
-                    label=f"{i + 1}. {label_text}",
+                    label=f"    {i + 1}. {label_text}",
                     variable=self.bg_var,
                     value=i,
                     command=lambda idx=i: self.select_background(idx),
@@ -1691,7 +1794,7 @@ class HololiveBotUI(tk.Tk):
         ]
         for val, label in presets:
             self.opacity_menu.add_radiobutton(
-                label=label,
+                label=f"    {label}",
                 variable=self.opacity_var,
                 value=val,
                 command=lambda v=val: self.set_field_box_opacity(v),
@@ -1707,7 +1810,7 @@ class HololiveBotUI(tk.Tk):
         available_langs = localization.load_external_locales()
         for code, name in available_langs:
             self.lang_menu.add_radiobutton(
-                label=name,
+                label=f"    {name}",
                 variable=self.lang_var,
                 value=code,
                 command=lambda c=code: self.select_language(c),
@@ -1762,6 +1865,15 @@ class HololiveBotUI(tk.Tk):
         )
         self.help_menu.add_separator()
         self.help_menu.add_command(
+            label=localization.tr("menu_online_docs", self.current_lang),
+            command=lambda: webbrowser.open("https://github.com/xAkai97/Hololive-Dreams-Auto-High-Low#readme"),
+        )
+        self.help_menu.add_command(
+            label=localization.tr("menu_open_docs_dir", self.current_lang),
+            command=lambda: self._safe_open_path(Path(__file__).resolve().parent / "docs"),
+        )
+        self.help_menu.add_separator()
+        self.help_menu.add_command(
             label=localization.tr("menu_about", self.current_lang),
             command=self.show_help_about,
         )
@@ -1795,31 +1907,40 @@ class HololiveBotUI(tk.Tk):
         body = (
             "=== Hololive Dreams High-Low Mini-game Rules ===\n\n"
             "1. Video Poker Entry:\n"
-            "   - Ticket Cost: 50 coins per game round.\n"
-            "   - 5-Card Draw with 1 Joker (53-card deck).\n"
-            "   - Minimum qualifying hand: Two Pair (pays 200 coins).\n\n"
+            "   • Ticket Cost: 50 coins per game round.\n"
+            "   • 5-Card Draw with 1 Joker (53-card deck).\n"
+            "   • Minimum qualifying hand: Two Pair (pays 200 coins).\n"
+            "   • Payout Table: Royal Flush (10,000), 5 of a Kind (7,000), Straight Flush (3,000), "
+            "Four of a Kind (1,500), Full House (800), Flush (700), Straight (400), Three of a Kind (200), Two Pair (200).\n\n"
             "2. High-Low Doubling Phase:\n"
-            "   - Base card is revealed (2 through Ace).\n"
-            "   - Guess if the hidden card will be High or Low.\n"
-            "   - TIES ARE LOSSES: Equal rank wipe out the entire round pool!\n\n"
+            "   • Base card is revealed (ranks 2 through Ace / 14).\n"
+            "   • Predict if the hidden card will be High or Low.\n"
+            "   • TIES ARE LOSSES: Equal rank wipes out the entire round pool!\n\n"
             "3. The 20,000 Coin Cap Overflow Rule:\n"
-            "   - 20k cap only gates STARTING new poker rounds.\n"
-            "   - Any round started before 20k is completed in full.\n"
-            "   - This allows cashing out 30,000 - 50,000+ total coins daily!"
+            "   • The 20k cap only prevents STARTING new poker rounds.\n"
+            "   • Any round started before 20k runs to full completion without limit.\n"
+            "   • Cushion Phase (< 19,800): Conservative grinding to safely build bankroll.\n"
+            "   • Sprint Phase (≥ 19,800): Aggressive doubling targeting 10k–32k+ in a single round for ~29,000–32,000+ total daily coins!"
         )
         messagebox.showinfo(title, body)
 
     def show_help_strategies(self):
         title = localization.tr("menu_strategy_guide", self.current_lang)
         body = (
-            f"=== {len(STRATEGY_KEYS)} Strategy Catalog & Risk Profiles ===\n\n"
-            "1. Max Profit (Recommended): Safe cushion to 19.8k, then sprint for 10k+ (~29k-32k).\n"
-            "2. Fastest Clear: Max double-up every round until 20k (~20k-22k, highest risk).\n"
-            "3. Balanced: Build/Push/Sprint phases with win-rate floors (~25k-28k).\n"
-            "4. Aggressive Balanced: Balanced with lower floors, pushes harder (~28k-30k).\n"
-            "5. Adaptive Rush: Rush mode with cushion fallback (~25k-32k).\n"
-            "6. Grinder: Small cashouts, capped doubles, one final sprint (~20k-25k, lowest risk).\n"
-            "7. Custom Parametric: User-configured thresholds."
+            f"=== {len(STRATEGY_KEYS)} Strategy Catalog & Modifier System ===\n\n"
+            "Core Doubling Policies:\n"
+            "1. Max Profit (Recommended): Cushion grind to 19.8k, sprint for 10k+ (~29k-32k total).\n"
+            "2. Fastest Clear: Max double-up speedrun directly to 20k (~20k-22k total).\n"
+            "3. Balanced: Staged Build/Push/Sprint with win-rate safety floors (~25k-28k).\n"
+            "4. Aggressive Balanced: Lower win-rate floors, pushes harder (~28k-30k).\n"
+            "5. Adaptive Rush: Dynamic auto-downshifting on fail streaks (~25k-32k).\n"
+            "6. Grinder: Capped at 4 doubles per round, ultra-safe (~20k-25k).\n"
+            "7. Custom Parametric: User-configured win-rate and cashout thresholds.\n\n"
+            "Strategy Modifiers Drawer:\n"
+            "• Card Overrides: Force doubling on favorable cards (A/2, 3/K, etc.) under cap.\n"
+            "• Defensive Bailouts: Early cashout on volatile middle cards (8, 7/8, 6-9).\n"
+            "• Progression & Sprint: Fast Build to cushion, Free-Roll (<=200), and Sprint Floors (11.2k+ / 12.8k+).\n\n"
+            "Tip: Each modifier category can be expanded or collapsed in the UI drawer!"
         )
         messagebox.showinfo(title, body)
 
@@ -1998,9 +2119,9 @@ class HololiveBotUI(tk.Tk):
             combo_recovery.current(0)
             ent_settle_timeout.delete(0, "end")
             ent_settle_timeout.insert(0, "8")
-            dlg_scale_op.set(80)
-            dlg_lbl_op.configure(text="80%")
-            self.set_field_box_opacity(80, save=True)
+            dlg_scale_op.set(30)
+            dlg_lbl_op.configure(text="30%")
+            self.set_field_box_opacity(30, save=True)
             lbl_status.configure(text=localization.tr("settings_saved_msg", self.current_lang))
 
         ttk.Button(btn_box, text=localization.tr("btn_save_settings", self.current_lang), command=on_save).pack(side="left", padx=5)
@@ -2097,6 +2218,9 @@ class HololiveBotUI(tk.Tk):
         try:
             self.target_limit = max(1000, min(50000, int(self.entry_setting_target.get().strip())))
             self.ticket_cost = max(0, min(1000, int(self.entry_setting_ticket.get().strip())))
+            strat_idx = STRATEGY_KEYS.index(self.active_mode) if (hasattr(self, "active_mode") and self.active_mode in STRATEGY_KEYS) else (
+                self.combo_strategy.current() if 0 <= self.combo_strategy.current() < len(STRATEGY_KEYS) else 0
+            )
 
             auto_bot.save_daily_data(
                 self.current_coins,
@@ -2104,7 +2228,8 @@ class HololiveBotUI(tk.Tk):
                 language=self.current_lang,
                 hotkey=self.current_hotkey,
                 background_index=self.bg_index,
-                strategy_index=self.combo_strategy.current(),
+                strategy_key=self.active_mode,
+                strategy_index=strat_idx,
                 target_limit=self.target_limit,
                 ticket_cost=self.ticket_cost,
                 log_retention_days=self.log_retention_days,
@@ -2117,6 +2242,9 @@ class HololiveBotUI(tk.Tk):
                 opp_79=bool(self.var_opp_79.get()),
                 opp_8=bool(self.var_opp_8.get()),
                 modifiers_expanded=getattr(self, "modifiers_expanded", True),
+                mod_cat_cards_expanded=getattr(self, "cat_cards_expanded", True),
+                mod_cat_bail_expanded=getattr(self, "cat_bail_expanded", True),
+                mod_cat_prog_expanded=getattr(self, "cat_prog_expanded", True),
                 mod_fast_build=bool(self.var_mod_fast_build.get()),
                 mod_drop_78=bool(self.var_mod_drop_78.get()),
                 mod_drop_6789=bool(self.var_mod_drop_6789.get()),
@@ -2175,13 +2303,14 @@ class HololiveBotUI(tk.Tk):
         self.param_sprint_target = 10000
         self.param_max_doubles = 10
         self.param_drop_seven_eight = False
-        self.field_box_opacity = 80
+        self.field_box_opacity = 30
         if hasattr(self, "scale_setting_opacity"):
-            self.scale_setting_opacity.set(80)
+            self.scale_setting_opacity.set(30)
         if hasattr(self, "lbl_setting_opacity_val"):
-            self.lbl_setting_opacity_val.configure(text="80%")
+            self.lbl_setting_opacity_val.configure(text="30%")
         if hasattr(self, "opacity_var"):
-            self.opacity_var.set(80)
+            self.opacity_var.set(30)
+        self.select_background(-1)
         self.save_user_settings()
 
     def _set_sim_buttons_state(self, state: str):
@@ -2378,7 +2507,6 @@ class HololiveBotUI(tk.Tk):
         if isinstance(idx, int) and 0 <= idx < len(STRATEGY_KEYS):
             self.active_mode = STRATEGY_KEYS[idx]
         self.update_strategy_description()
-        self._update_preset_styles()
         self.save_settings()
         w = self.last_w if self.last_w else 480
         h = self.last_h if self.last_h else 850
@@ -2392,29 +2520,13 @@ class HololiveBotUI(tk.Tk):
             self.combo_strategy.current(idx)
             self.active_mode = key
             self.update_strategy_description()
-            self._update_preset_styles()
             self.save_settings()
             w = self.last_w if self.last_w else 480
             h = self.last_h if self.last_h else 850
             self.draw_ui(w, h)
 
     def _update_preset_styles(self):
-        fast_active = (self.active_mode == "fastest_clear")
-        bal_active = (self.active_mode == "balanced")
-        profit_active = (self.active_mode == "max_profit")
-
-        self.btn_preset_fast.configure(
-            style="ActiveTab.TButton" if fast_active else "Tab.TButton",
-            text=localization.tr("preset_fast", self.current_lang),
-        )
-        self.btn_preset_balanced.configure(
-            style="ActiveTab.TButton" if bal_active else "Tab.TButton",
-            text=localization.tr("preset_balanced", self.current_lang),
-        )
-        self.btn_preset_profit.configure(
-            style="ActiveTab.TButton" if profit_active else "Tab.TButton",
-            text=localization.tr("preset_profit", self.current_lang),
-        )
+        pass
 
     def _sync_modifier_states(self):
         fast_build = bool(self.var_mod_fast_build.get())
@@ -2534,6 +2646,43 @@ class HololiveBotUI(tk.Tk):
         h = self.last_h if self.last_h else 850
         self.draw_ui(w, h)
 
+    def toggle_mod_cat(self, cat: str):
+        if cat == "cards":
+            self.cat_cards_expanded = not self.cat_cards_expanded
+            if self.cat_cards_expanded:
+                self.frame_cards_grid.pack(fill="x", pady=(0, 4))
+            else:
+                self.frame_cards_grid.pack_forget()
+        elif cat == "bail":
+            self.cat_bail_expanded = not self.cat_bail_expanded
+            if self.cat_bail_expanded:
+                self.frame_bail_grid.pack(fill="x", pady=(0, 4))
+            else:
+                self.frame_bail_grid.pack_forget()
+        elif cat == "prog":
+            self.cat_prog_expanded = not self.cat_prog_expanded
+            if self.cat_prog_expanded:
+                self.frame_prog_grid.pack(fill="x", pady=(0, 4))
+            else:
+                self.frame_prog_grid.pack_forget()
+        self._update_mod_category_headers()
+        self.save_settings()
+        w = self.last_w if self.last_w else 480
+        h = self.last_h if self.last_h else 850
+        self.draw_ui(w, h)
+
+    def _update_mod_category_headers(self):
+        arrow_cards = "▼" if getattr(self, "cat_cards_expanded", True) else "▶"
+        arrow_bail = "▼" if getattr(self, "cat_bail_expanded", True) else "▶"
+        arrow_prog = "▼" if getattr(self, "cat_prog_expanded", True) else "▶"
+
+        if hasattr(self, "lbl_sec_cards"):
+            self.lbl_sec_cards.configure(text=f"{arrow_cards} {localization.tr('sec_card_overrides', self.current_lang)}")
+        if hasattr(self, "lbl_sec_bail"):
+            self.lbl_sec_bail.configure(text=f"{arrow_bail} {localization.tr('sec_defensive_bailouts', self.current_lang)}")
+        if hasattr(self, "lbl_sec_prog"):
+            self.lbl_sec_prog.configure(text=f"{arrow_prog} {localization.tr('sec_progression_sprint', self.current_lang)}")
+
     def on_modifier_toggle(self):
         curr_6789 = bool(self.var_mod_drop_6789.get())
         curr_78 = bool(self.var_mod_drop_78.get())
@@ -2619,13 +2768,17 @@ class HololiveBotUI(tk.Tk):
             self.btn_toggle_modifiers.configure(text=header_text)
 
     def save_settings(self):
+        strat_idx = STRATEGY_KEYS.index(self.active_mode) if (hasattr(self, "active_mode") and self.active_mode in STRATEGY_KEYS) else (
+            self.combo_strategy.current() if 0 <= self.combo_strategy.current() < len(STRATEGY_KEYS) else 0
+        )
         auto_bot.save_daily_data(
             self.current_coins,
             self.current_fails,
             language=self.current_lang,
             hotkey=self.current_hotkey,
             background_index=self.bg_index,
-            strategy_index=self.combo_strategy.current(),
+            strategy_key=self.active_mode,
+            strategy_index=strat_idx,
             target_limit=self.target_limit,
             ticket_cost=self.ticket_cost,
             opp_a2=bool(self.var_opp_a2.get()),
@@ -2636,6 +2789,9 @@ class HololiveBotUI(tk.Tk):
             opp_79=bool(self.var_opp_79.get()),
             opp_8=bool(self.var_opp_8.get()),
             modifiers_expanded=self.modifiers_expanded,
+            mod_cat_cards_expanded=getattr(self, "cat_cards_expanded", True),
+            mod_cat_bail_expanded=getattr(self, "cat_bail_expanded", True),
+            mod_cat_prog_expanded=getattr(self, "cat_prog_expanded", True),
             mod_fast_build=bool(self.var_mod_fast_build.get()),
             mod_drop_78=bool(self.var_mod_drop_78.get()),
             mod_drop_6789=bool(self.var_mod_drop_6789.get()),
@@ -2797,14 +2953,17 @@ class HololiveBotUI(tk.Tk):
 
     def refresh_texts(self):
         self._apply_locale_fonts()
-        selected_strategy = self.combo_strategy.current()
         labels = localization.get_strategy_labels(self.current_lang)
         self.combo_strategy.configure(values=labels,
                                       state='disabled' if self.is_running else 'readonly')
         if labels:
-            valid_idx = min(max(0, selected_strategy), len(labels) - 1)
+            if hasattr(self, "active_mode") and self.active_mode in STRATEGY_KEYS:
+                valid_idx = STRATEGY_KEYS.index(self.active_mode)
+            else:
+                selected_strategy = self.combo_strategy.current()
+                valid_idx = min(max(0, selected_strategy), len(labels) - 1)
+                self.active_mode = STRATEGY_KEYS[valid_idx] if valid_idx < len(STRATEGY_KEYS) else 'max_profit'
             self.combo_strategy.current(valid_idx)
-            self.active_mode = STRATEGY_KEYS[valid_idx] if valid_idx < len(STRATEGY_KEYS) else 'max_profit'
         title = localization.tr("title", self.current_lang)
         self.title(title)
         self.canvas.itemconfig(self.title_id, text="", state="hidden")
@@ -2834,12 +2993,7 @@ class HololiveBotUI(tk.Tk):
         self.btn_bg.configure(text=localization.tr("btn_bg", self.current_lang))
         self.btn_exit.configure(text=localization.tr("btn_exit", self.current_lang))
         self.btn_config_strat.configure(text=localization.tr("btn_config_params", self.current_lang))
-        if hasattr(self, "lbl_sec_cards"):
-            self.lbl_sec_cards.configure(text=localization.tr("sec_card_overrides", self.current_lang))
-        if hasattr(self, "lbl_sec_bail"):
-            self.lbl_sec_bail.configure(text=localization.tr("sec_defensive_bailouts", self.current_lang))
-        if hasattr(self, "lbl_sec_prog"):
-            self.lbl_sec_prog.configure(text=localization.tr("sec_progression_sprint", self.current_lang))
+        self._update_mod_category_headers()
         self.chk_opp_a2.configure(text=localization.tr("chk_opp_a2", self.current_lang))
         self.chk_opp_3k.configure(text=localization.tr("chk_opp_3k", self.current_lang))
         self.chk_opp_4q.configure(text=localization.tr("chk_opp_4q", self.current_lang))
@@ -2991,6 +3145,7 @@ class HololiveBotUI(tk.Tk):
             return
         idx = self.combo_strategy.current()
         self.active_mode = STRATEGY_KEYS[idx] if (isinstance(idx, int) and 0 <= idx < len(STRATEGY_KEYS)) else 'max_profit'
+        self.save_settings()
         self.is_running = True
         self._set_sim_buttons_state("disabled")
         self.refresh_texts()
@@ -3133,6 +3288,10 @@ class HololiveBotUI(tk.Tk):
 
     def destroy(self):
         self._is_destroyed = True
+        try:
+            self.save_settings()
+        except Exception:
+            pass
         try:
             log_file = auto_bot.APP_DIR / "log.txt"
             with open(log_file, "a", encoding="utf-8", errors="replace") as f:

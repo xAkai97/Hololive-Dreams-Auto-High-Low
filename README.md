@@ -12,15 +12,17 @@ An advanced automated assistant, card-counting engine, and simulation suite for 
 - **Smart Cushion & Sprint Mechanics**:
   - **Cushion Phase**: Automatically cashes out when odds are unfavorable to steadily build bankroll toward 19,800 without prematurely crossing the 20,000 daily cap.
   - **Sprint Phase**: Unlocks aggressive play once total coins reach 19,800, pushing for 10,000+ coins in a single final run for maximum daily profit (~29k-32k).
-- **Strategy Modifiers Drawer & Mutual Exclusion**:
-  - **Strategic Overrides**: Fast Build (double to cushion limit), Free-Roll (bankroll safety), Sprint Floor ($\ge 11,200$), and Mega Sprint Floor ($\ge 12,800$).
-  - **Defensive Bailouts**: Middle-card protection against volatility (Bail on 8, Bail on 7/8, Bail on 6/7/8/9).
+- **Strategy Modifiers Drawer with Collapsible Categories**:
+  - **Progression & Sprint**: Fast Build (double to cushion limit), Free-Roll (double on 200 or less), Sprint Floor (11.2k+), and Mega Sprint Floor (12.8k+).
+  - **Defensive Bailouts**: Middle-card protection against volatility under 19.8k cushion (Bail on 8 only, Bail on 7/8, Bail on 6/7/8/9).
   - **Card Overrides**: Opportunistic doubling overrides for high-value cards (A/2, 3/K, 4/Q, 5/J, 6/10, 7/9, 8) with strict daily cap lockout prevention guard ($< 20,000$).
+  - **Interactive Drawer**: Each modifier category can be collapsed or expanded independently (`▼` / `▶`) with persistent state saving and dynamic container resizing.
   - **Intelligent Mutual Exclusion**: Automatically prevents contradictory modifier combinations directly in the UI.
+- **Glassmorphic UI & Field Box Opacity**: Real-time PIL alpha-blended frosted glass styling across stats and settings cards with customizable opacity (0% to 100%) and clean plain default background.
+- **Integrated Help & Documentation**: Instant access to verified game rules, paytables, cap overflow guides, online GitHub documentation, and local Markdown references directly from the Help menu.
 - **Automated Daily Rollover**: Synchronized with the 4:00 PM EST daily reset cycle to seamlessly reset session counters and data without manual intervention.
-- **Interactive Tooltips**: Built-in hover tooltips explaining every setting and modifier in detail across all supported languages.
+- **Interactive Tooltips**: Built-in hover tooltips explaining every setting and modifier in natural, accessible language across English, Simplified Chinese, Traditional Chinese, and Japanese.
 - **Custom Backgrounds**: Drop any `.png`, `.jpg`, or `.webp` into `backgrounds/`. The bot auto-detects them and lets you cycle through them directly from the UI.
-- **Extensible Multilingual Support**: Built-in support for English, Simplified Chinese, Traditional Chinese, and Japanese. Custom translation files can be dropped directly into `locales/`.
 - **Profit & Loss Tracking**: Tracks failed runs and ticket fees (50 coins/entry), calculating net profit in real time.
 - **Global Stop Hotkey**: Supports customizable hotkeys (default `INSERT`) to safely halt automation at any time.
 

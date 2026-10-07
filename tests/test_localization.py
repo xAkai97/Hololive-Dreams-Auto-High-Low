@@ -152,6 +152,7 @@ class I18nTests(unittest.TestCase):
             stats_calls.append((coins, fails, profit))
 
         with patch.object(bot, 'load_daily_data', return_value=(500, 1)), \
+             patch.object(bot, 'load_config', return_value={"ticket_cost": 50, "target_limit": 20000}), \
              patch.object(bot, 'CardRecognizer', return_value=MagicMock()), \
              patch.object(bot, 'HighLowCounter', return_value=MagicMock()), \
              patch.object(bot, 'capture_game_window', return_value=(None, 0, 0)), \

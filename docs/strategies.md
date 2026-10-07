@@ -104,34 +104,55 @@ Fully user-configurable strategy. Set your own parameters via the GUI:
 
 ---
 
-## Strategy Modifiers & Overrides
+## Strategy Modifiers & Collapsible Drawer
 
-In addition to each strategy's built-in decision tree, the bot provides a collapsible **Strategy Modifiers** drawer directly on both the **Auto Bot** and **Simulation** tabs in the main UI:
+In addition to each strategy's built-in decision tree, the bot provides a collapsible **Strategy Modifiers** drawer directly on both the **Auto Bot** and **Simulation** tabs in the main UI.
 
-### 1. Strategic Overrides
-- **Fast Build (`mod_fast_build`)**: Forces maximum doubling until reaching the cushion threshold (19,800), ignoring win rate floors to rapidly build bankroll from initial small hands.
-- **Free-Roll Phase (`mod_free_roll`)**: Doubles aggressively only while daily net profit is positive ($> 0$), protecting your starting bankroll if ticket costs accumulate.
-- **Sprint Floor (`mod_sprint_floor`)**: When daily coins reach $\ge 11,200$, cashes out sooner on marginal odds to secure the accumulated winnings before the final sprint.
-- **Mega Sprint Floor (`mod_mega_sprint`)**: Ultra-aggressive floor at $\ge 12,800$, reserving bankroll strictly for high-yield sprint opportunities (mutually exclusive with Sprint Floor).
+The drawer is divided into three distinct collapsible categories (`▼` / `▶` toggle on header click):
 
-### 2. Defensive Bailouts
-Provides immediate cashout protection on volatile middle cards, eliminating coin tosses:
-- **Bail on 8 (`mod_drop_8`)**: Always cashes out when facing rank 8 (~50% win probability).
-- **Bail on 7 & 8 (`mod_drop_78`)**: Cashes out when facing rank 7 or 8.
-- **Bail on 6, 7, 8, 9 (`mod_drop_6789`)**: Cashes out across the entire middle band (6 through 9).
+```mermaid
+graph TD
+    A["Strategy Proposes Action (Double vs. Cashout)"] --> B{"Current Cashout <= 200 & Free-Roll ON?"}
+    B -- Yes --> C["Action: Double (mod_free_roll)"]
+    B -- No --> D{"Daily Coins < Cushion Target (19.8k)?"}
+    D -- Yes --> E{"Fast Build ON & Next Reward fits Cushion?"}
+    E -- Yes --> F["Action: Double (mod_fast_build)<br><i>(Supersedes Bailouts & Overrides)</i>"]
+    E -- No --> G{"Middle Card Bailout Triggered?"}
+    G -- Yes --> H["Action: Cashout (mod_drop)"]
+    G -- No --> I{"Card Override Matched (A/2, 3/K, etc.) & <20k?"}
+    I -- Yes --> J["Action: Double (opportunistic_card)"]
+    I -- No --> K["Keep Strategy Base Decision"]
+    D -- No (Sprint Phase >= 19.8k) --> L{"Strategy Decided Cashout?"}
+    L -- Yes --> M{"Sprint Floor / Mega Sprint Triggered?"}
+    M -- Yes --> N["Action: Double (mod_sprint_floor / mega)"]
+    M -- No --> K
+    L -- No --> K
+```
 
-### 3. Card Overrides (Opportunistic Doubling)
-Whenever the active strategy decides to **Cashout**, the bot inspects the visible base card before accepting payout. If the card matches an enabled override, the bot **overrides the cashout** to continue doubling:
+### 1. Progression & Sprint Phase (Collapsible)
+- **Fast Build (`mod_fast_build`)**: Forces maximum doubling throughout the cushion phase ($< 19,800$) as long as the next payout fits within 19,800, rapidly accelerating bankroll accumulation from Two Pair hands.
+- **Free-Roll (`mod_free_roll`)**: Forces doubling on round payouts of 200 or less (initial Two Pair qualifying payout) regardless of the card drawn, turning minimal payouts into high-value opportunities with zero downside.
+- **Sprint Floor 11.2k+ (`mod_sprint_floor`)**: During the sprint phase ($\ge 19,800$), refuses cashouts under 11,200 and forces doubling to guarantee a total daily finish of at least 30,000 coins.
+- **Mega Sprint 12.8k+ (`mod_mega_sprint`)**: During the sprint phase ($\ge 19,800$), refuses cashouts under 12,800 and forces doubling to target the maximum 32,000+ daily cap (mutually exclusive with Sprint Floor).
 
-| Override Tier | Target Cards | Base Win Odds |
-|:---|:---|:---:|
-| **A & 2** *(Default ON)* | Ace (14) & 2 | ~92.3% ($\ge 90\%$) |
-| **3 & K** *(Default ON)* | 3 & King (13) | ~84.6% ($\ge 82\%$) |
-| **4 & Q** *(Default ON)* | 4 & Queen (12) | ~76.9% ($\ge 74\%$) |
-| **5 & J** | 5 & Jack (11) | ~69.2% |
-| **6 & 10** | 6 & 10 | ~61.5% |
-| **7 & 9** | 7 & 9 | ~53.8% |
-| **8** | 8 | ~50.0% |
+### 2. Defensive Bailouts (Collapsible, Under 19.8k Cushion)
+Provides immediate cashout protection on volatile middle cards during the cushion phase, avoiding 50/50 wipes:
+- **Bail on 8 only (`mod_drop_8`)**: Cashes out only when dealt card 8 (47.1% unfavorable odds due to tie-losses), while allowing 7 and 9 to continue.
+- **Bail on 7 & 8 (`mod_drop_78`)**: Cashes out whenever dealt 7 or 8 to avoid coin-flip trap cards.
+- **Bail on 6/7/8/9 (`mod_drop_6789`)**: Ultra-safe grinding policy that cashes out on any middle card (6 through 9; $\le 62.7\%$ win rate).
+
+### 3. Card Overrides (Collapsible, Double Under Cap)
+Whenever the active strategy proposes a **Cashout**, the bot inspects the visible base card before accepting payout. If the card matches an enabled override and post-double coins remain strictly under the daily cap ($< 20,000$), the bot **overrides the cashout** to continue doubling:
+
+| Override Tier | Target Cards | 52-Card Win Odds (Ties Lose) | Risk Rating |
+|:---|:---|:---:|:---:|
+| **A & 2** *(Default ON)* | Ace (14) & 2 | **94.1%** (48 / 51) | Near Certain |
+| **3 & K** *(Default ON)* | 3 & King (13) | **86.3%** (44 / 51) | Highly Favorable |
+| **4 & Q** *(Default ON)* | 4 & Queen (12) | **78.4%** (40 / 51) | Favorable |
+| **5 & J** | 5 & Jack (11) | **70.6%** (36 / 51) | Aggressive Build |
+| **6 & 10** | 6 & 10 | **62.7%** (32 / 51) | High Risk |
+| **7 & 9** | 7 & 9 | **54.9%** (28 / 51) | Near Coin-Flip |
+| **8** | 8 | **47.1%** (24 / 51) | Unfavorable (Extreme Risk) |
 
 #### Strict Lockout Prevention Guard
 $$\text{daily\_coins} + \text{next\_reward} < \text{target\_limit}$$
@@ -142,7 +163,7 @@ $$\text{daily\_coins} + \text{next\_reward} < \text{target\_limit}$$
 To eliminate conflicting automated decisions, the UI enforces automatic mutual exclusion:
 - **Fast Build > Overrides & Bailouts**: Enabling *Fast Build* forces doubling on all cards under cushion (19,800), automatically greying out and superseding all Card Overrides and Defensive Bailouts.
 - **Defensive Bailouts > Overrides**: Enabling *Bail 6/7/8/9* automatically unchecks and disables *6/10*, *7/9*, and *8*; enabling *Bail 7/8* disables *7/9* and *8*; enabling *Bail 8* disables *8*.
-- **Overrides > Bailouts**: Enabling a middle-card override (*8*, *7/9*, or *6/10*) automatically unchecks any contradictory bailouts.
+- **Overrides > Bailouts**: Enabling a middle-card override (*8*, *7/9*, or *6/10*) automatically unchecks contradictory bailouts.
 - **Sprint Floors**: Enabling *Mega Sprint* automatically unchecks *Sprint Floor*, and vice versa.
 
 ---

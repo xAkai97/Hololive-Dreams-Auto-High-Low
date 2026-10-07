@@ -35,9 +35,14 @@ class TestGUISettingsAndMenus(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         try:
-            cls.app.destroy()
+            with patch("auto_bot.save_daily_data"):
+                cls.app.destroy()
         except Exception:
             pass
+
+    def tearDown(self):
+        self.app.target_limit = 20000
+        self.app.ticket_cost = 50
 
     def test_tab_switching(self):
         # Test switching to all 3 tabs and invalid tab guard
@@ -73,6 +78,14 @@ class TestGUISettingsAndMenus(unittest.TestCase):
 
         self.assertEqual(self.app.target_limit, 18500)
         self.assertEqual(self.app.ticket_cost, 60)
+
+        # Restore defaults so subsequent tests and app do not leak 18500 / 60
+        self.app.target_limit = 20000
+        self.app.ticket_cost = 50
+        self.app.entry_setting_target.delete(0, "end")
+        self.app.entry_setting_target.insert(0, "20000")
+        self.app.entry_setting_ticket.delete(0, "end")
+        self.app.entry_setting_ticket.insert(0, "50")
 
     def test_restore_default_settings(self):
         with patch.object(self.app, "save_user_settings") as mock_save:
@@ -179,20 +192,20 @@ class TestGUISettingsAndMenus(unittest.TestCase):
 
     def test_quick_strategy_presets(self):
         with patch.object(self.app, "save_settings"):
-            # Test 1: Fastest preset
+            # Test 1: Fastest clear
             self.app.apply_strategy_preset("fastest_clear")
             self.assertEqual(self.app.active_mode, "fastest_clear")
-            self.assertEqual(self.app.btn_preset_fast.cget("style"), "ActiveTab.TButton")
+            self.assertEqual(self.app.combo_strategy.current(), 1)
 
-            # Test 2: Balanced preset
+            # Test 2: Balanced
             self.app.apply_strategy_preset("balanced")
             self.assertEqual(self.app.active_mode, "balanced")
-            self.assertEqual(self.app.btn_preset_balanced.cget("style"), "ActiveTab.TButton")
+            self.assertEqual(self.app.combo_strategy.current(), 2)
 
-            # Test 3: Profit preset
+            # Test 3: Profit
             self.app.apply_strategy_preset("max_profit")
             self.assertEqual(self.app.active_mode, "max_profit")
-            self.assertEqual(self.app.btn_preset_profit.cget("style"), "ActiveTab.TButton")
+            self.assertEqual(self.app.combo_strategy.current(), 0)
 
     def test_select_background_menu(self):
         with patch.object(self.app, "save_settings"):
@@ -208,6 +221,9 @@ class TestGUISettingsAndMenus(unittest.TestCase):
                 self.assertEqual(self.app.bg_index, 0)
                 self.assertTrue(self.app.show_bg)
                 self.assertEqual(self.app.bg_var.get(), 0)
+                # Reset to plain default
+                self.app.select_background(-1)
+                self.assertFalse(self.app.show_bg)
 
     def test_select_language_menu(self):
         with patch.object(self.app, "save_settings"):
@@ -244,6 +260,22 @@ class TestGUISettingsAndMenus(unittest.TestCase):
             self.app.on_strategy_change()
             self.assertEqual(self.app.canvas.itemcget(self.app.btn_config_strat_win, "state"), "hidden")
 
+    def test_strategy_persistence_save_and_reload(self):
+        with patch("auto_bot.save_daily_data") as mock_save:
+            idx = STRATEGY_KEYS.index("balanced")
+            self.app.combo_strategy.current(idx)
+            self.app.on_strategy_change()
+            self.assertEqual(self.app.active_mode, "balanced")
+            mock_save.assert_called()
+            _, kwargs = mock_save.call_args
+            self.assertEqual(kwargs.get("strategy_key"), "balanced")
+            self.assertEqual(kwargs.get("strategy_index"), idx)
+
+            # Test refresh_texts retains active_mode
+            self.app.refresh_texts()
+            self.assertEqual(self.app.active_mode, "balanced")
+            self.assertEqual(self.app.combo_strategy.current(), idx)
+
     def test_modifiers_drawer_toggle(self):
         initial_state = self.app.modifiers_expanded
         with patch.object(self.app, "save_settings") as mock_save:
@@ -255,6 +287,29 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         with patch.object(self.app, "save_settings") as mock_save:
             self.app.toggle_modifiers_drawer()
             self.assertEqual(self.app.modifiers_expanded, initial_state)
+
+    def test_modifier_category_collapse_expand(self):
+        with patch.object(self.app, "save_settings"):
+            # 1. Cards category
+            orig_cards = self.app.cat_cards_expanded
+            self.app.toggle_mod_cat("cards")
+            self.assertEqual(self.app.cat_cards_expanded, not orig_cards)
+            self.app.toggle_mod_cat("cards")
+            self.assertEqual(self.app.cat_cards_expanded, orig_cards)
+
+            # 2. Defensive bailouts category
+            orig_bail = self.app.cat_bail_expanded
+            self.app.toggle_mod_cat("bail")
+            self.assertEqual(self.app.cat_bail_expanded, not orig_bail)
+            self.app.toggle_mod_cat("bail")
+            self.assertEqual(self.app.cat_bail_expanded, orig_bail)
+
+            # 3. Progression & sprint category
+            orig_prog = self.app.cat_prog_expanded
+            self.app.toggle_mod_cat("prog")
+            self.assertEqual(self.app.cat_prog_expanded, not orig_prog)
+            self.app.toggle_mod_cat("prog")
+            self.assertEqual(self.app.cat_prog_expanded, orig_prog)
 
     def test_modifiers_checkbuttons(self):
         self.app.var_mod_fast_build.set(True)
@@ -291,6 +346,14 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         folder_labels = [self.app.open_folders_menu.entrycget(i, "label") for i in range(self.app.open_folders_menu.index("end") + 1)]
         self.assertIn(localization.tr("menu_open_config_dir", self.app.current_lang), folder_labels)
         self.assertIn(localization.tr("menu_open_logs_dir", self.app.current_lang), folder_labels)
+
+        help_menu_labels = [self.app.help_menu.entrycget(i, "label") for i in range(self.app.help_menu.index("end") + 1)
+                            if self.app.help_menu.type(i) != "separator"]
+        self.assertIn(localization.tr("menu_rules_guide", self.app.current_lang), help_menu_labels)
+        self.assertIn(localization.tr("menu_strategy_guide", self.app.current_lang), help_menu_labels)
+        self.assertIn(localization.tr("menu_online_docs", self.app.current_lang), help_menu_labels)
+        self.assertIn(localization.tr("menu_open_docs_dir", self.app.current_lang), help_menu_labels)
+        self.assertIn(localization.tr("menu_about", self.app.current_lang), help_menu_labels)
 
     def test_open_settings_dialog(self):
         with patch.object(self.app, "save_user_settings") as mock_save, \
@@ -346,22 +409,23 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         self.assertEqual(self.app.log_text.cget("state"), "disabled")
 
     def test_field_box_opacity_and_log_toggle(self):
-        # 1. Opacity adjustment
-        self.app.set_field_box_opacity(85)
-        self.assertEqual(self.app.field_box_opacity, 85)
-        self.assertEqual(int(float(self.app.scale_setting_opacity.get())), 85)
+        with patch.object(self.app, "save_settings"):
+            # 1. Opacity adjustment
+            self.app.set_field_box_opacity(85)
+            self.assertEqual(self.app.field_box_opacity, 85)
+            self.assertEqual(int(float(self.app.scale_setting_opacity.get())), 85)
 
-        self.app.set_field_box_opacity(0)
-        self.assertEqual(self.app.field_box_opacity, 0)
+            self.app.set_field_box_opacity(0)
+            self.assertEqual(self.app.field_box_opacity, 0)
 
-        # Clamping
-        self.app.set_field_box_opacity(150)
-        self.assertEqual(self.app.field_box_opacity, 100)
-        self.app.set_field_box_opacity(-20)
-        self.assertEqual(self.app.field_box_opacity, 0)
+            # Clamping
+            self.app.set_field_box_opacity(150)
+            self.assertEqual(self.app.field_box_opacity, 100)
+            self.app.set_field_box_opacity(-20)
+            self.assertEqual(self.app.field_box_opacity, 0)
 
-        # Reset to 80
-        self.app.set_field_box_opacity(80)
+            # Reset to 80
+            self.app.set_field_box_opacity(80)
 
         # 2. Log Console Toggle
         initial_log_state = self.app.show_log
@@ -436,8 +500,8 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         self.app.refresh_texts()
         self.assertIn("94.1%", self.app.tooltips["opp_a2"].text)
         self.assertIn("6/7/8/9", self.app.tooltips["mod_drop_6789"].text)
-        self.assertIn("(≥19.8k)", self.app.tooltips["mod_sprint_floor"].text)
-        self.assertIn("(≥19.8k)", self.app.tooltips["mod_mega_sprint"].text)
+        self.assertIn("19.8k", self.app.tooltips["mod_sprint_floor"].text)
+        self.assertIn("19.8k", self.app.tooltips["mod_mega_sprint"].text)
 
         # In Japanese:
         self.app.current_lang = "ja"

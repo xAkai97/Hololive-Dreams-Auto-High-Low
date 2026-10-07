@@ -12,7 +12,7 @@ from pathlib import Path
 import ddddocr
 
 from recognizer import CardRecognizer
-from poker_core import calculate_best, JOKER_ID
+from poker_core import calculate_best, JOKER_ID, card_text, CATEGORY_NAMES, _evaluate_category5
 from settlement import SettlementReader, SettlementManager, is_valid_settlement_amount
 from reward_vision import read_challenge_number, read_result_number
 from challenge_reward import ChallengeRewardReader
@@ -620,6 +620,9 @@ def auto_play_loop(mode='max_profit', on_stats_update=None, lang=None, on_prompt
     has_recorded_fail = False  # Prevent duplicate fee deduction during FAIL animation
     has_confirmed_success = False  # Prevent duplicate success count during multi-frame ASK_CHALLENGE prompt
     current_game_date = get_game_date()
+    round_count = 0
+    step_count = 0
+    in_round = False
 
     def request_cashout(frame, left, top, cash):
         if find_and_click_icon(frame, TPL_CASHOUT, left, top):
@@ -649,7 +652,6 @@ def auto_play_loop(mode='max_profit', on_stats_update=None, lang=None, on_prompt
         if current_state != "FAIL":
             has_recorded_fail = False
 
-
         if current_state == "UNKNOWN":
             time.sleep(0.5)
             continue
@@ -670,7 +672,13 @@ def auto_play_loop(mode='max_profit', on_stats_update=None, lang=None, on_prompt
                     on_stats_update(0, 0, 0)
                 print(f"\n[Daily Reset] 4:00 PM EST rollover reached ({new_date}). Counters reset to 0.\n")
 
-            print(tr('state_start_bet'))
+            if not in_round:
+                round_count += 1
+                step_count = 0
+                in_round = True
+                print(f"\n" + tr('round_header', round=round_count, coins=f"{daily_coins:,}", target=f"{target_limit:,}", fails=daily_fails))
+                log_debug(f"=== Starting Round #{round_count} (Coins: {daily_coins}, Fails: {daily_fails}, Net: {net_profit}) ===")
+
             counter.reset()
             upcoming_card_val = None
             current_card_already_removed = False
@@ -682,7 +690,6 @@ def auto_play_loop(mode='max_profit', on_stats_update=None, lang=None, on_prompt
             time.sleep(1)
 
         elif current_state == "HOLD_CARDS":
-            print(tr('state_hold_cards'))
             current_card_already_removed = False
             recognized_cards, rects = card_rec.recognize(img)
             if len(recognized_cards) == 5:
@@ -690,7 +697,23 @@ def auto_play_loop(mode='max_profit', on_stats_update=None, lang=None, on_prompt
                 card_values = [v for c in recognized_cards if c.card_id != JOKER_ID if (v := get_card_point_value(c)) is not None]
                 counter.remove_cards(card_values)
 
+                cat_idx = _evaluate_category5(*(c.card_id for c in recognized_cards))
+                cat_trans_key = f"poker_cat_{cat_idx}"
+                cat_name = tr(cat_trans_key) if cat_trans_key in localization.TRANSLATIONS.get(localization.get_lang(), {}) else CATEGORY_NAMES[cat_idx]
+                card_labels = [card_text(c.card_id) for c in recognized_cards]
+                cards_str = " ".join(card_labels)
+
                 best, _ = calculate_best(hand_ids, "standard")
+                held_labels = [card_labels[i] for i in best.held_indices]
+                held_str = " ".join(held_labels) if held_labels else tr("poker_hold_none")
+                draw_count = 5 - len(best.held_indices)
+
+                print(tr('poker_hand_dealt', cards=cards_str, category=cat_name))
+                print(f"  " + tr('poker_optimal_hold', held=held_str, draw_count=draw_count, ev=best.expected_payout, rate=best.win_probability))
+
+                card_diag = ", ".join(f"{card_text(c.card_id)}(conf={c.rank_score:.2f},margin={c.rank_margin:.2f})" for c in recognized_cards)
+                log_debug(f"[Poker Deal] 5 cards recognized: {card_diag}")
+                log_debug(f"[Poker Solver] Hand: {cat_name} | Best Hold: mask={best.mask:#07b} indices={best.held_indices} (Keep: {held_str}) | EV={best.expected_payout:.2f} | WinProb={best.win_probability:.2%}")
 
                 for idx in best.held_indices:
                     x, y, w_box, h_box = rects[idx]
@@ -700,6 +723,8 @@ def auto_play_loop(mode='max_profit', on_stats_update=None, lang=None, on_prompt
                 time.sleep(0.3)
                 find_and_click_icon(img, TPL_REPLACE, win_left, win_top)
                 time.sleep(1)
+            else:
+                log_debug(f"[Poker Deal Warning] Detected {len(recognized_cards)}/5 cards in frame. Waiting for animation...")
 
         elif current_state == "TAP_TO_PROCEED":
             h, w = img.shape[:2]
@@ -713,10 +738,12 @@ def auto_play_loop(mode='max_profit', on_stats_update=None, lang=None, on_prompt
                 real_reward = read_challenge_payout(img, REWARD_ZONE)
                 next_reward = reward_reader.observe(real_reward, time.monotonic())
                 if next_reward is None:
+                    log_debug(f"[Challenge OCR] Waiting for initial payout stabilization (raw={real_reward})...")
                     time.sleep(0.25)
                     continue
                 current_cashout = next_reward // 2
                 strategy.start_round(current_cashout, daily_coins)
+                log_debug(f"[Challenge OCR] Initial payout confirmed: current_cashout={current_cashout}, next_reward={next_reward}")
             else:
                 if is_success_prompt(img) and not has_confirmed_success:
                     strategy.confirm_success()
@@ -726,19 +753,21 @@ def auto_play_loop(mode='max_profit', on_stats_update=None, lang=None, on_prompt
                     real_reward = read_challenge_payout(img, REWARD_ZONE)
                     next_reward = reward_reader.observe(real_reward, time.monotonic())
                     if next_reward is None:
+                        log_debug(f"[Challenge OCR] Waiting for ongoing payout stabilization (raw={real_reward})...")
                         time.sleep(0.25)
                         continue
                     current_cashout = next_reward // 2
+                    log_debug(f"[Challenge OCR] Ongoing payout confirmed: current_cashout={current_cashout}, next_reward={next_reward}")
                 else:
                     current_cashout = strategy.expected_cash or 0
                     next_reward = current_cashout * 2
 
             if upcoming_card_val is not None:
                 _, win_rate = counter.get_best_choice_and_rate(upcoming_card_val)
-                print(tr('risk_prediction', rate=win_rate))
+                rate_text = tr('risk_prediction', rate=win_rate)
             else:
                 win_rate = 1.0
-                print(tr('risk_blind'))
+                rate_text = tr('risk_blind')
 
             action = strategy.decide(current_cashout, next_reward, win_rate, daily_coins)
 
@@ -790,36 +819,42 @@ def auto_play_loop(mode='max_profit', on_stats_update=None, lang=None, on_prompt
                 win_rate=win_rate,
             )
 
+            print(tr('challenge_current', cashout=f"{current_cashout:,}", reward=f"{next_reward:,}"))
+            print(f"  {rate_text}")
+
             if mod_reason:
                 if action == 'challenge' and hasattr(strategy, 'last_cashout'):
                     strategy.last_cashout = None
                 if mod_reason == 'opportunistic_card':
                     rank_name = {2: "2", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8", 9: "9", 10: "10", 11: "J", 12: "Q", 13: "K", 14: "A"}.get(upcoming_card_val, str(upcoming_card_val))
-                    print(tr('opportunistic_double_msg', rank=rank_name, rate=win_rate, reward=next_reward, limit=target_limit))
+                    print(f"  " + tr('opportunistic_double_msg', rank=rank_name, rate=win_rate, reward=next_reward, limit=target_limit))
                 elif mod_reason == 'mod_fast_build':
-                    print(tr('mod_fast_build_msg', reward=next_reward, cushion=cushion_target))
+                    print(f"  " + tr('mod_fast_build_msg', reward=next_reward, cushion=cushion_target))
                 elif mod_reason == 'mod_free_roll':
-                    print(tr('mod_free_roll_msg', cashout=current_cashout))
+                    print(f"  " + tr('mod_free_roll_msg', cashout=current_cashout))
                 elif mod_reason == 'mod_drop_6789':
                     rank_name = str(upcoming_card_val)
-                    print(tr('mod_drop_6789_msg', rank=rank_name, cashout=current_cashout))
+                    print(f"  " + tr('mod_drop_6789_msg', rank=rank_name, cashout=current_cashout))
                 elif mod_reason == 'mod_drop_78':
                     rank_name = str(upcoming_card_val)
-                    print(tr('mod_drop_78_msg', rank=rank_name, cashout=current_cashout))
+                    print(f"  " + tr('mod_drop_78_msg', rank=rank_name, cashout=current_cashout))
                 elif mod_reason == 'mod_drop_8':
                     rank_name = str(upcoming_card_val)
-                    print(tr('mod_drop_8_msg', rank=rank_name, cashout=current_cashout))
+                    print(f"  " + tr('mod_drop_8_msg', rank=rank_name, cashout=current_cashout))
                 elif mod_reason == 'mod_mega_sprint':
-                    print(tr('mod_mega_sprint_msg', cashout=current_cashout))
+                    print(f"  " + tr('mod_mega_sprint_msg', cashout=current_cashout))
                 elif mod_reason == 'mod_sprint_floor':
-                    print(tr('mod_sprint_floor_msg', cashout=current_cashout))
-
-            print(tr('challenge_current', cashout=current_cashout, reward=next_reward))
+                    print(f"  " + tr('mod_sprint_floor_msg', cashout=current_cashout))
 
             effective_cash = strategy.expected_cash or current_cashout
+            reason_str = mod_reason or strat_name
             if action == 'cashout':
+                print(f"  " + tr('challenge_decision_cashout', reason=reason_str))
+                log_debug(f"[Decision] CASHOUT (effective_cash={effective_cash}, daily={daily_coins}, mod={mod_reason})")
                 request_cashout(img, win_left, win_top, effective_cash)
             else:
+                print(f"  " + tr('challenge_decision_double', reason=reason_str))
+                log_debug(f"[Decision] DOUBLE UP (next_reward={next_reward}, headroom={cushion_target - (daily_coins + next_reward)}, mod={mod_reason})")
                 find_and_click_icon(img, TPL_CONFIRM_DOUBLE, win_left, win_top, threshold=0.55)
 
             time.sleep(0.6)
@@ -839,6 +874,7 @@ def auto_play_loop(mode='max_profit', on_stats_update=None, lang=None, on_prompt
                     if single_card.card_id != JOKER_ID:
                         current_card_val = get_card_point_value(single_card)
                         if current_card_val is None:
+                            log_debug(f"[High-Low Warning] Unable to parse card rank: {single_card.rank}")
                             time.sleep(0.2)
                             continue
                         if not current_card_already_removed:
@@ -846,7 +882,18 @@ def auto_play_loop(mode='max_profit', on_stats_update=None, lang=None, on_prompt
                             current_card_already_removed = True
                         best_choice, rate = counter.get_best_choice_and_rate(current_card_val)
 
-                        print(tr('visible_card_choice', rank=single_card.rank, choice=best_choice.upper(), rate=rate))
+                        step_count += 1
+                        card_label = card_text(single_card.card_id)
+
+                        print(tr('hl_step_header', step=step_count, card=card_label, remaining=counter.total_cards))
+                        print(f"  " + tr('visible_card_choice', rank=card_label, choice=best_choice.upper(), rate=rate))
+
+                        high_cards = sum(counter._counts[current_card_val + 1:])
+                        low_cards = sum(counter._counts[2:current_card_val])
+                        tie_cards = counter._counts[current_card_val]
+                        tot = max(1, counter.total_cards)
+                        log_debug(f"[High-Low Step #{step_count}] Visible: {card_label} (rank='{single_card.rank}', suit='{single_card.suit}', conf={single_card.rank_score:.2f}, margin={single_card.rank_margin:.2f}, box={current_rect})")
+                        log_debug(f"[High-Low Deck] Remaining={tot} | HIGH={high_cards}/{tot} ({high_cards/tot:.1%}) | LOW={low_cards}/{tot} ({low_cards/tot:.1%}) | TIE={tie_cards}/{tot} ({tie_cards/tot:.1%}) -> Choice: {best_choice.upper()}")
 
                         if best_choice == "high":
                             guessed = find_and_click_icon(img, TPL_HIGH, win_left, win_top)
@@ -857,7 +904,7 @@ def auto_play_loop(mode='max_profit', on_stats_update=None, lang=None, on_prompt
                         current_card_already_removed = False
 
                         # === 2. Continuous State Tracking & Burst Capture ===
-                        log_debug(tr('tracking_start'))
+                        log_debug(f"[High-Low Step #{step_count}] Burst card tracking started...")
                         upcoming_card_val = None
                         DEBUG_DIR.mkdir(exist_ok=True)
                         candidate_card = None
@@ -895,7 +942,20 @@ def auto_play_loop(mode='max_profit', on_stats_update=None, lang=None, on_prompt
                                                         upcoming_card_val = new_val
                                                         counter.remove_cards([upcoming_card_val])
                                                         current_card_already_removed = True
-                                                        log_debug(tr('tracking_found', frame=i + 1, rank=newest_card.rank))
+
+                                                        flipped_label = card_text(newest_card.card_id)
+                                                        if new_val > current_card_val:
+                                                            cmp_txt = f"{new_val} > {current_card_val}"
+                                                            outcome = "WIN" if best_choice == "high" else "LOSS"
+                                                        elif new_val < current_card_val:
+                                                            cmp_txt = f"{new_val} < {current_card_val}"
+                                                            outcome = "WIN" if best_choice == "low" else "LOSS"
+                                                        else:
+                                                            cmp_txt = f"{new_val} == {current_card_val}"
+                                                            outcome = "TIE (Loss)"
+
+                                                        print(f"  " + tr('hl_card_flipped', card=flipped_label, cmp=cmp_txt, outcome=outcome))
+                                                        log_debug(f"[Burst Tracking] Frame {i + 1}: Detected [{flipped_label}] (rank='{newest_card.rank}', suit='{newest_card.suit}', conf={newest_card.rank_score:.2f}, margin={newest_card.rank_margin:.2f}, stable={stable_count}) -> {cmp_txt} [{outcome}]")
 
                                                         cx, cy, cw, ch = newest_rect
                                                         cv2.imwrite(str(DEBUG_DIR / "2_next_card.png"),
@@ -906,13 +966,16 @@ def auto_play_loop(mode='max_profit', on_stats_update=None, lang=None, on_prompt
                                     continue
 
                         if upcoming_card_val is None:
-                            log_debug(tr('tracking_timeout'))
+                            print(f"  " + tr('hl_tracking_timeout_user'))
+                            log_debug(f"[Burst Tracking Warning] Frame tracking timed out after 25 frames. Unable to identify next card.")
 
                         time.sleep(0.6)
                 else:
                     print(tr('warn_no_cards'))
+                    log_debug(f"[High-Low Warning] No white face-up card contours found in {HIGH_LOW_SEARCH_ZONE}")
             except Exception as e:
                 print(tr('err_high_low', error=e))
+                log_debug(f"[High-Low Exception] {e}")
 
         elif current_state == "FAIL":
             clear_pending_cashout()
@@ -921,7 +984,8 @@ def auto_play_loop(mode='max_profit', on_stats_update=None, lang=None, on_prompt
                 loss = daily_fails * ticket_cost
                 net_profit = daily_coins - loss
                 save_daily_data(daily_coins, daily_fails)
-                print(tr('fail_summary', fails=daily_fails, loss=loss, profit=net_profit))
+                print(f"\n" + tr('fail_summary', fails=daily_fails, loss=loss, profit=net_profit))
+                log_debug(f"[Round #{round_count} BUST] Total fails: {daily_fails}, ticket loss: {loss}, net profit: {net_profit}")
                 if on_stats_update:
                     on_stats_update(daily_coins, daily_fails, net_profit)
                 if strategy is not None:
@@ -930,6 +994,7 @@ def auto_play_loop(mode='max_profit', on_stats_update=None, lang=None, on_prompt
                     if hasattr(strategy, "_check_auto_adjust"):
                         strategy._check_auto_adjust(daily_coins, daily_fails, ticket_cost)
                 has_recorded_fail = True
+                in_round = False
 
             time.sleep(0.8)
             find_and_click_icon(img, TPL_CONFIRM_DOUBLE, win_left, win_top, threshold=0.55)
@@ -952,6 +1017,7 @@ def auto_play_loop(mode='max_profit', on_stats_update=None, lang=None, on_prompt
                 continue
 
             clear_pending_cashout()
+            in_round = False
             time.sleep(0.8)
             find_and_click_icon(img, TPL_CONFIRM_DOUBLE, win_left, win_top, threshold=0.55)
             time.sleep(1)

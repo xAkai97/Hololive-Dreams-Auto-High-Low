@@ -47,6 +47,18 @@ POKER_PAYOUT_WEIGHTS: tuple[tuple[int, float], ...] = (
 _POKER_VALUES = [p[0] for p in POKER_PAYOUT_WEIGHTS]
 _POKER_PROBS = [p[1] for p in POKER_PAYOUT_WEIGHTS]
 
+# Empirical live-bot timing metrics (seconds) derived from gameplay session logs:
+# - Card scan & burst detection interval: ~1.17s (average 25-frame burst across 150+ card flips)
+# - Doubling step cycle: ~4.67s (guess click, flip/detect interval, OCR verify, decision)
+# - Video Poker hand round: ~11.55s (deal 5 cards, optimal hold solver, replace click, draw, result)
+# - Settlement credit wait & transition: ~4.5s (cashout stabilization)
+# - Bust / fail transition: ~2.5s (fail screen acknowledge to restart)
+TIME_CARD_SCAN_DETECT_SEC: float = 1.17
+TIME_DOUBLING_STEP_SEC: float = 4.67
+TIME_POKER_ROUND_SEC: float = 11.55
+TIME_CASHOUT_SETTLE_SEC: float = 4.5
+TIME_BUST_SETTLE_SEC: float = 2.5
+
 
 @dataclass
 class RoundResult:
@@ -59,6 +71,7 @@ class RoundResult:
     cashed_out: bool
     busted: bool
     reason: Optional[str] = None
+    duration_seconds: float = 0.0
 
 
 @dataclass
@@ -70,6 +83,15 @@ class DaySimulationResult:
     total_rounds: int
     net_profit: int
     rounds: list[RoundResult] = field(default_factory=list)
+    total_duration_seconds: float = 0.0
+
+    @property
+    def total_duration_minutes(self) -> float:
+        return self.total_duration_seconds / 60.0
+
+    @property
+    def total_duration_hours(self) -> float:
+        return self.total_duration_seconds / 3600.0
 
 
 @dataclass
@@ -89,6 +111,9 @@ class MonteCarloSummary:
     pct_over_35k: float
     std_coins: float = 0.0
     pct_over_40k: float = 0.0
+    avg_duration_minutes: float = 0.0
+    min_duration_minutes: float = 0.0
+    max_duration_minutes: float = 0.0
 
     @property
     def days(self) -> int:
@@ -113,6 +138,14 @@ class MonteCarloSummary:
     @property
     def pct_overflow_40k(self) -> float:
         return self.pct_over_40k
+
+    @property
+    def avg_time_minutes(self) -> float:
+        return self.avg_duration_minutes
+
+    @property
+    def avg_time_hours(self) -> float:
+        return self.avg_duration_minutes / 60.0
 
 
 class GameSimulator:
@@ -139,6 +172,11 @@ class GameSimulator:
         mod_sprint_floor: bool = False,
         mod_mega_sprint: bool = False,
         cushion_target: int = 19800,
+        time_poker_round: float = TIME_POKER_ROUND_SEC,
+        time_doubling_step: float = TIME_DOUBLING_STEP_SEC,
+        time_card_scan: float = TIME_CARD_SCAN_DETECT_SEC,
+        time_cashout_settle: float = TIME_CASHOUT_SETTLE_SEC,
+        time_bust_settle: float = TIME_BUST_SETTLE_SEC,
     ):
         self.rng = random.Random(seed)
         self.num_decks = num_decks
@@ -159,6 +197,11 @@ class GameSimulator:
         self.mod_sprint_floor = mod_sprint_floor
         self.mod_mega_sprint = mod_mega_sprint
         self.cushion_target = cushion_target
+        self.time_poker_round = time_poker_round
+        self.time_doubling_step = time_doubling_step
+        self.time_card_scan = time_card_scan
+        self.time_cashout_settle = time_cashout_settle
+        self.time_bust_settle = time_bust_settle
 
     def draw_poker_hand(self, exact_poker: bool = False) -> tuple[int, list[int], int]:
         """Simulate a single video poker game.
@@ -234,6 +277,7 @@ class GameSimulator:
                 cashed_out=True,
                 busted=False,
                 reason="max_payout_reached",
+                duration_seconds=self.time_poker_round + self.time_cashout_settle,
             )
 
         while doubling_steps < max_doubles:
@@ -279,6 +323,11 @@ class GameSimulator:
 
             if decision == "cashout" or decision == "stop":
                 strategy.begin_settlement(cashout_requested=True)
+                duration = (
+                    self.time_poker_round
+                    + (doubling_steps * self.time_doubling_step)
+                    + self.time_cashout_settle
+                )
                 return RoundResult(
                     won_poker=True,
                     initial_payout=initial_payout,
@@ -288,6 +337,7 @@ class GameSimulator:
                     cashed_out=True,
                     busted=False,
                     reason=mod_reason or "cashout",
+                    duration_seconds=duration,
                 )
 
             # Strategy chose 'challenge'
@@ -308,8 +358,13 @@ class GameSimulator:
             )
 
             if not is_win:
-                # Busted
+                # Busted after attempting a guess
                 strategy.begin_settlement(cashout_requested=False)
+                duration = (
+                    self.time_poker_round
+                    + ((doubling_steps + 1) * self.time_doubling_step)
+                    + self.time_bust_settle
+                )
                 return RoundResult(
                     won_poker=True,
                     initial_payout=initial_payout,
@@ -319,6 +374,7 @@ class GameSimulator:
                     cashed_out=False,
                     busted=True,
                     reason="guess_failed",
+                    duration_seconds=duration,
                 )
 
             # Win confirmed
@@ -330,6 +386,11 @@ class GameSimulator:
             if current_cashout >= 10000:
                 # In-game hard cap: double-up stops when payout reaches/exceeds 10,000 ("Ended due to reaching the max payout")
                 strategy.begin_settlement(cashout_requested=False)
+                duration = (
+                    self.time_poker_round
+                    + (doubling_steps * self.time_doubling_step)
+                    + self.time_cashout_settle
+                )
                 return RoundResult(
                     won_poker=True,
                     initial_payout=initial_payout,
@@ -339,10 +400,16 @@ class GameSimulator:
                     cashed_out=True,
                     busted=False,
                     reason="max_payout_reached",
+                    duration_seconds=duration,
                 )
 
         # Reached game doubling cap (10 consecutive wins)
         strategy.begin_settlement(cashout_requested=False)
+        duration = (
+            self.time_poker_round
+            + (doubling_steps * self.time_doubling_step)
+            + self.time_cashout_settle
+        )
         return RoundResult(
             won_poker=True,
             initial_payout=initial_payout,
@@ -352,6 +419,7 @@ class GameSimulator:
             cashed_out=True,
             busted=False,
             reason="max_doubles_cap_reached",
+            duration_seconds=duration,
         )
 
     def simulate_day(
@@ -387,6 +455,7 @@ class GameSimulator:
                         cashed_out=False,
                         busted=True,
                         reason="poker_loss",
+                        duration_seconds=self.time_poker_round,
                     )
                 )
                 continue
@@ -409,6 +478,7 @@ class GameSimulator:
                     strategy._check_auto_adjust(daily_coins, daily_fails, int(ENTRY_FEE))
 
         net_profit = daily_coins - (len(rounds) * int(ENTRY_FEE))
+        total_duration = sum(r.duration_seconds for r in rounds)
         return DaySimulationResult(
             strategy_name=getattr(strategy, "name", strategy_cls.__name__),
             total_coins=daily_coins,
@@ -416,6 +486,7 @@ class GameSimulator:
             total_rounds=len(rounds),
             net_profit=net_profit,
             rounds=rounds,
+            total_duration_seconds=total_duration,
         )
 
     def run_monte_carlo(
@@ -441,6 +512,7 @@ class GameSimulator:
         fails = [r.total_fails for r in results]
         rounds = [r.total_rounds for r in results]
         profits = [r.net_profit for r in results]
+        durations = [r.total_duration_minutes for r in results]
 
         strategy_name = results[0].strategy_name if results else strategy_cls.__name__
 
@@ -459,6 +531,9 @@ class GameSimulator:
             pct_over_35k=float(np.mean([1.0 if c >= 35000 else 0.0 for c in coins]) * 100),
             std_coins=float(np.std(coins)),
             pct_over_40k=float(np.mean([1.0 if c >= 40000 else 0.0 for c in coins]) * 100),
+            avg_duration_minutes=float(np.mean(durations)),
+            min_duration_minutes=float(np.min(durations)),
+            max_duration_minutes=float(np.max(durations)),
         )
 
     def run_comparison(
@@ -504,20 +579,22 @@ if __name__ == "__main__":
         # Sort by average net profit descending
         summaries.sort(key=lambda s: s.avg_net_profit, reverse=True)
 
-        print("\n" + "=" * 92)
-        print(f"{'Strategy':<30} | {'Avg Coins':>10} | {'Net Profit':>10} | {'Fails/Day':>9} | {'% >= 20k':>8} | {'% >= 30k':>8}")
-        print("-" * 92)
+        print("\n" + "=" * 105)
+        print(f"{'Strategy':<28} | {'Avg Coins':>10} | {'Net Profit':>10} | {'Fails/Day':>9} | {'Avg Time':>9} | {'% >= 20k':>8} | {'% >= 30k':>8}")
+        print("-" * 105)
         for s in summaries:
-            print(f"{s.strategy_name[:30]:<30} | {s.avg_coins:>10,.0f} | {s.avg_net_profit:>10,.0f} | {s.avg_fails:>9.1f} | {s.pct_over_20k:>7.1f}% | {s.pct_over_30k:>7.1f}%")
-        print("=" * 92)
+            time_str = f"{s.avg_duration_minutes:.1f}m"
+            print(f"{s.strategy_name[:28]:<28} | {s.avg_coins:>10,.0f} | {s.avg_net_profit:>10,.0f} | {s.avg_fails:>9.1f} | {time_str:>9} | {s.pct_over_20k:>7.1f}% | {s.pct_over_30k:>7.1f}%")
+        print("=" * 105)
     else:
         print(f"Running Monte Carlo simulation for '{args.strategy}' over {args.days} days...")
         summary = sim.run_monte_carlo(STRATEGY_REGISTRY[args.strategy], days=args.days, exact_poker=args.exact)
         print(f"\nResults for {summary.strategy_name}:")
-        print(f"  Avg Daily Coins:  {summary.avg_coins:,.0f} (Min: {summary.min_coins:,}, Max: {summary.max_coins:,})")
-        print(f"  Avg Net Profit:   {summary.avg_net_profit:,.0f} coins")
-        print(f"  Avg Fails/Day:    {summary.avg_fails:.1f} rounds ({summary.avg_fails * 50:,.0f} ticket coins)")
-        print(f"  Avg Rounds/Day:   {summary.avg_rounds:.1f}")
-        print(f"  Days >= 20,000:   {summary.pct_over_20k:.1f}%")
-        print(f"  Days >= 30,000:   {summary.pct_over_30k:.1f}%")
-        print(f"  Days >= 35,000:   {summary.pct_over_35k:.1f}%")
+        print(f"  Avg Daily Coins:   {summary.avg_coins:,.0f} (Min: {summary.min_coins:,}, Max: {summary.max_coins:,})")
+        print(f"  Avg Net Profit:    {summary.avg_net_profit:,.0f} coins")
+        print(f"  Avg Est. Runtime:  {summary.avg_duration_minutes:.1f} min / {summary.avg_duration_minutes / 60:.2f} hrs (Min: {summary.min_duration_minutes:.1f}m, Max: {summary.max_duration_minutes:.1f}m)")
+        print(f"  Avg Fails/Day:     {summary.avg_fails:.1f} rounds ({summary.avg_fails * 50:,.0f} ticket coins)")
+        print(f"  Avg Rounds/Day:    {summary.avg_rounds:.1f}")
+        print(f"  Days >= 20,000:    {summary.pct_over_20k:.1f}%")
+        print(f"  Days >= 30,000:    {summary.pct_over_30k:.1f}%")
+        print(f"  Days >= 35,000:    {summary.pct_over_35k:.1f}%")

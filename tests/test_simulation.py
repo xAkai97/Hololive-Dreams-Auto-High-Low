@@ -132,7 +132,38 @@ class TestGameSimulator(unittest.TestCase):
         )
         self.assertTrue(result.won_poker)
 
+    def test_simulation_timing(self):
+        strategy = MaxProfitStrategy()
+        round_res = self.sim.play_high_low_round(
+            strategy=strategy,
+            initial_payout=400,
+            daily_coins=5000,
+            max_doubles=5,
+        )
+        self.assertGreater(round_res.duration_seconds, 0.0)
+
+        day_res = self.sim.simulate_day(
+            strategy_cls=MaxProfitStrategy,
+            max_daily_rounds=20,
+            exact_poker=False,
+        )
+        self.assertGreater(day_res.total_duration_seconds, 0.0)
+        self.assertGreater(day_res.total_duration_minutes, 0.0)
+        self.assertGreater(day_res.total_duration_hours, 0.0)
+
+        summary = self.sim.run_monte_carlo(
+            strategy_cls=MaxProfitStrategy,
+            days=2,
+            exact_poker=False,
+        )
+        self.assertGreater(summary.avg_duration_minutes, 0.0)
+        self.assertGreater(summary.avg_time_minutes, 0.0)
+        self.assertGreater(summary.avg_time_hours, 0.0)
+        self.assertGreater(summary.min_duration_minutes, 0.0)
+        self.assertGreater(summary.max_duration_minutes, 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

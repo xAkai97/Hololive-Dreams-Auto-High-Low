@@ -10,14 +10,14 @@ The poker mini-game is a **5-Card Draw** variant played with a **53-card deck** 
 
 ### Payout Table
 The game requires a minimum hand of **Two Pair** to qualify for a payout:
-- **Royal Flush**: 100,000 coins
-- **Straight Flush**: 50,000 coins
-- **Five of a Kind**: 40,000 coins
-- **Four of a Kind**: 20,000 coins
-- **Full House**: 1,000 coins
-- **Flush**: 750 coins
-- **Straight**: 500 coins
-- **Three of a Kind**: 300 coins
+- **Royal Flush**: 10,000 coins
+- **Five of a Kind**: 7,000 coins
+- **Straight Flush**: 3,000 coins
+- **Four of a Kind**: 1,500 coins
+- **Full House**: 800 coins
+- **Flush**: 700 coins
+- **Straight**: 400 coins
+- **Three of a Kind**: 200 coins
 - **Two Pair**: 200 coins
 - **One Pair / High Card**: 0 coins (forfeits the 50-coin ticket)
 

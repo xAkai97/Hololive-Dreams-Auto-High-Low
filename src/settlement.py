@@ -125,17 +125,25 @@ class SettlementManager:
             except RuntimeError as err:
                 recovery = self.recovery_mode or "auto"
                 last_amt = getattr(err, "last_amount", amount)
+                try:
+                    from auto_bot import log_debug
+                except ImportError:
+                    def log_debug(msg): pass
+
                 if recovery == "auto" and self.expected_cashout:
                     earned = self.expected_cashout
                     print(tr('settle_auto_recovered', observed=last_amt, expected=earned))
+                    log_debug(f"[Settlement Recovery] OCR discrepancy (observed={last_amt}). Auto-recovered using expected={earned}")
                 elif recovery == "manual" and prompt_fn:
                     earned = prompt_fn(self.expected_cashout, last_amt)
                     if earned is None:
                         raise
                     print(tr('settle_manual_confirmed', amount=earned))
+                    log_debug(f"[Settlement Manual] Confirmed payout: {earned}")
                 elif recovery == "manual" and self.expected_cashout:
                     earned = self.expected_cashout
                     print(tr('settle_auto_recovered', observed=last_amt, expected=earned))
+                    log_debug(f"[Settlement Recovery] OCR discrepancy (observed={last_amt}). Auto-recovered using expected={earned}")
                 else:
                     raise
 
@@ -145,6 +153,11 @@ class SettlementManager:
             daily_coins += earned
             net_profit = daily_coins - (daily_fails * ticket_cost)
             print(tr('settle_success', earned=earned, coins=daily_coins, fails=daily_fails, profit=net_profit))
+            try:
+                from auto_bot import log_debug
+                log_debug(f"[Settlement Credited] +{earned} coins | Daily Total: {daily_coins} | Fails: {daily_fails} | Net: {net_profit}")
+            except ImportError:
+                pass
             if on_stats_update:
                 on_stats_update(daily_coins, daily_fails, net_profit)
 
