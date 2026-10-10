@@ -74,13 +74,24 @@ class TestStrategies(unittest.TestCase):
         counter = HighLowCounter()
         choice, rate = counter.get_best_choice_and_rate(7)
         self.assertEqual(choice, 'high')
-        self.assertAlmostEqual(rate, 28 / 52, places=4)
+        # 28 higher (8..A), 20 lower (2..6); 4 ties (7s) are pushes: rate = 28 / (28 + 20) = 28 / 48
+        self.assertAlmostEqual(rate, 28 / 48, places=4)
 
-        # After removing 4 sevens, total cards = 48, rate = 28 / 48
+        # After removing 4 sevens, total decision cards = 48, rate = 28 / 48
         counter.remove_cards([7, 7, 7, 7])
         choice, rate = counter.get_best_choice_and_rate(7)
         self.assertEqual(choice, 'high')
         self.assertAlmostEqual(rate, 28 / 48, places=4)
+
+        # Card 2 has no lower cards; win rate should be 100.0%
+        choice_2, rate_2 = counter.get_best_choice_and_rate(2)
+        self.assertEqual(choice_2, 'high')
+        self.assertEqual(rate_2, 1.0)
+
+        # Card Ace (14) has no higher cards; win rate should be 100.0%
+        choice_ace, rate_ace = counter.get_best_choice_and_rate(14)
+        self.assertEqual(choice_ace, 'low')
+        self.assertEqual(rate_ace, 1.0)
 
     def test_card_recognizer_precomputed_shifts(self):
         try:

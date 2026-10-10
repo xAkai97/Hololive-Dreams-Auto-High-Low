@@ -77,6 +77,8 @@ def _evaluate_category5(c0: int, c1: int, c2: int, c3: int, c4: int) -> int:
     for cid in cards:
         if cid == 52:
             jokers += 1
+        elif cid < 0 or cid > 52:
+            return 0
         else:
             rank = 2 + cid // 4
             suit = cid % 4
@@ -381,8 +383,6 @@ def verify_engine() -> None:
 
 
 def warm_up() -> None:
-    # v2.0 intentionally disables Numba disk caching. This prevents an old
-    # compiled evaluator/paytable from surviving when users overwrite a prior
-    # version in the same folder. Compile once in memory, then run self-tests.
+    # JIT-compile the poker solver in memory and run verification self-tests on startup.
     calculate_best([card_id("2", "S"), card_id("5", "H"), card_id("8", "D"), card_id("J", "C"), card_id("A", "S")])
     verify_engine()

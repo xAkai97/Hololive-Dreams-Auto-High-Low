@@ -23,11 +23,13 @@ _internal/
 
 # Runtime state & debug data
 config.json
+*.bak
 debug/
 log.txt
 log_*.txt
 debug_log.txt
 logs/
+scratch/
 todo.md
 completed.md
 review.md

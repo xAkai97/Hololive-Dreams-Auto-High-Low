@@ -16,8 +16,7 @@ def challenge_number_image(img, zone):
                   and stats[i, cv2.CC_STAT_AREA] >= 30]
     if not components:
         return None
-    # Digits share a baseline. Do not let an unrelated yellow coin expand
-    # the crop to several lines, which made the old OCR read 800 as 0/8/9.
+    # Digits share a baseline; group components horizontally to exclude unrelated coin graphics.
     groups = []
     for _, (_, yy, _, hh, _) in components:
         group = [(i, s) for i, s in components

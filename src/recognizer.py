@@ -185,11 +185,9 @@ class CardRecognizer:
     def _card_face_score(screen: np.ndarray, rect: tuple[int, int, int, int]) -> float:
         """Score whether a fixed card slot contains a face-up card.
 
-        The old detector averaged most of the card interior. Character cards can
-        contain large dark illustrations, and HDR/screen-capture colour changes
-        can lower the apparent white level. This version samples the mostly blank
-        *edge ring* and bottom strip of the card. Face-up cards are neutral and
-        bright there; the purple card backs are saturated in the same regions.
+        Samples the mostly blank outer edge ring and bottom strip of the card.
+        Face-up cards are neutral and bright there, whereas purple card backs
+        remain saturated in the same regions.
         """
         x, y, w, h = rect
         sh, sw = screen.shape[:2]
@@ -314,9 +312,7 @@ class CardRecognizer:
             if valid:
                 return rects
 
-        # Only use fixed coordinates when they also contain five white card faces.
-        # The old version returned these coordinates unconditionally, which caused
-        # the purple betting screen to be misread as five cards.
+        # Validate fixed coordinates to ensure they contain five face-up card faces.
         fallback = self._fallback_rects(width, height)
         valid, _, _ = self.hold_screen_score(screen, fallback)
         return fallback if valid else []

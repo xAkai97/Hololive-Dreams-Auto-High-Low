@@ -1,8 +1,7 @@
 """Max Profit strategy — cushion to 19,800 then sprint for ~10k+ final win.
 
-Mirrors the upstream legacy logic exactly. The optimal daily strategy for
-~29,000-32,000 coins: carefully build to 19,800 then go all-in on a final
-max double-up round.
+Optimal daily strategy for ~29,000-32,000 coins: carefully build to 19,800
+then double aggressively on the final sprint round.
 """
 from typing import Optional
 

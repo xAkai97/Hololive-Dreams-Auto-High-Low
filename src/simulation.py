@@ -155,7 +155,7 @@ class GameSimulator:
         self,
         seed: Optional[int] = None,
         num_decks: int = 1,
-        tie_loses: bool = True,
+        tie_loses: bool = False,
         opportunistic_double_mode: str = "a_2_only",
         opp_a2: Optional[bool] = None,
         opp_3k: Optional[bool] = None,
@@ -352,10 +352,18 @@ class GameSimulator:
             next_card = hl_deck.pop()
             counter.remove_cards([next_card])
 
-            # Evaluate outcome: ties are losses
-            is_win = (choice == "high" and next_card > current_card) or (
-                choice == "low" and next_card < current_card
-            )
+            # Evaluate outcome: equal-rank ties are pushes in-game (player guesses again)
+            if next_card == current_card:
+                if self.tie_loses:
+                    is_win = False
+                else:
+                    # In-game push: card remains and player makes another choice
+                    current_card = next_card
+                    continue
+            else:
+                is_win = (choice == "high" and next_card > current_card) or (
+                    choice == "low" and next_card < current_card
+                )
 
             if not is_win:
                 # Busted after attempting a guess

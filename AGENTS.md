@@ -34,7 +34,7 @@ This document provides architectural context, development guidelines, game mecha
 2. **High-Low Doubling Mechanics**:
    - A base card is revealed (ranks 2 through Ace / 14).
    - The player guesses whether the hidden card will be **High** or **Low**.
-   - **Ties are Losses**: Drawing a card of the exact same rank as the base card wipes out the entire accumulated round payout.
+   - **Ties are Pushes (Re-Rolls)**: Drawing a card of the exact same rank as the base card does not forfeit the purse; the player chooses High or Low again.
 3. **The 20,000 Coin Daily Cap Overflow Rule**:
    - The game's 20k limit **only prevents starting a new poker round**.
    - Any round initiated while daily coins are $< 20,000$ runs to completion without cap restriction.
@@ -58,6 +58,7 @@ This document provides architectural context, development guidelines, game mecha
 │   ├── poker_core.py          # Numba JIT accelerated combinatorial 5-card poker hand solver
 │   ├── reward_vision.py       # Real-time cyan HSV OCR for challenge and settlement numbers
 │   ├── settlement.py          # Payout verification, expected value validation, and OCR recovery
+│   ├── ui/                    # Modular GUI framework (ModernMenu, platform, widgets, dialogs)
 │   └── strategies/            # 7 modular doubling policies + modifiers engine
 │       ├── base.py            # BaseStrategy abstract base class
 │       ├── max_profit.py      # Max Profit (~29-32k cushion/sprint, recommended default)
@@ -72,7 +73,7 @@ This document provides architectural context, development guidelines, game mecha
 ├── backgrounds/               # Custom UI backgrounds (auto-detected, cyclic selection)
 ├── assets/                    # Static assets & application icons
 ├── templates/                 # OpenCV template matching reference images
-└── tests/                     # 16 unit & integration test files (129 tests)
+└── tests/                     # 19 unit & integration test files (150 tests)
 ```
 
 ---

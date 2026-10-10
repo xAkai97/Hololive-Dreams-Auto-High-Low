@@ -27,7 +27,12 @@ except (ImportError, Exception):
 class TestGUISettingsAndMenus(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # Create a single hidden UI instance for fast tests
+        # Create a single hidden UI instance for fast tests and isolate file logging to tempdir
+        cls._temp_dir = tempfile.TemporaryDirectory()
+        cls._orig_app_dir = auto_bot.APP_DIR
+        cls._orig_data_file = auto_bot.DATA_FILE
+        auto_bot.APP_DIR = Path(cls._temp_dir.name)
+        auto_bot.DATA_FILE = Path(cls._temp_dir.name) / "config.json"
         with patch("keyboard.add_hotkey"), patch("keyboard.hook"):
             cls.app = HololiveBotUI()
             cls.app.withdraw()
@@ -39,6 +44,10 @@ class TestGUISettingsAndMenus(unittest.TestCase):
                 cls.app.destroy()
         except Exception:
             pass
+        finally:
+            auto_bot.APP_DIR = cls._orig_app_dir
+            auto_bot.DATA_FILE = cls._orig_data_file
+            cls._temp_dir.cleanup()
 
     def tearDown(self):
         self.app.target_limit = 20000
@@ -117,19 +126,27 @@ class TestGUISettingsAndMenus(unittest.TestCase):
             toplevel.destroy()
 
     def test_menu_reset_stats_confirmed(self):
+        orig_coins = self.app.current_coins
+        orig_fails = self.app.current_fails
+        orig_profit = self.app.current_profit
         self.app.current_coins = 15000
         self.app.current_fails = 5
         self.app.current_profit = 14750
 
-        with patch("tkinter.messagebox.askyesno", return_value=True), \
-             patch.object(self.app, "save_settings") as mock_save, \
-             patch.object(self.app, "update_stats_display") as mock_update:
-            self.app.menu_reset_stats()
-            self.assertEqual(self.app.current_coins, 0)
-            self.assertEqual(self.app.current_fails, 0)
-            self.assertEqual(self.app.current_profit, 0)
-            mock_save.assert_called_once()
-            mock_update.assert_called_once()
+        try:
+            with patch("tkinter.messagebox.askyesno", return_value=True), \
+                 patch.object(self.app, "save_settings") as mock_save, \
+                 patch.object(self.app, "update_stats_display") as mock_update:
+                self.app.menu_reset_stats()
+                self.assertEqual(self.app.current_coins, 0)
+                self.assertEqual(self.app.current_fails, 0)
+                self.assertEqual(self.app.current_profit, 0)
+                mock_save.assert_called_once()
+                mock_update.assert_called_once()
+        finally:
+            self.app.current_coins = orig_coins
+            self.app.current_fails = orig_fails
+            self.app.current_profit = orig_profit
 
     def test_menu_reset_stats_cancelled(self):
         self.app.current_coins = 9000
@@ -352,7 +369,6 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         self.assertIn(localization.tr("menu_rules_guide", self.app.current_lang), help_menu_labels)
         self.assertIn(localization.tr("menu_strategy_guide", self.app.current_lang), help_menu_labels)
         self.assertIn(localization.tr("menu_online_docs", self.app.current_lang), help_menu_labels)
-        self.assertIn(localization.tr("menu_open_docs_dir", self.app.current_lang), help_menu_labels)
         self.assertIn(localization.tr("menu_about", self.app.current_lang), help_menu_labels)
 
     def test_open_settings_dialog(self):
@@ -489,6 +505,66 @@ class TestGUISettingsAndMenus(unittest.TestCase):
                 self.assertEqual(len(remaining), 1)
                 self.assertEqual(remaining[0].name, "log_2026-09-22_00-00-00.txt")
 
+    def test_daily_rounds_persistence(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            with patch("auto_bot.APP_DIR", tmppath), patch("auto_bot.DATA_FILE", tmppath / "config.json"):
+                self.assertEqual(auto_bot.load_daily_rounds(), 0)
+                auto_bot.save_daily_data(500, 2, rounds=15)
+                self.assertEqual(auto_bot.load_daily_rounds(), 15)
+                coins, fails = auto_bot.load_daily_data()
+                self.assertEqual(coins, 500)
+                self.assertEqual(fails, 2)
+
+    def test_categorized_config_roundtrip(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_file = Path(tmpdir) / "config.json"
+            with patch("auto_bot.APP_DIR", Path(tmpdir)), patch("auto_bot.DATA_FILE", cfg_file):
+                auto_bot.save_daily_data(300, 1, rounds=5, theme_mode="window_black", hotkey="F8")
+                self.assertTrue(cfg_file.exists())
+                with cfg_file.open("r", encoding="utf-8") as f:
+                    raw = json.load(f)
+                self.assertIn("accounting", raw)
+                self.assertIn("display", raw)
+                self.assertIn("general", raw)
+                self.assertEqual(raw["accounting"]["coins"], 300)
+                self.assertEqual(raw["display"]["theme_mode"], "window_black")
+                self.assertEqual(raw["general"]["hotkey"], "F8")
+
+                # Test flat reader transparency
+                flat = auto_bot.load_config()
+                self.assertEqual(flat.get("coins"), 300)
+                self.assertEqual(flat.get("theme_mode"), "window_black")
+                self.assertEqual(flat.get("hotkey"), "F8")
+
+    def test_legacy_flat_config_backward_compatibility(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_file = Path(tmpdir) / "config.json"
+            legacy_data = {
+                "date": auto_bot.get_game_date(),
+                "coins": 1200,
+                "fails": 3,
+                "theme_mode": "window_white",
+                "custom_unknown_key": "test_val"
+            }
+            with cfg_file.open("w", encoding="utf-8") as f:
+                json.dump(legacy_data, f)
+            with patch("auto_bot.APP_DIR", Path(tmpdir)), patch("auto_bot.DATA_FILE", cfg_file):
+                loaded = auto_bot.load_config()
+                self.assertEqual(loaded.get("coins"), 1200)
+                self.assertEqual(loaded.get("theme_mode"), "window_white")
+                self.assertEqual(loaded.get("custom_unknown_key"), "test_val")
+
+                # Re-saving transparently upgrades to categorized structure while preserving custom key
+                auto_bot.save_daily_data(1200, 3)
+                with cfg_file.open("r", encoding="utf-8") as f:
+                    upgraded = json.load(f)
+                self.assertIn("accounting", upgraded)
+                self.assertIn("display", upgraded)
+                self.assertEqual(upgraded["display"]["theme_mode"], "window_white")
+                self.assertIn("custom", upgraded)
+                self.assertEqual(upgraded["custom"]["custom_unknown_key"], "test_val")
+
     def test_tooltips_registered_and_localized(self):
         self.assertIn("opp_a2", self.app.tooltips)
         self.assertIn("mod_drop_6789", self.app.tooltips)
@@ -598,6 +674,33 @@ class TestToolTip(unittest.TestCase):
         self.assertEqual(str(self.app.chk_opp_a2.cget("state")), "normal")
         self.assertEqual(str(self.app.chk_opp_3k.cget("state")), "normal")
         self.assertEqual(str(self.app.chk_opp_4q.cget("state")), "normal")
+
+    def test_theme_switching_and_persistence(self):
+        # 1. Test set to light ("Window White")
+        self.app.set_theme_mode("light")
+        self.assertEqual(self.app.theme_mode, "light")
+        self.assertEqual(self.app.get_active_theme(), "light")
+        self.assertFalse(self.app.theme_palette["is_dark"])
+        self.assertEqual(self.app.theme_palette["bg_plain_hex"], "#FFFFFF")
+
+        # 2. Test set to dark ("Window Black")
+        self.app.set_theme_mode("dark")
+        self.assertEqual(self.app.theme_mode, "dark")
+        self.assertEqual(self.app.get_active_theme(), "dark")
+        self.assertTrue(self.app.theme_palette["is_dark"])
+        self.assertEqual(self.app.theme_palette["bg_plain_hex"], "#18181B")
+
+        # 3. Test system mode
+        self.app.set_theme_mode("system")
+        self.assertEqual(self.app.theme_mode, "system")
+        self.assertIn(self.app.get_active_theme(), ("light", "dark"))
+
+        # 4. Test save_user_settings persistence
+        with patch("auto_bot.save_daily_data") as mock_save:
+            self.app.save_user_settings()
+            mock_save.assert_called_once()
+            _, kwargs = mock_save.call_args
+            self.assertEqual(kwargs.get("theme_mode"), "system")
 
 
 if __name__ == "__main__":

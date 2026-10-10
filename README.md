@@ -53,7 +53,8 @@ An advanced automated assistant, card-counting engine, and simulation suite for 
 │   │   └── modifiers.py       # Fast Build, Sprint Floor, Bail 7/8, Opportunistic overrides
 │   ├── challenge_reward.py    # Challenge payout validation and stabilization
 │   ├── settlement.py          # Settlement balance verification & recovery
-│   └── reward_vision.py       # Real-time challenge bonus OCR
+│   ├── reward_vision.py       # Real-time challenge bonus OCR
+│   └── ui/                    # Modular GUI framework (ModernMenu, widgets, dialogs)
 ├── config.json                # User settings, window coordinates, and daily stats (auto-generated)
 ├── log.txt                    # Active UI session log (auto-generated)
 ├── logs/                      # Archived session logs rotated on launch (auto-generated)

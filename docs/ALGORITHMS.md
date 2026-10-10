@@ -49,31 +49,36 @@ A standard poker deck consists of 52 cards (ranks 2 through 14/Ace, 4 suits per 
 - Total remaining cards:
   $$N_{\text{total}} = \sum_{r=2}^{14} N_r$$
 
-### The Tie-Loss Penalty
-A critical rule of the game is: **Equal-rank ties are losses**. If the revealed card matches the base card's rank, the player loses the entire accumulated round payout.
+### The Tie-Push (Re-Roll) Rule
+A critical rule of the game is: **Equal-rank ties are pushes (re-rolls)**. If the revealed card matches the base card's rank, the player does not forfeit the purse; instead, the player simply chooses High or Low again.
 
 Let the base card rank be $B \in [2, 14]$:
 - Favorable cards for **HIGH**:
   $$N_{\text{high}} = \sum_{r = B + 1}^{14} N_r$$
 - Favorable cards for **LOW**:
   $$N_{\text{low}} = \sum_{r = 2}^{B - 1} N_r$$
-- Tie cards (instant loss):
+- Tie cards (neutral push / replay):
   $$N_{\text{tie}} = N_B$$
+- Total decisive cards (excluding ties):
+  $$N_{\text{decisive}} = N_{\text{high}} + N_{\text{low}}$$
 
-The exact real-time winning probabilities are:
-$$P(\text{HIGH}) = \frac{N_{\text{high}}}{N_{\text{total}}}$$
-$$P(\text{LOW}) = \frac{N_{\text{low}}}{N_{\text{total}}}$$
-$$P(\text{LOSE}) = 1 - \max(P(\text{HIGH}), P(\text{LOW})) = \frac{\min(N_{\text{high}}, N_{\text{low}}) + N_{\text{tie}}}{N_{\text{total}}}$$
+The exact real-time winning probabilities conditional on round resolution are:
+$$P(\text{HIGH}) = \frac{N_{\text{high}}}{N_{\text{decisive}}}$$
+$$P(\text{LOW}) = \frac{N_{\text{low}}}{N_{\text{decisive}}}$$
+
+Under this push model:
+- For **rank 2**: $N_{\text{low}} = 0 \implies P(\text{HIGH}) = \frac{N_{\text{high}}}{N_{\text{high}}} = \mathbf{100.0\%}$.
+- For **rank Ace (14)**: $N_{\text{high}} = 0 \implies P(\text{LOW}) = \frac{N_{\text{low}}}{N_{\text{low}}} = \mathbf{100.0\%}$.
 
 ### Rank 8 Volatility Analysis
 For rank 8 (the exact midpoint of cards 2 through 14):
 - Higher cards (9, 10, J, Q, K, A): 6 ranks $\times 4 = 24$ cards.
 - Lower cards (2, 3, 4, 5, 6, 7): 6 ranks $\times 4 = 24$ cards.
-- Tie cards (8s remaining): up to 3 cards.
+- Decisive cards: $24 + 24 = 48$ cards.
 
-In a fresh 51-card remaining deck:
-$$P(\text{HIGH}) = P(\text{LOW}) = \frac{24}{51} \approx 47.06\%$$
-Because the probability of winning on rank 8 is **strictly less than 50%**, doubling on 8 carries negative expected return ($<1.0\times$). The **Bailout on 8** modifier exploits this math by cashing out whenever rank 8 appears during bankroll construction.
+In a fresh remaining deck:
+$$P(\text{HIGH}) = P(\text{LOW}) = \frac{24}{48} = \mathbf{50.00\%}$$
+Because rank 8 is an exact 50/50 coin flip, doubling on 8 carries high variance with zero edge. The **Bailout on 8** modifier cashes out whenever rank 8 appears during bankroll construction.
 
 ---
 

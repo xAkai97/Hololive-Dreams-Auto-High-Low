@@ -5,6 +5,7 @@
 | Rule | Value |
 |------|-------|
 | **Double-up cap** | ~10,000 coins per round (game auto-settles) |
+| **High-Low Ties** | Pushes (Re-Rolls) — drawing the same rank keeps the purse and lets you guess again |
 | **Daily earning cap** | 20,000 coins (soft — can't start a new round once reached) |
 | **Overshoot** | Allowed — final win is fully credited even if it exceeds 20k |
 | **Unlimited plays** | No limit on rounds, only on daily total |

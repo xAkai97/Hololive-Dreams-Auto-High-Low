@@ -7,6 +7,17 @@ try:
 except Exception:
     pass
 
+try:
+    # SetPreferredAppMode (ordinal 135): 2 = ForceDark
+    # Instructs Windows 10/11 Desktop Window Manager to render Win32 popup
+    # menus with dark backgrounds and text. Note: on Windows 10, the native
+    # Win32 popup menu non-client border outline is still rendered white/light
+    # by the OS DWM for TrackPopupMenu.
+    ctypes.windll.uxtheme[135](2)
+    ctypes.windll.uxtheme[136]()
+except Exception:
+    pass
+
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import threading
@@ -16,9 +27,10 @@ import csv
 from pathlib import Path
 import json
 import time
+import datetime
 import re
 import queue
-from PIL import Image, ImageTk, ImageDraw, ImageStat
+from PIL import Image, ImageTk, ImageDraw
 import keyboard
 import webbrowser
 
@@ -42,246 +54,34 @@ except Exception:
 TRANSLATIONS = localization.TRANSLATIONS
 
 
-def load_saved_stats():
-    c, fl = auto_bot.load_daily_data()
-    data = auto_bot.load_config()
-    ticket_cost = int(data.get("ticket_cost", 50))
-    return c, fl, c - (fl * ticket_cost)
-
-
-class ToolTip:
-    """Lightweight hover tooltip for Tkinter widgets."""
-
-    def __init__(self, widget, text: str = "", delay_ms: int = 400):
-        self.widget = widget
-        self.text = text
-        self.delay_ms = delay_ms
-        self._tip_window = None
-        self._after_id = None
-
-        if self.widget:
-            self.widget.bind("<Enter>", self._on_enter, add="+")
-            self.widget.bind("<Leave>", self._on_leave, add="+")
-            self.widget.bind("<ButtonPress>", self._on_leave, add="+")
-
-    def _on_enter(self, event=None):
-        self._cancel()
-        if self.text and self.widget:
-            self._after_id = self.widget.after(self.delay_ms, self._show)
-
-    def _on_leave(self, event=None):
-        self._cancel()
-        self._hide()
-
-    def _cancel(self):
-        if self._after_id and self.widget:
-            try:
-                self.widget.after_cancel(self._after_id)
-            except Exception:
-                pass
-            self._after_id = None
-
-    def _show(self):
-        if self._tip_window or not self.text or not self.widget:
-            return
-        try:
-            x = self.widget.winfo_rootx() + 15
-            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
-            self._tip_window = tw = tk.Toplevel(self.widget)
-            tw.wm_overrideredirect(True)
-            tw.wm_geometry(f"+{x}+{y}")
-            try:
-                tw.wm_attributes("-topmost", True)
-            except Exception:
-                pass
-            frame = tk.Frame(tw, background="#334155", borderwidth=1, relief="solid")
-            frame.pack()
-            lbl = tk.Label(
-                frame,
-                text=self.text,
-                justify="left",
-                background="#1E293B",
-                foreground="#F8FAFC",
-                font=("Segoe UI", 8),
-                padx=6,
-                pady=4,
-                wraplength=320,
-            )
-            lbl.pack()
-        except Exception:
-            self._hide()
-
-    def _hide(self):
-        if self._tip_window:
-            try:
-                self._tip_window.destroy()
-            except Exception:
-                pass
-            self._tip_window = None
-
-    def update_text(self, text: str):
-        self.text = text
-        if self._tip_window:
-            self._hide()
-
-
-# ================= Output Interceptor & Virtual Scrolling Engine =================
-class RedirectText:
-    def __init__(self, ui):
-        self.ui = ui
-        self.raw_text = ""
-
-    def write(self, string):
-        if not string:
-            return
-        if hasattr(self.ui, "ui_queue"):
-            self.ui.ui_queue.put(("log", string))
-        else:
-            self._write(string)
-
-    def _write(self, string):
-        if not string:
-            return
-        self.raw_text += string
-        if len(self.raw_text) > 20000:
-            self.raw_text = self.raw_text[-15000:]
-        self.ui.append_log_text(string)
-
-    def flush(self):
-        pass
-
-    def clear(self):
-        self.raw_text = ""
-        if hasattr(self.ui, "ui_queue"):
-            self.ui.ui_queue.put(("clear_log", None))
-        else:
-            self.ui.clear_log_text()
-
-
-def get_locale_font_family(lang: str = "en") -> str:
-    """Return the optimal system UI font family based on locale."""
-    code = (lang or "en").lower().replace("-", "_")
-    try:
-        from tkinter import font as tkfont
-        available = set(tkfont.families())
-    except Exception:
-        available = set()
-
-    if code.startswith("ja"):
-        for cand in ("Yu Gothic UI", "Meiryo UI", "Segoe UI"):
-            if cand in available:
-                return cand
-    elif code.startswith("zh") or code.startswith("tw"):
-        for cand in ("Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI"):
-            if cand in available:
-                return cand
-    else:
-        for cand in ("Segoe UI", "Tahoma", "Arial"):
-            if cand in available:
-                return cand
-
-    return "Segoe UI" if "Segoe UI" in available else "TkDefaultFont"
-
-
-def clean_old_logs(max_days: int = 14, max_size_mb: int = 20, lang: str = "en") -> tuple[int, float]:
-    """Remove archived logs in auto_bot.LOGS_DIR exceeding age (days) or total size (MB).
-
-    Returns (deleted_count, freed_mb).
-    """
-    if not auto_bot.LOGS_DIR.exists():
-        return 0, 0.0
-
-    deleted_count = 0
-    freed_bytes = 0
-    now = time.time()
-
-    log_files = [f for f in auto_bot.LOGS_DIR.glob("log_*.txt") if f.is_file()]
-
-    # 1. Prune by Age (if max_days > 0)
-    if max_days > 0:
-        max_age_seconds = max_days * 86400
-        surviving_files = []
-        for f in log_files:
-            try:
-                age = now - f.stat().st_mtime
-                if age > max_age_seconds:
-                    size = f.stat().st_size
-                    f.unlink()
-                    deleted_count += 1
-                    freed_bytes += size
-                else:
-                    surviving_files.append(f)
-            except Exception:
-                surviving_files.append(f)
-        log_files = surviving_files
-
-    # 2. Prune by Total Directory Size (if max_size_mb > 0)
-    if max_size_mb > 0:
-        max_bytes = max_size_mb * 1024 * 1024
-        file_stats = []
-        for f in log_files:
-            try:
-                st = f.stat()
-                file_stats.append((st.st_mtime, st.st_size, f))
-            except Exception:
-                pass
-
-        file_stats.sort(key=lambda x: x[0])  # oldest first
-        total_size = sum(item[1] for item in file_stats)
-
-        for mtime, size, f in file_stats:
-            if total_size <= max_bytes:
-                break
-            try:
-                f.unlink()
-                deleted_count += 1
-                freed_bytes += size
-                total_size -= size
-            except Exception:
-                pass
-
-    freed_mb = freed_bytes / (1024 * 1024)
-    if deleted_count > 0:
-        print(localization.tr("log_cleanup_done", lang, count=deleted_count, size_mb=freed_mb))
-
-    return deleted_count, freed_mb
-
-
-def rotate_previous_log(max_days: int = 14, max_size_mb: int = 20, lang: str = "en"):
-    """Archive previous log.txt to logs/log_YYYY-MM-DD_HH-MM-SS.txt when starting UI."""
-    try:
-        log_file = auto_bot.APP_DIR / "log.txt"
-        if log_file.exists() and log_file.stat().st_size > 0:
-            auto_bot.LOGS_DIR.mkdir(parents=True, exist_ok=True)
-            mtime = log_file.stat().st_mtime
-            timestamp_str = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime(mtime))
-            target_file = auto_bot.LOGS_DIR / f"log_{timestamp_str}.txt"
-
-            counter = 1
-            while target_file.exists():
-                target_file = auto_bot.LOGS_DIR / f"log_{timestamp_str}_{counter}.txt"
-                counter += 1
-
-            log_file.replace(target_file)
-
-        debug_file = auto_bot.APP_DIR / "debug_log.txt"
-        if debug_file.exists() and debug_file.stat().st_size > 0:
-            auto_bot.LOGS_DIR.mkdir(parents=True, exist_ok=True)
-            mtime = debug_file.stat().st_mtime
-            timestamp_str = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime(mtime))
-            target_debug = auto_bot.LOGS_DIR / f"debug_log_{timestamp_str}.txt"
-            counter = 1
-            while target_debug.exists():
-                target_debug = auto_bot.LOGS_DIR / f"debug_log_{timestamp_str}_{counter}.txt"
-                counter += 1
-            debug_file.replace(target_debug)
-    except Exception as e:
-        print(f"[Warning] Failed to rotate log file: {e}")
-
-    try:
-        clean_old_logs(max_days=max_days, max_size_mb=max_size_mb, lang=lang)
-    except Exception as e:
-        print(f"[Warning] Failed to clean old logs: {e}")
+from src.ui import (
+    is_windows_dark_mode,
+    set_window_dark_titlebar,
+    get_locale_font_family,
+    THEME_PALETTES,
+    DummyFrame,
+    CanvasHeaderLabel,
+    CanvasCheckbutton,
+    ToolTip,
+    RedirectText,
+    ModernMenu,
+    is_trivial_log_content,
+    clean_old_logs,
+    rotate_previous_log,
+    load_saved_stats,
+    discover_backgrounds,
+    load_background_image,
+    draw_glass_card,
+    show_help_rules as ui_show_help_rules,
+    show_help_strategies as ui_show_help_strategies,
+    show_help_about as ui_show_help_about,
+    open_settings_dialog as ui_open_settings_dialog,
+    open_custom_parametric_dialog as ui_open_custom_parametric_dialog,
+    show_benchmark_results_dialog as ui_show_benchmark_results_dialog,
+    export_benchmark_csv as ui_export_benchmark_csv,
+    export_benchmark_json as ui_export_benchmark_json,
+    show_settlement_modal as ui_show_settlement_modal,
+)
 
 
 class HololiveBotUI(tk.Tk):
@@ -299,7 +99,11 @@ class HololiveBotUI(tk.Tk):
         try:
             log_file = auto_bot.APP_DIR / "log.txt"
             start_time_str = time.strftime("%Y-%m-%d %H:%M:%S")
-            log_file.write_text(f"=== UI Session Started: {start_time_str} ===\n", encoding="utf-8")
+            if log_file.exists() and log_file.stat().st_size > 0:
+                with open(log_file, "a", encoding="utf-8", errors="replace") as f:
+                    f.write(f"\n=== UI Session Resumed: {start_time_str} ===\n")
+            else:
+                log_file.write_text(f"=== UI Session Started: {start_time_str} ===\n", encoding="utf-8")
         except Exception:
             pass
 
@@ -341,14 +145,21 @@ class HololiveBotUI(tk.Tk):
         self.last_w = 0
         self.last_h = 0
 
+        self.menubar_frame = tk.Frame(self, bg="#18181B")
+        self.menubar_frame.pack(side="top", fill="x")
+
         self.canvas = tk.Canvas(self, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
 
         self.bg_candidates = self._discover_backgrounds()
         saved_bg = saved_config.get("background_index", -1)
         self.bg_index = saved_bg if (-1 <= saved_bg < len(self.bg_candidates)) else -1
+        self.theme_mode = saved_config.get("theme_mode", "system")
+        if self.theme_mode not in ("system", "light", "dark"):
+            self.theme_mode = "system"
+        self.theme_var = tk.StringVar(value=self.theme_mode)
         self.field_box_opacity = max(0, min(100, int(saved_config.get("field_box_opacity", 30))))
-        self.show_log = bool(saved_config.get("show_log", True))
+        self.show_log = bool(saved_config.get("show_log", False))
         self.var_show_log = tk.BooleanVar(value=self.show_log)
         self.original_bg = None
         self._load_current_bg()
@@ -396,7 +207,7 @@ class HololiveBotUI(tk.Tk):
         self.combo_bg.bind("<<ComboboxSelected>>", self.on_bg_combo_change)
         self.combo_bg_win = self.canvas.create_window(0, 0, window=self.combo_bg, anchor="e", state="hidden")
 
-        self.bg_var = tk.IntVar(value=self.bg_index if self.show_bg else -1)
+        self.bg_var = tk.IntVar(value=self._get_bg_var_value())
         self.lang_var = tk.StringVar(value=self.current_lang)
 
         self.hotkey_label_id = self.canvas.create_text(0, 0, font=font_normal, fill="#111111", anchor="w")
@@ -440,8 +251,8 @@ class HololiveBotUI(tk.Tk):
         self.debug_logging = bool(saved_config.get("debug_logging", False))
         self.var_debug_logging = tk.BooleanVar(value=self.debug_logging)
         default_a2 = saved_config.get("opp_a2", True)
-        default_3k = saved_config.get("opp_3k", True)
-        default_4q = saved_config.get("opp_4q", True)
+        default_3k = saved_config.get("opp_3k", False)
+        default_4q = saved_config.get("opp_4q", False)
         default_5j = saved_config.get("opp_5j", False)
         default_610 = saved_config.get("opp_610", False)
         default_79 = saved_config.get("opp_79", False)
@@ -459,22 +270,55 @@ class HololiveBotUI(tk.Tk):
         self.tooltips: dict[str, ToolTip] = {}
 
         # --- Top Menu Bar ---
-        self.menubar = tk.Menu(self)
-        self.config(menu=self.menubar)
-        self.file_menu = tk.Menu(self.menubar, tearoff=0)
-        self.open_folders_menu = tk.Menu(self.file_menu, tearoff=0)
-        self.logs_menu = tk.Menu(self.menubar, tearoff=0)
-        self.settings_menu = tk.Menu(self.menubar, tearoff=0)
-        self.bg_menu = tk.Menu(self.menubar, tearoff=0)
-        self.lang_menu = tk.Menu(self.menubar, tearoff=0)
-        self.sim_menu = tk.Menu(self.menubar, tearoff=0)
-        self.help_menu = tk.Menu(self.menubar, tearoff=0)
+        self.menubar = ModernMenu(self)
+        self.file_menu = ModernMenu(self.menubar, tearoff=0)
+        self.open_folders_menu = ModernMenu(self.file_menu, tearoff=0)
+        self.logs_menu = ModernMenu(self.menubar, tearoff=0)
+        self.settings_menu = ModernMenu(self.menubar, tearoff=0)
+        self.bg_menu = ModernMenu(self.menubar, tearoff=0)
+        self.lang_menu = ModernMenu(self.menubar, tearoff=0)
+        self.sim_menu = ModernMenu(self.menubar, tearoff=0)
+        self.help_menu = ModernMenu(self.menubar, tearoff=0)
         self.menubar.add_cascade(label="File", menu=self.file_menu)
         self.menubar.add_cascade(label="Logs", menu=self.logs_menu)
         self.menubar.add_cascade(label="Settings", menu=self.settings_menu)
         self.menubar.add_cascade(label="Background", menu=self.bg_menu)
         self.menubar.add_cascade(label="Language", menu=self.lang_menu)
         self.menubar.add_cascade(label="Help", menu=self.help_menu)
+
+        self._active_menu_key: str | None = None
+        self.menu_buttons: dict[str, tk.Label] = {}
+        self.menu_targets: dict[str, tk.Menu] = {
+            "file": self.file_menu,
+            "logs": self.logs_menu,
+            "settings": self.settings_menu,
+            "bg": self.bg_menu,
+            "lang": self.lang_menu,
+            "help": self.help_menu,
+        }
+        for key, default_lbl in (
+            ("file", "File"),
+            ("logs", "Logs"),
+            ("settings", "Settings"),
+            ("bg", "Background"),
+            ("lang", "Language"),
+            ("help", "Help"),
+        ):
+            lbl = tk.Label(
+                self.menubar_frame,
+                text=default_lbl,
+                bg="#18181B",
+                fg="#F8FAFC",
+                font=(self.font_family, 9),
+                padx=8,
+                pady=2,
+                cursor="hand2",
+            )
+            lbl.pack(side="left")
+            lbl.bind("<Button-1>", lambda e, k=key: self._on_menu_button_click(k))
+            lbl.bind("<Enter>", lambda e, k=key: self._on_menu_button_enter(k))
+            lbl.bind("<Leave>", lambda e, k=key: self._on_menu_button_leave(k))
+            self.menu_buttons[key] = lbl
 
         # --- Tab Switcher Buttons (Auto Bot & Simulation) ---
         self.current_tab = "bot"
@@ -486,7 +330,7 @@ class HololiveBotUI(tk.Tk):
         self.tab_win_settings = self.canvas.create_window(0, 0, window=self.tab_btn_settings, state="hidden")
 
         # --- Bot Tab Widgets ---
-        self.status_id = self.canvas.create_text(0, 0, font=font_normal, fill="#111111", anchor="w")
+        self.status_id = self.canvas.create_text(0, 0, font=font_normal, fill=self.theme_palette.get("status_idle", "#0F172A"), anchor="w")
 
         # Row 1: Coins
         self.coins_label_id = self.canvas.create_text(0, 0, font=font_normal, fill="#111111", anchor="w")
@@ -548,110 +392,64 @@ class HololiveBotUI(tk.Tk):
         )
         self.btn_toggle_modifiers_win = self.canvas.create_window(0, 0, window=self.btn_toggle_modifiers, anchor="nw")
 
-        self.opp_frame = ttk.Frame(self, style="ModifierCard.TFrame")
-
-        # --- Section 1: Card Overrides ---
-        self.sec_cards_frame = ttk.Frame(self.opp_frame, style="ModifierCard.TFrame")
-        self.sec_cards_frame.pack(fill="x", pady=(2, 2))
-
-        self.lbl_sec_cards = ttk.Label(
-            self.sec_cards_frame,
-            font=(self.font_family, 8, "bold"),
-            foreground="#334155",
-            style="ModifierCard.TLabel",
-            cursor="hand2",
-        )
-        self.lbl_sec_cards.pack(anchor="w", pady=(1, 2))
-        self.lbl_sec_cards.bind("<Button-1>", lambda e: self.toggle_mod_cat("cards"))
-
-        self.frame_cards_grid = ttk.Frame(self.sec_cards_frame, style="ModifierCard.TFrame")
+        self.opp_frame = ttk.Frame(self)
+        self.sec_cards_frame = DummyFrame()
+        self.frame_cards_grid = DummyFrame()
         self.frame_cards1 = self.frame_cards_grid
         self.frame_cards2 = self.frame_cards_grid
         self.frame_cards = self.frame_cards_grid
-        if self.cat_cards_expanded:
-            self.frame_cards_grid.pack(fill="x", pady=(0, 4))
-        for col in range(3):
-            self.frame_cards_grid.columnconfigure(col, weight=1, uniform="card_col")
 
-        self.chk_opp_a2 = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_a2, command=self.on_opp_toggle, style="ModifierCard.TCheckbutton")
-        self.chk_opp_3k = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_3k, command=self.on_opp_toggle, style="ModifierCard.TCheckbutton")
-        self.chk_opp_4q = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_4q, command=self.on_opp_toggle, style="ModifierCard.TCheckbutton")
-        self.chk_opp_5j = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_5j, command=self.on_opp_toggle, style="ModifierCard.TCheckbutton")
-        self.chk_opp_610 = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_610, command=self.on_opp_toggle, style="ModifierCard.TCheckbutton")
-        self.chk_opp_79 = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_79, command=self.on_opp_toggle, style="ModifierCard.TCheckbutton")
-        self.chk_opp_8 = ttk.Checkbutton(self.frame_cards_grid, variable=self.var_opp_8, command=self.on_opp_toggle, style="ModifierCard.TCheckbutton")
+        self.lbl_sec_cards = CanvasHeaderLabel(self.canvas)
+        self.lbl_sec_cards.bind("<Button-1>", lambda e: self.toggle_mod_cat("cards"))
 
-        self.chk_opp_a2.grid(row=0, column=0, sticky="w", padx=(0, 2), pady=1)
-        self.chk_opp_3k.grid(row=0, column=1, sticky="w", padx=(0, 2), pady=1)
-        self.chk_opp_4q.grid(row=0, column=2, sticky="w", padx=(0, 2), pady=1)
-        self.chk_opp_5j.grid(row=1, column=0, sticky="w", padx=(0, 2), pady=1)
-        self.chk_opp_610.grid(row=1, column=1, sticky="w", padx=(0, 2), pady=1)
-        self.chk_opp_79.grid(row=1, column=2, sticky="w", padx=(0, 2), pady=1)
-        self.chk_opp_8.grid(row=2, column=0, sticky="w", padx=(0, 2), pady=1)
+        self.chk_opp_a2 = CanvasCheckbutton(self.canvas, variable=self.var_opp_a2, command=self.on_opp_toggle)
+        self.chk_opp_3k = CanvasCheckbutton(self.canvas, variable=self.var_opp_3k, command=self.on_opp_toggle)
+        self.chk_opp_4q = CanvasCheckbutton(self.canvas, variable=self.var_opp_4q, command=self.on_opp_toggle)
+        self.chk_opp_5j = CanvasCheckbutton(self.canvas, variable=self.var_opp_5j, command=self.on_opp_toggle)
+        self.chk_opp_610 = CanvasCheckbutton(self.canvas, variable=self.var_opp_610, command=self.on_opp_toggle)
+        self.chk_opp_79 = CanvasCheckbutton(self.canvas, variable=self.var_opp_79, command=self.on_opp_toggle)
+        self.chk_opp_8 = CanvasCheckbutton(self.canvas, variable=self.var_opp_8, command=self.on_opp_toggle)
 
         # --- Section 2: Defensive Bailouts ---
-        self.sec_bail_frame = ttk.Frame(self.opp_frame, style="ModifierCard.TFrame")
-        self.sec_bail_frame.pack(fill="x", pady=(2, 2))
-
-        self.lbl_sec_bail = ttk.Label(
-            self.sec_bail_frame,
-            font=(self.font_family, 8, "bold"),
-            foreground="#334155",
-            style="ModifierCard.TLabel",
-            cursor="hand2",
-        )
-        self.lbl_sec_bail.pack(anchor="w", pady=(1, 2))
-        self.lbl_sec_bail.bind("<Button-1>", lambda e: self.toggle_mod_cat("bail"))
-
-        self.frame_bail_grid = ttk.Frame(self.sec_bail_frame, style="ModifierCard.TFrame")
+        self.sec_bail_frame = DummyFrame()
+        self.frame_bail_grid = DummyFrame()
         self.frame_bail = self.frame_bail_grid
         self.frame_mods = self.frame_bail_grid
-        if self.cat_bail_expanded:
-            self.frame_bail_grid.pack(fill="x", pady=(0, 4))
-        for col in range(2):
-            self.frame_bail_grid.columnconfigure(col, weight=1, uniform="mod_col")
 
-        self.chk_mod_drop_78 = ttk.Checkbutton(self.frame_bail_grid, variable=self.var_mod_drop_78, command=self.on_modifier_toggle, style="ModifierCard.TCheckbutton")
-        self.chk_mod_drop_6789 = ttk.Checkbutton(self.frame_bail_grid, variable=self.var_mod_drop_6789, command=self.on_modifier_toggle, style="ModifierCard.TCheckbutton")
-        self.chk_mod_drop_8 = ttk.Checkbutton(self.frame_bail_grid, variable=self.var_mod_drop_8, command=self.on_modifier_toggle, style="ModifierCard.TCheckbutton")
+        self.lbl_sec_bail = CanvasHeaderLabel(self.canvas)
+        self.lbl_sec_bail.bind("<Button-1>", lambda e: self.toggle_mod_cat("bail"))
 
-        self.chk_mod_drop_78.grid(row=0, column=0, sticky="w", padx=(0, 4), pady=1)
-        self.chk_mod_drop_6789.grid(row=0, column=1, sticky="w", padx=(0, 4), pady=1)
-        self.chk_mod_drop_8.grid(row=1, column=0, sticky="w", padx=(0, 4), pady=1)
+        self.chk_mod_drop_78 = CanvasCheckbutton(self.canvas, variable=self.var_mod_drop_78, command=self.on_modifier_toggle)
+        self.chk_mod_drop_6789 = CanvasCheckbutton(self.canvas, variable=self.var_mod_drop_6789, command=self.on_modifier_toggle)
+        self.chk_mod_drop_8 = CanvasCheckbutton(self.canvas, variable=self.var_mod_drop_8, command=self.on_modifier_toggle)
 
         # --- Section 3: Progression & Sprint Phase ---
-        self.sec_prog_frame = ttk.Frame(self.opp_frame, style="ModifierCard.TFrame")
-        self.sec_prog_frame.pack(fill="x", pady=(2, 4))
-
-        self.lbl_sec_prog = ttk.Label(
-            self.sec_prog_frame,
-            font=(self.font_family, 8, "bold"),
-            foreground="#334155",
-            style="ModifierCard.TLabel",
-            cursor="hand2",
-        )
-        self.lbl_sec_prog.pack(anchor="w", pady=(1, 2))
-        self.lbl_sec_prog.bind("<Button-1>", lambda e: self.toggle_mod_cat("prog"))
-
-        self.frame_prog_grid = ttk.Frame(self.sec_prog_frame, style="ModifierCard.TFrame")
+        self.sec_prog_frame = DummyFrame()
+        self.frame_prog_grid = DummyFrame()
         self.frame_prog1 = self.frame_prog_grid
         self.frame_prog2 = self.frame_prog_grid
-        if self.cat_prog_expanded:
-            self.frame_prog_grid.pack(fill="x", pady=(0, 4))
-        for col in range(2):
-            self.frame_prog_grid.columnconfigure(col, weight=1, uniform="mod_col")
 
-        self.chk_mod_fast_build = ttk.Checkbutton(self.frame_prog_grid, variable=self.var_mod_fast_build, command=self.on_modifier_toggle, style="ModifierCard.TCheckbutton")
-        self.chk_mod_free_roll = ttk.Checkbutton(self.frame_prog_grid, variable=self.var_mod_free_roll, command=self.on_modifier_toggle, style="ModifierCard.TCheckbutton")
-        self.chk_mod_sprint_floor = ttk.Checkbutton(self.frame_prog_grid, variable=self.var_mod_sprint_floor, command=self.on_modifier_toggle, style="ModifierCard.TCheckbutton")
-        self.chk_mod_mega_sprint = ttk.Checkbutton(self.frame_prog_grid, variable=self.var_mod_mega_sprint, command=self.on_modifier_toggle, style="ModifierCard.TCheckbutton")
+        self.lbl_sec_prog = CanvasHeaderLabel(self.canvas)
+        self.lbl_sec_prog.bind("<Button-1>", lambda e: self.toggle_mod_cat("prog"))
 
-        self.chk_mod_fast_build.grid(row=0, column=0, sticky="w", padx=(0, 4), pady=1)
-        self.chk_mod_free_roll.grid(row=0, column=1, sticky="w", padx=(0, 4), pady=1)
-        self.chk_mod_sprint_floor.grid(row=1, column=0, sticky="w", padx=(0, 4), pady=1)
-        self.chk_mod_mega_sprint.grid(row=1, column=1, sticky="w", padx=(0, 4), pady=1)
+        self.chk_mod_fast_build = CanvasCheckbutton(self.canvas, variable=self.var_mod_fast_build, command=self.on_modifier_toggle)
+        self.chk_mod_free_roll = CanvasCheckbutton(self.canvas, variable=self.var_mod_free_roll, command=self.on_modifier_toggle)
+        self.chk_mod_sprint_floor = CanvasCheckbutton(self.canvas, variable=self.var_mod_sprint_floor, command=self.on_modifier_toggle)
+        self.chk_mod_mega_sprint = CanvasCheckbutton(self.canvas, variable=self.var_mod_mega_sprint, command=self.on_modifier_toggle)
+
+        self._mod_canvas_widgets = [
+            self.lbl_sec_cards,
+            self.chk_opp_a2, self.chk_opp_3k, self.chk_opp_4q,
+            self.chk_opp_5j, self.chk_opp_610, self.chk_opp_79, self.chk_opp_8,
+            self.lbl_sec_bail,
+            self.chk_mod_drop_78, self.chk_mod_drop_6789, self.chk_mod_drop_8,
+            self.lbl_sec_prog,
+            self.chk_mod_fast_build, self.chk_mod_free_roll,
+            self.chk_mod_sprint_floor, self.chk_mod_mega_sprint,
+        ]
 
         self.opp_frame_win = self.canvas.create_window(0, 0, window=self.opp_frame, anchor="nw")
+        self.canvas.itemconfig(self.opp_frame_win, state="hidden")
 
         # --- Simulation Tab Specific Widgets ---
         font_setting = (self.font_family, 9, "bold")
@@ -704,6 +502,13 @@ class HololiveBotUI(tk.Tk):
         self.btn_open_custom_dialog = ttk.Button(self, command=self.open_custom_parametric_dialog)
         self.btn_open_custom_dialog_win = self.canvas.create_window(0, 0, window=self.btn_open_custom_dialog, state="hidden")
 
+        self.chk_setting_show_log = ttk.Checkbutton(
+            self,
+            variable=self.var_show_log,
+            command=self.toggle_log_console,
+        )
+        self.chk_setting_show_log_win = self.canvas.create_window(0, 0, window=self.chk_setting_show_log, anchor="w")
+
         self.chk_setting_debug_log = ttk.Checkbutton(
             self,
             variable=self.var_debug_logging,
@@ -723,6 +528,12 @@ class HololiveBotUI(tk.Tk):
         self.log_lines = []
         self.log_max_lines = 13
         self.log_view_start = 0
+        self.canvas_log_lines = []
+        self.canvas_log_offset = None
+        self._current_log_h = 120
+        self._current_log_w = 400
+
+        self.log_canvas_text_id = self.canvas.create_text(0, 0, font=font_log, fill="#111827", anchor="nw", state="hidden")
 
         self.log_text = tk.Text(
             self,
@@ -743,7 +554,7 @@ class HololiveBotUI(tk.Tk):
         self.log_text_win = self.canvas.create_window(0, 0, window=self.log_text, anchor="nw")
         self.log_text_id = self.log_text_win
 
-        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.log_text.yview)
+        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self._on_log_scroll)
         self.log_text.configure(yscrollcommand=self.scrollbar.set)
         self.scrollbar_win = self.canvas.create_window(0, 0, window=self.scrollbar, anchor="nw")
 
@@ -756,13 +567,15 @@ class HololiveBotUI(tk.Tk):
                 selected = self.log_text.get("sel.first", "sel.last")
             except tk.TclError:
                 selected = self.log_text.get("1.0", "end-1c")
+            if not selected and hasattr(self, "canvas_log_lines") and self.canvas_log_lines:
+                selected = "\n".join(self.canvas_log_lines)
             if selected:
                 self.clipboard_clear()
                 self.clipboard_append(selected)
             return "break"
 
         def _show_log_context_menu(e):
-            menu = tk.Menu(self, tearoff=0)
+            menu = ModernMenu(self, tearoff=0)
             copy_label = localization.tr("menu_copy", self.current_lang) if hasattr(localization, "tr") else "Copy"
             sel_all_label = localization.tr("menu_select_all", self.current_lang) if hasattr(localization, "tr") else "Select All"
             save_label = localization.tr("menu_save_logs", self.current_lang) if hasattr(localization, "tr") else "Save Log to File..."
@@ -779,6 +592,8 @@ class HololiveBotUI(tk.Tk):
         self.log_text.bind("<Control-c>", _copy_log_selection)
         self.log_text.bind("<Control-C>", _copy_log_selection)
         self.log_text.bind("<Button-3>", _show_log_context_menu)
+        self.canvas.tag_bind(self.log_canvas_text_id, "<Button-3>", _show_log_context_menu)
+        self.canvas.tag_bind(self.log_canvas_text_id, "<Double-Button-1>", lambda e: _copy_log_selection())
         self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
         self.bind("<Control-l>", lambda e: self.toggle_log_console())
         self.bind("<Control-L>", lambda e: self.toggle_log_console())
@@ -824,6 +639,7 @@ class HololiveBotUI(tk.Tk):
             self.entry_setting_ticket_win,
             self.lbl_setting_opacity_id,
             self.scale_setting_opacity_win,
+            self.chk_setting_show_log_win,
             self.chk_setting_debug_log_win,
             self.btn_save_settings_win,
             self.btn_restore_defaults_win,
@@ -839,6 +655,15 @@ class HololiveBotUI(tk.Tk):
         self.sys_redirector = RedirectText(self)
         self.original_stdout = sys.stdout
         sys.stdout = self.sys_redirector
+
+        try:
+            log_file = auto_bot.APP_DIR / "log.txt"
+            if log_file.exists() and log_file.stat().st_size > 0:
+                existing_text = log_file.read_text(encoding="utf-8", errors="replace")
+                if not is_trivial_log_content(existing_text):
+                    self._load_existing_daily_log(existing_text)
+        except Exception:
+            pass
 
         self.canvas.bind("<Configure>", self.on_resize)
         self.resize_after_id = None
@@ -861,8 +686,10 @@ class HololiveBotUI(tk.Tk):
         self.tooltips["btn_toggle_modifiers"] = ToolTip(self.btn_toggle_modifiers)
         self.tooltips["btn_config_strat"] = ToolTip(self.btn_config_strat)
         self.tooltips["field_box_opacity"] = ToolTip(self.scale_setting_opacity)
+        self.tooltips["show_log"] = ToolTip(self.chk_setting_show_log)
         self.tooltips["debug_log"] = ToolTip(self.chk_setting_debug_log)
 
+        self.apply_theme()
         self.refresh_texts()
         self.draw_ui(480, 850)
         threading.Thread(target=self._warm_up_engine, daemon=True).start()
@@ -871,6 +698,7 @@ class HololiveBotUI(tk.Tk):
         try:
             import poker_core
             poker_core.warm_up()
+            auto_bot.preload_templates()
         except Exception:
             pass
 
@@ -973,16 +801,108 @@ class HololiveBotUI(tk.Tk):
             self.btn_hotkey.configure(text=self.current_hotkey)
         self.save_settings()
 
-    def append_log_text(self, text):
-        if not hasattr(self, "log_text"):
+    def _is_canvas_log_active(self) -> bool:
+        return bool(self.show_bg and self.original_bg and 0 <= self.bg_index < len(self.bg_candidates) and self.field_box_opacity < 100)
+
+    def _update_canvas_log_display(self, log_h: int = None):
+        if not hasattr(self, "log_canvas_text_id"):
             return
-        self.log_text.configure(state="normal")
-        self.log_text.insert("end", text)
-        total_lines = int(self.log_text.index("end-1c").split(".")[0])
-        if total_lines > 500:
-            self.log_text.delete("1.0", f"{total_lines - 400}.0")
-        self.log_text.see("end")
-        self.log_text.configure(state="disabled")
+        if not hasattr(self, "canvas_log_lines") or not self.canvas_log_lines:
+            self.canvas.itemconfig(self.log_canvas_text_id, text="")
+            if hasattr(self, "scrollbar"):
+                self.scrollbar.set(0.0, 1.0)
+            return
+
+        if log_h is None:
+            log_h = getattr(self, "_current_log_h", 120)
+        line_h = 20
+        visible_count = max(3, int((log_h - 16) / line_h))
+        total = len(self.canvas_log_lines)
+
+        if total <= visible_count:
+            visible_lines = self.canvas_log_lines
+            if hasattr(self, "scrollbar"):
+                self.scrollbar.set(0.0, 1.0)
+        else:
+            max_offset = total - visible_count
+            offset = getattr(self, "canvas_log_offset", None)
+            if offset is None:
+                offset = max_offset
+            else:
+                offset = max(0, min(max_offset, offset))
+            visible_lines = self.canvas_log_lines[offset : offset + visible_count]
+            if hasattr(self, "scrollbar"):
+                first = offset / float(total)
+                last = (offset + visible_count) / float(total)
+                self.scrollbar.set(first, last)
+
+        self.canvas.itemconfig(self.log_canvas_text_id, text="\n".join(visible_lines))
+
+    def _on_log_scroll(self, action, *args):
+        if self._is_canvas_log_active():
+            total = len(getattr(self, "canvas_log_lines", []))
+            log_h = getattr(self, "_current_log_h", 120)
+            visible_count = max(3, int((log_h - 16) / 20))
+            max_offset = max(0, total - visible_count)
+            curr = getattr(self, "canvas_log_offset", None)
+            if curr is None:
+                curr = max_offset
+            if action == "moveto" and args:
+                try:
+                    fraction = float(args[0])
+                    self.canvas_log_offset = int(fraction * max_offset)
+                except Exception:
+                    pass
+            elif action == "scroll" and len(args) >= 2:
+                try:
+                    count = int(args[0])
+                    unit = args[1]
+                    step = visible_count if unit == "pages" else 2
+                    self.canvas_log_offset = max(0, min(max_offset, curr + count * step))
+                except Exception:
+                    pass
+            self._update_canvas_log_display()
+        elif hasattr(self, "log_text"):
+            self.log_text.yview(action, *args)
+
+    def _load_existing_daily_log(self, text: str):
+        if hasattr(self, "log_text"):
+            self.log_text.configure(state="normal")
+            self.log_text.insert("end", text)
+            total_lines = int(self.log_text.index("end-1c").split(".")[0])
+            if total_lines > 500:
+                self.log_text.delete("1.0", f"{total_lines - 400}.0")
+            self.log_text.see("end")
+            self.log_text.configure(state="disabled")
+        if not hasattr(self, "canvas_log_lines"):
+            self.canvas_log_lines = []
+        for line in text.splitlines():
+            if line.strip() or not self.canvas_log_lines or self.canvas_log_lines[-1] != "":
+                self.canvas_log_lines.append(line)
+        if len(self.canvas_log_lines) > 500:
+            self.canvas_log_lines = self.canvas_log_lines[-400:]
+        self.canvas_log_offset = None
+        self._update_canvas_log_display()
+
+    def append_log_text(self, text):
+        if hasattr(self, "log_text"):
+            self.log_text.configure(state="normal")
+            self.log_text.insert("end", text)
+            total_lines = int(self.log_text.index("end-1c").split(".")[0])
+            if total_lines > 500:
+                self.log_text.delete("1.0", f"{total_lines - 400}.0")
+            self.log_text.see("end")
+            self.log_text.configure(state="disabled")
+
+        if not hasattr(self, "canvas_log_lines"):
+            self.canvas_log_lines = []
+        for line in text.splitlines():
+            if line.strip() or not self.canvas_log_lines or self.canvas_log_lines[-1] != "":
+                self.canvas_log_lines.append(line)
+        if len(self.canvas_log_lines) > 500:
+            self.canvas_log_lines = self.canvas_log_lines[-400:]
+        self.canvas_log_offset = None
+        self._update_canvas_log_display()
 
         try:
             log_file = auto_bot.APP_DIR / "log.txt"
@@ -992,11 +912,14 @@ class HololiveBotUI(tk.Tk):
             pass
 
     def clear_log_text(self, clear_file: bool = False):
-        if not hasattr(self, "log_text"):
-            return
-        self.log_text.configure(state="normal")
-        self.log_text.delete("1.0", "end")
-        self.log_text.configure(state="disabled")
+        if hasattr(self, "log_text"):
+            self.log_text.configure(state="normal")
+            self.log_text.delete("1.0", "end")
+            self.log_text.configure(state="disabled")
+        if hasattr(self, "canvas_log_lines"):
+            self.canvas_log_lines.clear()
+        self.canvas_log_offset = 0
+        self._update_canvas_log_display()
         if clear_file:
             try:
                 log_file = auto_bot.APP_DIR / "log.txt"
@@ -1009,6 +932,8 @@ class HololiveBotUI(tk.Tk):
         if not hasattr(self, "log_text"):
             return
         text = self.log_text.get("1.0", "end-1c")
+        if not text.strip() and hasattr(self, "canvas_log_lines") and self.canvas_log_lines:
+            text = "\n".join(self.canvas_log_lines)
         if not text.strip():
             print(localization.tr("log_empty_save", self.current_lang))
             return
@@ -1029,15 +954,20 @@ class HololiveBotUI(tk.Tk):
                 print(f"[Error] Failed to save log: {e}")
 
     def on_mouse_wheel(self, event):
-        if hasattr(self, "log_text"):
+        if self._is_canvas_log_active():
+            direction = -1 if event.delta > 0 else 1
+            total = len(getattr(self, "canvas_log_lines", []))
+            log_h = getattr(self, "_current_log_h", 120)
+            visible_count = max(3, int((log_h - 16) / 20))
+            max_offset = max(0, total - visible_count)
+            curr = getattr(self, "canvas_log_offset", None)
+            if curr is None:
+                curr = max_offset
+            self.canvas_log_offset = max(0, min(max_offset, curr + direction * 2))
+            self._update_canvas_log_display()
+        elif hasattr(self, "log_text"):
             direction = -1 if event.delta > 0 else 1
             self.log_text.yview_scroll(direction * 3, "units")
-
-    def scroll_log(self, *args):
-        pass
-
-    def update_log_view(self):
-        pass
 
     def on_resize(self, event):
         if event.widget != self.canvas:
@@ -1048,51 +978,145 @@ class HololiveBotUI(tk.Tk):
         if w == self.last_w and h == self.last_h:
             return
         self.last_w, self.last_h = w, h
+        if getattr(self, "resize_after_id", None):
+            try:
+                self.after_cancel(self.resize_after_id)
+            except Exception:
+                pass
+        self.resize_after_id = self.after(50, lambda: self._debounced_resize(w, h))
 
-        if self.resize_after_id:
-            self.after_cancel(self.resize_after_id)
-        self.resize_after_id = self.after(10, lambda: self.draw_ui(w, h))
+    def _debounced_resize(self, w, h):
+        self.resize_after_id = None
+        self.draw_ui(w, h)
+
+    def _hide_mod_widgets(self):
+        for w in getattr(self, "_mod_canvas_widgets", []):
+            try:
+                w.hide()
+            except Exception:
+                pass
+
+    def _draw_modifiers_drawer(self, pad_x, content_w, mod_btn_y, mod_btn_h, w, img, card_fill, card_border):
+        if self.modifiers_expanded:
+            opp_y1 = mod_btn_y + mod_btn_h + 6
+            curr_y = opp_y1 + 14
+            inner_pad_x = pad_x + 8
+            inner_w = content_w - 16
+            col3_w = inner_w / 3.0
+            col2_w = inner_w / 2.0
+            row_h = 22
+
+            # Section 1: Cards
+            self.lbl_sec_cards.place(inner_pad_x, curr_y)
+            curr_y += 18
+            if self.cat_cards_expanded:
+                self.chk_opp_a2.place(inner_pad_x, curr_y, width=col3_w, height=row_h)
+                self.chk_opp_3k.place(inner_pad_x + col3_w, curr_y, width=col3_w, height=row_h)
+                self.chk_opp_4q.place(inner_pad_x + 2 * col3_w, curr_y, width=col3_w, height=row_h)
+                curr_y += row_h + 2
+                self.chk_opp_5j.place(inner_pad_x, curr_y, width=col3_w, height=row_h)
+                self.chk_opp_610.place(inner_pad_x + col3_w, curr_y, width=col3_w, height=row_h)
+                self.chk_opp_79.place(inner_pad_x + 2 * col3_w, curr_y, width=col3_w, height=row_h)
+                curr_y += row_h + 2
+                self.chk_opp_8.place(inner_pad_x, curr_y, width=col3_w, height=row_h)
+                curr_y += row_h + 14
+            else:
+                curr_y += 14
+                for c in (self.chk_opp_a2, self.chk_opp_3k, self.chk_opp_4q, self.chk_opp_5j, self.chk_opp_610, self.chk_opp_79, self.chk_opp_8):
+                    c.hide()
+
+            # Section 2: Bailouts
+            self.lbl_sec_bail.place(inner_pad_x, curr_y)
+            curr_y += 18
+            if self.cat_bail_expanded:
+                self.chk_mod_drop_78.place(inner_pad_x, curr_y, width=col2_w, height=row_h)
+                self.chk_mod_drop_6789.place(inner_pad_x + col2_w, curr_y, width=col2_w, height=row_h)
+                curr_y += row_h + 2
+                self.chk_mod_drop_8.place(inner_pad_x, curr_y, width=col2_w, height=row_h)
+                curr_y += row_h + 14
+            else:
+                curr_y += 14
+                for c in (self.chk_mod_drop_78, self.chk_mod_drop_6789, self.chk_mod_drop_8):
+                    c.hide()
+
+            # Section 3: Progression & Sprint
+            self.lbl_sec_prog.place(inner_pad_x, curr_y)
+            curr_y += 18
+            if self.cat_prog_expanded:
+                self.chk_mod_fast_build.place(inner_pad_x, curr_y, width=col2_w, height=row_h)
+                self.chk_mod_free_roll.place(inner_pad_x + col2_w, curr_y, width=col2_w, height=row_h)
+                curr_y += row_h + 2
+                self.chk_mod_sprint_floor.place(inner_pad_x, curr_y, width=col2_w, height=row_h)
+                self.chk_mod_mega_sprint.place(inner_pad_x + col2_w, curr_y, width=col2_w, height=row_h)
+                curr_y += row_h + 10
+            else:
+                curr_y += 10
+                for c in (self.chk_mod_fast_build, self.chk_mod_free_roll, self.chk_mod_sprint_floor, self.chk_mod_mega_sprint):
+                    c.hide()
+
+            opp_x1 = pad_x - 4
+            opp_x2 = w - pad_x + 4
+            opp_y2 = curr_y + 4
+            img = draw_glass_card(img, (opp_x1, opp_y1, opp_x2, opp_y2), fill=card_fill, outline=card_border, radius=8)
+            self.canvas.itemconfig(self.opp_frame_win, state="hidden")
+            return (opp_y2 + 8), img
+        else:
+            self._hide_mod_widgets()
+            self.canvas.itemconfig(self.opp_frame_win, state="hidden")
+            return (mod_btn_y + mod_btn_h + 8), img
+
+    def _draw_log_box(self, pad_x, content_w, log_y, h, w, img, card_fill, card_border):
+        log_bottom = h - max(16, int(h * 0.025))
+        log_h = max(60, log_bottom - log_y)
+        scrollbar_w = 16
+        log_w = content_w - scrollbar_w - 4
+        self._current_log_h = log_h
+        self._current_log_w = log_w
+
+        if self.show_log:
+            log_card_x1 = pad_x - 4
+            log_card_y1 = log_y - 4
+            log_card_x2 = pad_x + log_w + scrollbar_w + 8
+            log_card_y2 = log_y + log_h + 4
+            img = draw_glass_card(img, (log_card_x1, log_card_y1, log_card_x2, log_card_y2), fill=card_fill, outline=card_border, radius=8)
+
+            self.canvas.coords(self.scrollbar_win, pad_x + log_w + 4, log_y)
+            self.canvas.itemconfig(self.scrollbar_win, width=scrollbar_w, height=log_h, state="normal")
+
+            if self._is_canvas_log_active():
+                self.canvas.itemconfig(self.log_text_win, state="hidden")
+                self.canvas.coords(self.log_canvas_text_id, pad_x + 6, log_y + 4)
+                self.canvas.itemconfig(self.log_canvas_text_id, width=log_w - 8, state="normal")
+                self._update_canvas_log_display(log_h)
+            else:
+                self.canvas.itemconfig(self.log_canvas_text_id, state="hidden")
+                self.canvas.coords(self.log_text_win, pad_x, log_y)
+                self.canvas.itemconfig(self.log_text_win, width=log_w, height=log_h, state="normal")
+                self.log_text.configure(bg=self.theme_palette["log_bg"], fg=self.theme_palette["log_fg"])
+        else:
+            self.canvas.itemconfig(self.log_text_win, state="hidden")
+            self.canvas.itemconfig(self.log_canvas_text_id, state="hidden")
+            self.canvas.itemconfig(self.scrollbar_win, state="hidden")
+        return img
 
     def draw_ui(self, w, h):
         if w <= 50 or h <= 50:
             return
         # 1. Background image (Plain neutral background if no custom background selected)
         bg_img = None
+        palette = self.theme_palette
         if self.show_bg and self.original_bg and 0 <= self.bg_index < len(self.bg_candidates):
             bg_img = self.original_bg.resize((w, h), Image.Resampling.LANCZOS).convert("RGB")
             img = bg_img.convert("RGBA")
+            card_border = None
         else:
-            img = Image.new("RGBA", (w, h), color=(240, 240, 240, 255))
+            img = Image.new("RGBA", (w, h), color=palette["bg_plain"])
+            card_border = palette["card_border"]
 
         # Dynamic opacity values & card fill color
         op_ratio = self.field_box_opacity / 100.0
         alpha = int(255 * op_ratio)
-
-        def _sample_card_bg(box):
-            if bg_img is not None:
-                bx1 = max(0, min(w - 1, int(box[0])))
-                by1 = max(0, min(h - 1, int(box[1])))
-                bx2 = max(bx1 + 1, min(w, int(box[2])))
-                by2 = max(by1 + 1, min(h, int(box[3])))
-                if bx2 > bx1 and by2 > by1:
-                    crop = bg_img.crop((bx1, by1, bx2, by2))
-                    stat = ImageStat.Stat(crop).mean
-                    r = int(stat[0] * (1.0 - op_ratio) + 255 * op_ratio)
-                    g = int(stat[1] * (1.0 - op_ratio) + 255 * op_ratio)
-                    b = int(stat[2] * (1.0 - op_ratio) + 255 * op_ratio)
-                    return f"#{max(0, min(255, r)):02x}{max(0, min(255, g)):02x}{max(0, min(255, b)):02x}"
-            val = int(240 * (1.0 - op_ratio) + 255 * op_ratio)
-            return f"#{val:02x}{val:02x}{val:02x}"
-
-        pad_x = max(16, int(w * 0.06))
-        card_bg_hex = _sample_card_bg((pad_x, int(h * 0.4), w - pad_x, int(h * 0.8)))
-
-        self.style.configure("ModifierCard.TFrame", background=card_bg_hex)
-        self.style.configure("ModifierCard.TLabel", background=card_bg_hex)
-        self.style.configure("ModifierCard.TCheckbutton", background=card_bg_hex)
-
-        card_fill = (255, 255, 255, alpha) if self.field_box_opacity > 0 else (255, 255, 255, 0)
-        card_border = None  # Transparent card box line
+        card_fill = (*palette["card_fill_rgb"], alpha) if self.field_box_opacity > 0 else (*palette["card_fill_rgb"], 0)
 
         # 2. Responsive layout dimensions
         pad_x = max(16, int(w * 0.06))
@@ -1127,22 +1151,22 @@ class HololiveBotUI(tk.Tk):
             self.canvas.itemconfig(self.btn_clear_logs_win, state="hidden")
             self.canvas.itemconfig(self.btn_open_custom_dialog_win, state="hidden")
 
-            # Row 1: Hotkey (clean row under top tabs with proper padding)
+            # Combined Top Stats Card (Hotkey Row + Status + Coins + Fails)
             tab_bottom = tab_y + tab_btn_h / 2
-            hotkey_gap_top = 10
-            hotkey_btn_h = 32
-            hotkey_row_y = tab_bottom + hotkey_gap_top + hotkey_btn_h / 2
-            hotkey_btn_w = max(120, min(160, int(content_w * 0.36)))
-            self.canvas.coords(self.hotkey_label_id, pad_x, hotkey_row_y)
-            self.canvas.coords(self.hotkey_window, w - pad_x, hotkey_row_y)
+            stats_card_top = tab_bottom + 12
+            card_inner_x = pad_x + 8
+            hotkey_btn_h = 30
+            hotkey_row_y = stats_card_top + 25
+            hotkey_btn_w = max(110, min(150, int(content_w * 0.35)))
+
+            self.canvas.coords(self.hotkey_label_id, card_inner_x, hotkey_row_y)
+            self.canvas.coords(self.hotkey_window, w - pad_x - 8, hotkey_row_y)
             self.canvas.itemconfig(self.hotkey_window, width=hotkey_btn_w, height=hotkey_btn_h, state="normal")
 
-            # Status & Coin Stats (clean card with generous padding)
-            stats_card_top = hotkey_row_y + hotkey_btn_h / 2 + 10
-            status_y = stats_card_top + 18
-            coins_y = status_y + 30
-            fails_y = coins_y + 30
-            stats_card_bottom = fails_y + 18
+            status_y = hotkey_row_y + 30
+            coins_y = status_y + 28
+            fails_y = coins_y + 28
+            stats_card_bottom = fails_y + 16
 
             sc_x1 = pad_x - 4
             sc_y1 = stats_card_top
@@ -1162,8 +1186,6 @@ class HololiveBotUI(tk.Tk):
                 )
                 img = Image.alpha_composite(img, overlay)
 
-            # Internal card left padding: pad_x + 8
-            card_inner_x = pad_x + 8
             self.canvas.coords(self.status_id, card_inner_x, status_y)
 
             # Position Coins Row
@@ -1216,12 +1238,28 @@ class HololiveBotUI(tk.Tk):
                 self.canvas.itemconfig(self.btn_config_strat_win, state="hidden")
 
             # Strategy Description (with clear guidance)
-            desc_y = strat_top + strat_field_h + 6
-            self.canvas.coords(self.strategy_desc_id, pad_x, desc_y)
-            self.canvas.itemconfig(self.strategy_desc_id, width=content_w, state="normal")
+            desc_y = strat_top + strat_field_h + 8
+            self.canvas.coords(self.strategy_desc_id, pad_x + 6, desc_y)
+            self.canvas.itemconfig(self.strategy_desc_id, width=content_w - 12, state="normal")
 
             desc_bbox = self.canvas.bbox(self.strategy_desc_id)
-            desc_bottom = desc_bbox[3] if (desc_bbox and desc_bbox[3] > desc_y) else (desc_y + 30)
+            desc_bottom = desc_bbox[3] if (desc_bbox and desc_bbox[3] > desc_y) else (desc_y + 26)
+
+            if desc_bbox and (desc_bottom + 4) > (strat_top + strat_field_h + 4):
+                d_x1 = pad_x - 4
+                d_y1 = strat_top + strat_field_h + 4
+                d_x2 = w - pad_x + 4
+                d_y2 = desc_bottom + 4
+                overlay_desc = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                draw_desc = ImageDraw.Draw(overlay_desc)
+                draw_desc.rounded_rectangle(
+                    (d_x1, d_y1, d_x2, d_y2),
+                    radius=6,
+                    fill=card_fill,
+                    outline=card_border,
+                    width=1,
+                )
+                img = Image.alpha_composite(img, overlay_desc)
 
             # Strategy Modifiers Drawer on Auto Bot Tab
             mod_btn_y = desc_bottom + 8
@@ -1229,70 +1267,8 @@ class HololiveBotUI(tk.Tk):
             self.canvas.coords(self.btn_toggle_modifiers_win, pad_x, mod_btn_y)
             self.canvas.itemconfig(self.btn_toggle_modifiers_win, width=content_w, height=mod_btn_h, state="normal")
 
-            if self.modifiers_expanded:
-                opp_frame_y = mod_btn_y + mod_btn_h + 6
-                self.opp_frame.update_idletasks()
-                opp_frame_h = max(40, self.opp_frame.winfo_reqheight())
-                self.canvas.coords(self.opp_frame_win, pad_x, opp_frame_y)
-                self.canvas.itemconfig(self.opp_frame_win, width=content_w, height=opp_frame_h, state="normal")
-                log_y = opp_frame_y + opp_frame_h + 8
-
-                opp_x1 = pad_x - 4
-                opp_y1 = opp_frame_y - 4
-                opp_x2 = w - pad_x + 4
-                opp_y2 = opp_frame_y + opp_frame_h + 4
-                if opp_x2 > opp_x1 and opp_y2 > opp_y1:
-                    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-                    draw = ImageDraw.Draw(overlay)
-                    draw.rounded_rectangle(
-                        (opp_x1, opp_y1, opp_x2, opp_y2),
-                        radius=8,
-                        fill=card_fill,
-                        outline=card_border,
-                        width=1,
-                    )
-                    img = Image.alpha_composite(img, overlay)
-                    # Sample background region for modifiers card
-                    mod_card_bg = _sample_card_bg((opp_x1, opp_y1, opp_x2, opp_y2))
-                    self.style.configure("ModifierCard.TFrame", background=mod_card_bg)
-                    self.style.configure("ModifierCard.TLabel", background=mod_card_bg)
-                    self.style.configure("ModifierCard.TCheckbutton", background=mod_card_bg)
-            else:
-                self.canvas.itemconfig(self.opp_frame_win, state="hidden")
-                log_y = mod_btn_y + mod_btn_h + 8
-
-            # Log Box
-            log_bottom = h - max(16, int(h * 0.025))
-            log_h = max(60, log_bottom - log_y)
-            scrollbar_w = 16
-            log_w = content_w - scrollbar_w - 4
-
-            if self.show_log:
-                log_card_x1 = pad_x - 4
-                log_card_y1 = log_y - 4
-                log_card_x2 = pad_x + log_w + scrollbar_w + 8
-                log_card_y2 = log_y + log_h + 4
-                if log_card_x2 > log_card_x1 and log_card_y2 > log_card_y1:
-                    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-                    draw = ImageDraw.Draw(overlay)
-                    draw.rounded_rectangle(
-                        (log_card_x1, log_card_y1, log_card_x2, log_card_y2),
-                        radius=8,
-                        fill=card_fill,
-                        outline=card_border,
-                        width=1,
-                    )
-                    img = Image.alpha_composite(img, overlay)
-
-                log_box_bg = _sample_card_bg((pad_x, log_y, pad_x + log_w, log_y + log_h))
-                self.canvas.coords(self.log_text_win, pad_x, log_y)
-                self.canvas.itemconfig(self.log_text_win, width=log_w, height=log_h, state="normal")
-                self.canvas.coords(self.scrollbar_win, pad_x + log_w + 4, log_y)
-                self.canvas.itemconfig(self.scrollbar_win, width=scrollbar_w, height=log_h, state="normal")
-                self.log_text.configure(bg=log_box_bg)
-            else:
-                self.canvas.itemconfig(self.log_text_win, state="hidden")
-                self.canvas.itemconfig(self.scrollbar_win, state="hidden")
+            log_y, img = self._draw_modifiers_drawer(pad_x, content_w, mod_btn_y, mod_btn_h, w, img, card_fill, card_border)
+            img = self._draw_log_box(pad_x, content_w, log_y, h, w, img, card_fill, card_border)
 
         elif self.current_tab == "sim":
             self._set_items_visible(self._bot_items, False)
@@ -1338,37 +1314,7 @@ class HololiveBotUI(tk.Tk):
             self.canvas.coords(self.btn_toggle_modifiers_win, pad_x, mod_btn_y)
             self.canvas.itemconfig(self.btn_toggle_modifiers_win, width=content_w, height=mod_btn_h, state="normal")
 
-            if self.modifiers_expanded:
-                opp_frame_y = mod_btn_y + mod_btn_h + 6
-                self.opp_frame.update_idletasks()
-                opp_frame_h = max(40, self.opp_frame.winfo_reqheight())
-                self.canvas.coords(self.opp_frame_win, pad_x, opp_frame_y)
-                self.canvas.itemconfig(self.opp_frame_win, width=content_w, height=opp_frame_h, state="normal")
-                days_row_top = opp_frame_y + opp_frame_h + 8
-
-                opp_x1 = pad_x - 4
-                opp_y1 = opp_frame_y - 4
-                opp_x2 = w - pad_x + 4
-                opp_y2 = opp_frame_y + opp_frame_h + 4
-                if opp_x2 > opp_x1 and opp_y2 > opp_y1:
-                    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-                    draw = ImageDraw.Draw(overlay)
-                    draw.rounded_rectangle(
-                        (opp_x1, opp_y1, opp_x2, opp_y2),
-                        radius=8,
-                        fill=card_fill,
-                        outline=card_border,
-                        width=1,
-                    )
-                    img = Image.alpha_composite(img, overlay)
-                    # Sample background region for modifiers card
-                    mod_card_bg = _sample_card_bg((opp_x1, opp_y1, opp_x2, opp_y2))
-                    self.style.configure("ModifierCard.TFrame", background=mod_card_bg)
-                    self.style.configure("ModifierCard.TLabel", background=mod_card_bg)
-                    self.style.configure("ModifierCard.TCheckbutton", background=mod_card_bg)
-            else:
-                self.canvas.itemconfig(self.opp_frame_win, state="hidden")
-                days_row_top = mod_btn_y + mod_btn_h + 8
+            days_row_top, img = self._draw_modifiers_drawer(pad_x, content_w, mod_btn_y, mod_btn_h, w, img, card_fill, card_border)
 
             # Days input row (Sim Days + Spinbox on left, Clear Logs on right)
             days_row_h = 30
@@ -1396,45 +1342,17 @@ class HololiveBotUI(tk.Tk):
             self.canvas.itemconfig(self.btn_sim_export_json_win, state="hidden")
 
             # Log Box filling remainder (gains extra vertical height without redundant export buttons)
-            log_y = btn_row1_top + btn_row1_h + 16
-            log_bottom = h - max(16, int(h * 0.025))
-            log_h = max(60, log_bottom - log_y)
-            scrollbar_w = 16
-            log_w = content_w - scrollbar_w - 4
-
-            if self.show_log:
-                log_card_x1 = pad_x - 4
-                log_card_y1 = log_y - 4
-                log_card_x2 = pad_x + log_w + scrollbar_w + 8
-                log_card_y2 = log_y + log_h + 4
-                if log_card_x2 > log_card_x1 and log_card_y2 > log_card_y1:
-                    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-                    draw = ImageDraw.Draw(overlay)
-                    draw.rounded_rectangle(
-                        (log_card_x1, log_card_y1, log_card_x2, log_card_y2),
-                        radius=8,
-                        fill=card_fill,
-                        outline=card_border,
-                        width=1,
-                    )
-                    img = Image.alpha_composite(img, overlay)
-
-                log_box_bg = _sample_card_bg((pad_x, log_y, pad_x + log_w, log_y + log_h))
-                self.canvas.coords(self.log_text_win, pad_x, log_y)
-                self.canvas.itemconfig(self.log_text_win, width=log_w, height=log_h, state="normal")
-                self.canvas.coords(self.scrollbar_win, pad_x + log_w + 4, log_y)
-                self.canvas.itemconfig(self.scrollbar_win, width=scrollbar_w, height=log_h, state="normal")
-                self.log_text.configure(bg=log_box_bg)
-            else:
-                self.canvas.itemconfig(self.log_text_win, state="hidden")
-                self.canvas.itemconfig(self.scrollbar_win, state="hidden")
+            sim_log_y = btn_row1_top + btn_row1_h + 16
+            img = self._draw_log_box(pad_x, content_w, sim_log_y, h, w, img, card_fill, card_border)
 
         elif self.current_tab == "settings":
             self._set_items_visible(self._bot_items, False)
             self._set_items_visible(self._sim_items, False)
             self._set_items_visible(self._settings_items, True)
+            self._hide_mod_widgets()
 
             self.canvas.itemconfig(self.log_text_win, state="hidden")
+            self.canvas.itemconfig(self.log_canvas_text_id, state="hidden")
             self.canvas.itemconfig(self.scrollbar_win, state="hidden")
             self.canvas.itemconfig(self.strategy_window, state="hidden")
             self.canvas.itemconfig(self.strategy_desc_id, state="hidden")
@@ -1477,10 +1395,13 @@ class HololiveBotUI(tk.Tk):
             self.canvas.coords(self.entry_setting_ticket_win, w - pad_x, r5_y)
             self.canvas.itemconfig(self.entry_setting_ticket_win, width=input_w, height=field_h, state="normal")
 
-            # Row 6: Debug Logging Toggle
+            # Row 6: Log Console & Debug Logging Toggles
             r6_y = r5_y + row_gap
-            self.canvas.coords(self.chk_setting_debug_log_win, pad_x, r6_y)
-            self.canvas.itemconfig(self.chk_setting_debug_log_win, width=content_w, height=field_h, state="normal")
+            chk_col_w = (content_w - 8) / 2
+            self.canvas.coords(self.chk_setting_show_log_win, pad_x, r6_y)
+            self.canvas.itemconfig(self.chk_setting_show_log_win, width=chk_col_w, height=field_h, state="normal")
+            self.canvas.coords(self.chk_setting_debug_log_win, pad_x + chk_col_w + 8, r6_y)
+            self.canvas.itemconfig(self.chk_setting_debug_log_win, width=chk_col_w, height=field_h, state="normal")
 
             # Row 7: Buttons: Save & Restore
             btn_sett_y = r6_y + row_gap + 10
@@ -1503,17 +1424,7 @@ class HololiveBotUI(tk.Tk):
             sett_y2 = btn_back_y + btn_sett_h / 2 + 12
 
             self.canvas.itemconfig(self.settings_card_id, state="hidden")
-            if sett_x2 > sett_x1 and sett_y2 > sett_y1:
-                overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-                draw = ImageDraw.Draw(overlay)
-                draw.rounded_rectangle(
-                    (sett_x1, sett_y1, sett_x2, sett_y2),
-                    radius=8,
-                    fill=card_fill,
-                    outline=card_border,
-                    width=1,
-                )
-                img = Image.alpha_composite(img, overlay)
+            img = draw_glass_card(img, (sett_x1, sett_y1, sett_x2, sett_y2), fill=card_fill, outline=card_border, radius=8)
 
             # Feedback label
             self.canvas.coords(self.settings_feedback_id, w / 2, btn_back_y + btn_sett_h / 2 + 20)
@@ -1523,42 +1434,333 @@ class HololiveBotUI(tk.Tk):
         self.canvas.itemconfig(self.bg_id, image=self.bg_photo)
 
     def _discover_backgrounds(self) -> list[Path]:
-        valid_exts = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
-        found: list[Path] = []
-        search_dirs = [auto_bot.APP_DIR / "backgrounds", auto_bot.RESOURCE_DIR / "backgrounds"]
-        for directory in search_dirs:
-            if directory.exists() and directory.is_dir():
-                for p in sorted(directory.iterdir()):
-                    if p.is_file() and p.suffix.lower() in valid_exts and p not in found:
-                        found.append(p)
-        legacy_bg = auto_bot.RESOURCE_DIR / "background.png"
-        if legacy_bg.exists() and legacy_bg not in found:
-            found.append(legacy_bg)
-        return found
+        return discover_backgrounds(auto_bot.APP_DIR, auto_bot.RESOURCE_DIR)
 
     def _load_current_bg(self):
-        if 0 <= self.bg_index < len(self.bg_candidates):
+        palette = self.theme_palette if hasattr(self, "theme_palette") else THEME_PALETTES["light"]
+        bg_path = self.bg_candidates[self.bg_index] if (0 <= self.bg_index < len(self.bg_candidates)) else None
+        self.original_bg, self.show_bg = load_background_image(bg_path, fallback_hex=palette["bg_plain_hex"])
+
+    def get_active_theme(self) -> str:
+        if getattr(self, "theme_mode", "system") == "system":
+            return "dark" if is_windows_dark_mode() else "light"
+        return getattr(self, "theme_mode", "light")
+
+    @property
+    def theme_palette(self) -> dict:
+        return THEME_PALETTES.get(self.get_active_theme(), THEME_PALETTES["light"])
+
+    def apply_theme(self, theme_mode: str = None):
+        if theme_mode is not None and theme_mode in ("system", "light", "dark"):
+            self.theme_mode = theme_mode
+            if hasattr(self, "theme_var"):
+                self.theme_var.set(theme_mode)
+
+        palette = self.theme_palette
+        is_dark = palette["is_dark"]
+        set_window_dark_titlebar(self, is_dark)
+
+        if is_dark:
             try:
-                self.original_bg = Image.open(self.bg_candidates[self.bg_index])
-                self.show_bg = True
-                return
-            except Exception as e:
-                print(f"[Warning] Failed to open background image {self.bg_candidates[self.bg_index]}: {e}")
-        self.original_bg = Image.new('RGB', (480, 850), color='#F0F0F0')
-        self.show_bg = False
+                self.style.theme_use("clam")
+            except Exception:
+                pass
+            font_button = (self.font_family, 9, "bold")
+            font_hotkey = (self.font_family, 10, "bold")
+            self.style.configure("TButton", font=font_button, background="#27272A", foreground="#F8FAFC", bordercolor="#3F3F46", lightcolor="#27272A", darkcolor="#27272A", padding=(6, 3))
+            self.style.map("TButton", background=[("active", "#3F3F46"), ("disabled", "#18181B")], foreground=[("disabled", "#71717A")])
+            self.style.configure("Hotkey.TButton", font=font_hotkey, background="#27272A", foreground="#F8FAFC", bordercolor="#3F3F46", lightcolor="#27272A", darkcolor="#27272A", padding=(8, 2))
+            self.style.map("Hotkey.TButton", background=[("active", "#3F3F46"), ("disabled", "#18181B")], foreground=[("disabled", "#71717A")])
+            self.style.configure("Tab.TButton", font=font_button, background="#27272A", foreground="#CBD5E1", bordercolor="#3F3F46", lightcolor="#27272A", darkcolor="#27272A", padding=(4, 3))
+            self.style.configure("ActiveTab.TButton", font=font_button, background="#2563EB", foreground="#FFFFFF", bordercolor="#1D4ED8", lightcolor="#2563EB", darkcolor="#2563EB", padding=(4, 3))
+            self.style.configure("Config.TButton", font=font_button, background="#27272A", foreground="#F8FAFC", bordercolor="#3F3F46", lightcolor="#27272A", darkcolor="#27272A", padding=(4, 2))
+            self.style.configure("ModifierDrawer.TButton", font=font_button, background="#27272A", foreground="#F8FAFC", bordercolor="#3F3F46", lightcolor="#27272A", darkcolor="#27272A", padding=(8, 4))
+            self.style.configure("ModifierCard.TFrame", background="#27272A")
+            self.style.configure("ModifierCard.TLabel", background="#27272A", foreground="#F8FAFC")
+            self.style.configure("ModifierCard.TCheckbutton", background="#27272A", foreground="#F8FAFC")
+            self.style.configure("TCombobox", fieldbackground="#27272A", background="#27272A", foreground="#F8FAFC", arrowcolor="#F8FAFC", bordercolor="#3F3F46")
+            self.style.map(
+                "TCombobox",
+                fieldbackground=[
+                    ("readonly", "focus", "#27272A"),
+                    ("readonly", "#27272A"),
+                    ("disabled", "#18181B"),
+                ],
+                foreground=[
+                    ("disabled", "#71717A"),
+                    ("readonly", "focus", "#F8FAFC"),
+                    ("readonly", "#F8FAFC"),
+                ],
+                background=[
+                    ("active", "#3F3F46"),
+                    ("pressed", "#3F3F46"),
+                    ("readonly", "#27272A"),
+                ],
+                bordercolor=[
+                    ("focus", "#3B82F6"),
+                    ("!focus", "#3F3F46"),
+                ],
+                arrowcolor=[
+                    ("disabled", "#71717A"),
+                    ("!disabled", "#F8FAFC"),
+                ],
+                selectbackground=[
+                    ("readonly", "#3F3F46"),
+                ],
+                selectforeground=[
+                    ("readonly", "#F8FAFC"),
+                ],
+            )
+            self.style.configure("TEntry", fieldbackground="#27272A", foreground="#F8FAFC", bordercolor="#3F3F46", insertcolor="#F8FAFC")
+            self.style.map("TEntry", fieldbackground=[("readonly", "#27272A"), ("disabled", "#18181B")], foreground=[("disabled", "#71717A")])
+            self.style.configure("TSpinbox", fieldbackground="#27272A", background="#27272A", foreground="#F8FAFC", arrowcolor="#F8FAFC", bordercolor="#3F3F46")
+            self.style.map(
+                "TSpinbox",
+                fieldbackground=[("readonly", "#27272A"), ("disabled", "#18181B")],
+                background=[("readonly", "#27272A")],
+                foreground=[("disabled", "#71717A")],
+                arrowcolor=[("disabled", "#71717A"), ("!disabled", "#F8FAFC")],
+            )
+            self.style.configure("TScrollbar", background="#3F3F46", troughcolor="#18181B", arrowcolor="#F8FAFC", bordercolor="#27272A", lightcolor="#3F3F46", darkcolor="#3F3F46")
+            self.style.map("TScrollbar", background=[("active", "#52525B"), ("disabled", "#18181B")])
+            self.style.configure("Vertical.TScrollbar", background="#3F3F46", troughcolor="#18181B", arrowcolor="#F8FAFC", bordercolor="#27272A", lightcolor="#3F3F46", darkcolor="#3F3F46")
+            self.style.map("Vertical.TScrollbar", background=[("active", "#52525B"), ("disabled", "#18181B")])
+            self.style.configure("TLabel", background="#27272A", foreground="#F8FAFC")
+            self.style.configure("TFrame", background="#27272A")
+            self.style.configure("TLabelframe", background="#27272A", bordercolor="#3F3F46")
+            self.style.configure("TLabelframe.Label", background="#27272A", foreground="#F8FAFC")
+            self.style.configure("Treeview", background="#27272A", foreground="#F8FAFC", fieldbackground="#27272A", bordercolor="#3F3F46")
+            self.style.configure("Treeview.Heading", background="#18181B", foreground="#F8FAFC", bordercolor="#3F3F46")
+            self.style.map("Treeview", background=[("selected", "#2563EB")], foreground=[("selected", "#FFFFFF")])
+            self.option_add('*TCombobox*Listbox.background', '#27272A')
+            self.option_add('*TCombobox*Listbox.foreground', '#F8FAFC')
+            self.option_add('*TCombobox*Listbox.selectBackground', '#2563EB')
+            self.option_add('*TCombobox*Listbox.selectForeground', '#FFFFFF')
+        else:
+            for theme_name in ("vista", "clam"):
+                try:
+                    self.style.theme_use(theme_name)
+                    break
+                except Exception:
+                    pass
+            font_button = (self.font_family, 9, "bold")
+            font_hotkey = (self.font_family, 10, "bold")
+            self.style.configure("TButton", font=font_button, padding=(6, 3))
+            self.style.configure("Hotkey.TButton", font=font_hotkey, padding=(8, 2))
+            self.style.configure("Tab.TButton", font=font_button, padding=(4, 3))
+            self.style.configure("ActiveTab.TButton", font=font_button, padding=(4, 3))
+            self.style.configure("Config.TButton", font=font_button, padding=(4, 2))
+            self.style.configure("ModifierDrawer.TButton", font=font_button, padding=(8, 4))
+            self.style.configure("ModifierCard.TFrame", background="#FFFFFF")
+            self.style.configure("ModifierCard.TLabel", background="#FFFFFF")
+            self.style.configure("ModifierCard.TCheckbutton", background="#FFFFFF")
+            self.style.configure("TCombobox", fieldbackground="#FFFFFF", background="#FFFFFF", foreground="#0F172A", arrowcolor="#0F172A", bordercolor="#CBD5E1")
+            self.style.map(
+                "TCombobox",
+                fieldbackground=[
+                    ("readonly", "focus", "#FFFFFF"),
+                    ("readonly", "#FFFFFF"),
+                    ("disabled", "#F1F5F9"),
+                ],
+                foreground=[
+                    ("disabled", "#94A3B8"),
+                    ("readonly", "focus", "#0F172A"),
+                    ("readonly", "#0F172A"),
+                ],
+                background=[
+                    ("active", "#E2E8F0"),
+                    ("pressed", "#CBD5E1"),
+                    ("readonly", "#FFFFFF"),
+                ],
+                bordercolor=[
+                    ("focus", "#2563EB"),
+                    ("!focus", "#CBD5E1"),
+                ],
+                arrowcolor=[
+                    ("disabled", "#94A3B8"),
+                    ("!disabled", "#0F172A"),
+                ],
+                selectbackground=[
+                    ("readonly", "#2563EB"),
+                ],
+                selectforeground=[
+                    ("readonly", "#FFFFFF"),
+                ],
+            )
+            self.style.configure("TEntry", fieldbackground="#FFFFFF", foreground="#0F172A", bordercolor="#CBD5E1", insertcolor="#0F172A")
+            self.style.map("TEntry", fieldbackground=[("readonly", "#FFFFFF"), ("disabled", "#F1F5F9")], foreground=[("disabled", "#94A3B8")])
+            self.style.configure("TSpinbox", fieldbackground="#FFFFFF", background="#FFFFFF", foreground="#0F172A", arrowcolor="#0F172A", bordercolor="#CBD5E1")
+            self.style.map(
+                "TSpinbox",
+                fieldbackground=[("readonly", "#FFFFFF"), ("disabled", "#F1F5F9")],
+                background=[("readonly", "#FFFFFF")],
+                foreground=[("disabled", "#94A3B8")],
+                arrowcolor=[("disabled", "#94A3B8"), ("!disabled", "#0F172A")],
+            )
+            self.style.configure("TScrollbar", background="#E2E8F0", troughcolor="#F1F5F9", arrowcolor="#0F172A", bordercolor="#CBD5E1")
+            self.style.configure("Vertical.TScrollbar", background="#E2E8F0", troughcolor="#F1F5F9", arrowcolor="#0F172A", bordercolor="#CBD5E1")
+            self.style.configure("TLabel", background="#FFFFFF", foreground="#0F172A")
+            self.style.configure("TFrame", background="#FFFFFF")
+            self.style.configure("TLabelframe", background="#FFFFFF")
+            self.style.configure("TLabelframe.Label", background="#FFFFFF", foreground="#0F172A")
+            self.style.configure("Treeview", background="#FFFFFF", foreground="#0F172A", fieldbackground="#FFFFFF")
+            self.style.configure("Treeview.Heading", background="#F1F5F9", foreground="#0F172A")
+            self.option_add('*TCombobox*Listbox.background', '#FFFFFF')
+            self.option_add('*TCombobox*Listbox.foreground', '#0F172A')
+            self.option_add('*TCombobox*Listbox.selectBackground', '#2563EB')
+            self.option_add('*TCombobox*Listbox.selectForeground', '#FFFFFF')
+
+        menu_bg = "#27272A" if is_dark else "#FFFFFF"
+        menu_fg = "#F8FAFC" if is_dark else "#0F172A"
+        menu_active_bg = "#3F3F46" if is_dark else "#E2E8F0"
+        menu_active_fg = "#FFFFFF" if is_dark else "#0F172A"
+        bar_bg = "#18181B" if is_dark else "#F8FAFC"
+        bar_fg = "#F8FAFC" if is_dark else "#0F172A"
+        bar_hover = "#27272A" if is_dark else "#E2E8F0"
+
+        all_menus = [
+            getattr(self, "file_menu", None),
+            getattr(self, "open_folders_menu", None),
+            getattr(self, "logs_menu", None),
+            getattr(self, "settings_menu", None),
+            getattr(self, "bg_menu", None),
+            getattr(self, "opacity_menu", None),
+            getattr(self, "lang_menu", None),
+            getattr(self, "sim_menu", None),
+            getattr(self, "help_menu", None),
+        ]
+        for m in all_menus:
+            if m:
+                try:
+                    m.configure(
+                        bg=menu_bg,
+                        fg=menu_fg,
+                        activebackground=menu_active_bg,
+                        activeforeground=menu_active_fg,
+                        selectcolor="#3B82F6" if is_dark else "#2563EB",
+                        bd=0,
+                        activeborderwidth=0,
+                        relief="flat",
+                    )
+                except Exception:
+                    pass
+
+        if hasattr(self, "menubar_frame"):
+            self.menubar_frame.configure(bg=bar_bg)
+            for btn in getattr(self, "menu_buttons", {}).values():
+                btn.configure(bg=bar_bg, fg=bar_fg)
+
+        try:
+            self.configure(bg=palette["bg_plain_hex"])
+            self.canvas.configure(bg=palette["bg_plain_hex"])
+        except Exception:
+            pass
+
+        text_primary_items = [
+            getattr(self, "hotkey_label_id", None),
+            getattr(self, "coins_label_id", None),
+            getattr(self, "coins_max_id", None),
+            getattr(self, "fails_label_id", None),
+            getattr(self, "profit_id", None),
+            getattr(self, "sim_days_label_id", None),
+            getattr(self, "lbl_setting_title_id", None),
+        ]
+        for it in text_primary_items:
+            if it:
+                try:
+                    self.canvas.itemconfig(it, fill=palette["text_primary"])
+                except Exception:
+                    pass
+
+        text_sec_items = [
+            getattr(self, "strategy_desc_id", None),
+            getattr(self, "lbl_setting_target_id", None),
+            getattr(self, "lbl_setting_ticket_id", None),
+            getattr(self, "lbl_setting_opacity_id", None),
+        ]
+        for it in text_sec_items:
+            if it:
+                try:
+                    self.canvas.itemconfig(it, fill=palette["text_secondary"])
+                except Exception:
+                    pass
+
+        if getattr(self, "status_id", None):
+            try:
+                if getattr(self, "is_running", False):
+                    self.canvas.itemconfig(self.status_id, fill=palette["status_running"])
+                else:
+                    self.canvas.itemconfig(self.status_id, fill=palette["status_idle"])
+            except Exception:
+                pass
+
+        if getattr(self, "log_canvas_text_id", None):
+            try:
+                self.canvas.itemconfig(self.log_canvas_text_id, fill=palette["log_fg"])
+            except Exception:
+                pass
+
+        if getattr(self, "log_text", None):
+            try:
+                self.log_text.configure(bg=palette["log_bg"], fg=palette["log_fg"])
+            except Exception:
+                pass
+
+        for w in getattr(self, "_mod_canvas_widgets", []):
+            if hasattr(w, "set_theme"):
+                if isinstance(w, CanvasHeaderLabel):
+                    w.set_theme(palette["header_fill"])
+                elif isinstance(w, CanvasCheckbutton):
+                    w.set_theme(palette["name"])
+
+        if not self.show_bg:
+            self.original_bg = Image.new('RGB', (480, 850), color=palette["bg_plain_hex"])
+
+        w = self.last_w if (getattr(self, "last_w", 0) and self.last_w > 50) else (self.winfo_width() if self.winfo_width() > 50 else 480)
+        h = self.last_h if (getattr(self, "last_h", 0) and self.last_h > 50) else (self.winfo_height() if self.winfo_height() > 50 else 850)
+        if hasattr(self, "draw_ui"):
+            self.draw_ui(w, h)
+
+    def _get_bg_var_value(self) -> int:
+        if self.show_bg and 0 <= self.bg_index < len(self.bg_candidates):
+            return self.bg_index
+        return -1
+
+    def set_theme_mode(self, mode: str):
+        if mode in ("system", "light", "dark"):
+            self.theme_mode = mode
+            if hasattr(self, "theme_var"):
+                self.theme_var.set(mode)
+            self.apply_theme()
+            w = self.last_w if (getattr(self, "last_w", 0) and self.last_w > 50) else self.winfo_width()
+            h = self.last_h if (getattr(self, "last_h", 0) and self.last_h > 50) else self.winfo_height()
+            if hasattr(self, "draw_ui") and w > 50 and h > 50:
+                self.draw_ui(w, h)
+            self._update_combo_bg_values()
+            self.save_settings()
+
+    def select_theme(self, mode: str):
+        self.set_theme_mode(mode)
+
+    def select_theme_background(self, mode: str):
+        self.set_theme_mode(mode)
+        self.select_background(-1)
 
     def select_background(self, idx: int):
         self.bg_index = idx
-        self.bg_var.set(idx)
+        if hasattr(self, "bg_var"):
+            self.bg_var.set(idx)
         if idx < 0:
             self.show_bg = False
+            self._load_current_bg()
+            self.apply_theme()
         else:
             self.show_bg = True
             self._load_current_bg()
+            w = self.last_w if self.last_w else self.winfo_width()
+            h = self.last_h if self.last_h else self.winfo_height()
+            self.draw_ui(w, h)
         self._update_combo_bg_values()
-        w = self.last_w if self.last_w else self.winfo_width()
-        h = self.last_h if self.last_h else self.winfo_height()
-        self.draw_ui(w, h)
         self.save_settings()
 
     def set_field_box_opacity(self, opacity: int, save: bool = True):
@@ -1617,41 +1819,53 @@ class HololiveBotUI(tk.Tk):
     def _update_combo_bg_values(self):
         if not hasattr(self, "combo_bg"):
             return
-        bg_names = [localization.tr("menu_bg_disabled", self.current_lang)]
+        bg_names = [
+            localization.tr("theme_system", self.current_lang),
+            localization.tr("theme_light", self.current_lang),
+            localization.tr("theme_dark", self.current_lang),
+        ]
         for i, cand in enumerate(self.bg_candidates):
             bg_label = "Minato Aqua" if cand.stem.lower() in ("default", "minato_aqua") else cand.stem.replace('_', ' ').title()
             bg_names.append(f"{i + 1}. {bg_label}")
         self.combo_bg.configure(values=bg_names)
-        current_sel = self.bg_index + 1 if (self.show_bg and 0 <= self.bg_index < len(self.bg_candidates)) else 0
+        if self.show_bg and 0 <= self.bg_index < len(self.bg_candidates):
+            current_sel = 3 + self.bg_index
+        elif self.theme_mode == "light":
+            current_sel = 1
+        elif self.theme_mode == "dark":
+            current_sel = 2
+        else:
+            current_sel = 0
         if 0 <= current_sel < len(bg_names):
             self.combo_bg.current(current_sel)
 
     def on_bg_combo_change(self, event=None):
-        idx = self.combo_bg.current() - 1
-        self.select_background(idx)
+        idx = self.combo_bg.current()
+        if idx == 0:
+            self.select_theme_background("system")
+        elif idx == 1:
+            self.select_theme_background("light")
+        elif idx == 2:
+            self.select_theme_background("dark")
+        elif idx >= 3:
+            self.select_background(idx - 3)
 
     def toggle_bg(self):
-        if not self.bg_candidates:
-            self.show_bg = not self.show_bg
-        else:
-            if not self.show_bg:
-                if self.bg_index < 0:
-                    self.bg_index = 0
-                self.show_bg = True
-                self._load_current_bg()
-            elif len(self.bg_candidates) > 1:
-                self.bg_index += 1
-                if self.bg_index >= len(self.bg_candidates):
-                    self.bg_index = -1
-                    self.show_bg = False
+        if not self.show_bg:
+            if self.theme_mode == "system":
+                self.select_theme_background("light")
+            elif self.theme_mode == "light":
+                self.select_theme_background("dark")
+            elif self.theme_mode == "dark":
+                if self.bg_candidates:
+                    self.select_background(0)
                 else:
-                    self._load_current_bg()
+                    self.select_theme_background("system")
+        else:
+            if self.bg_index + 1 < len(self.bg_candidates):
+                self.select_background(self.bg_index + 1)
             else:
-                self.show_bg = not self.show_bg
-        self.bg_var.set(self.bg_index if self.show_bg else -1)
-        w = self.last_w if self.last_w else self.winfo_width()
-        h = self.last_h if self.last_h else self.winfo_height()
-        self.draw_ui(w, h)
+                self.select_theme_background("system")
         self.save_settings()
 
     def select_language(self, lang_code: str):
@@ -1762,8 +1976,27 @@ class HololiveBotUI(tk.Tk):
             command=self.on_debug_logging_toggle,
         )
 
-        # Background Menu (Top-level in menubar)
+        # Background & Theme Menu (Top-level in menubar)
         self.bg_menu.delete(0, "end")
+        self.bg_menu.add_radiobutton(
+            label=f"    {localization.tr('theme_system', self.current_lang)}",
+            variable=self.theme_var,
+            value="system",
+            command=lambda: self.select_theme("system"),
+        )
+        self.bg_menu.add_radiobutton(
+            label=f"    {localization.tr('theme_light', self.current_lang)}",
+            variable=self.theme_var,
+            value="light",
+            command=lambda: self.select_theme("light"),
+        )
+        self.bg_menu.add_radiobutton(
+            label=f"    {localization.tr('theme_dark', self.current_lang)}",
+            variable=self.theme_var,
+            value="dark",
+            command=lambda: self.select_theme("dark"),
+        )
+        self.bg_menu.add_separator()
         self.bg_menu.add_radiobutton(
             label=f"    {localization.tr('menu_bg_disabled', self.current_lang)}",
             variable=self.bg_var,
@@ -1771,7 +2004,6 @@ class HololiveBotUI(tk.Tk):
             command=lambda: self.select_background(-1),
         )
         if self.bg_candidates:
-            self.bg_menu.add_separator()
             for i, cand in enumerate(self.bg_candidates):
                 label_text = "Minato Aqua" if cand.stem.lower() in ("default", "minato_aqua") else cand.stem.replace("_", " ").title()
                 self.bg_menu.add_radiobutton(
@@ -1782,7 +2014,7 @@ class HololiveBotUI(tk.Tk):
                 )
 
         # Field Box Opacity Submenu
-        self.opacity_menu = tk.Menu(self.bg_menu, tearoff=0)
+        self.opacity_menu = ModernMenu(self.bg_menu, tearoff=0)
         self.opacity_var = tk.IntVar(value=self.field_box_opacity)
         presets = [
             (100, localization.tr("opacity_100", self.current_lang)),
@@ -1868,10 +2100,6 @@ class HololiveBotUI(tk.Tk):
             label=localization.tr("menu_online_docs", self.current_lang),
             command=lambda: webbrowser.open("https://github.com/xAkai97/Hololive-Dreams-Auto-High-Low#readme"),
         )
-        self.help_menu.add_command(
-            label=localization.tr("menu_open_docs_dir", self.current_lang),
-            command=lambda: self._safe_open_path(Path(__file__).resolve().parent / "docs"),
-        )
         self.help_menu.add_separator()
         self.help_menu.add_command(
             label=localization.tr("menu_about", self.current_lang),
@@ -1886,9 +2114,51 @@ class HololiveBotUI(tk.Tk):
         self.menubar.entryconfig(4, label=localization.tr("menu_language", self.current_lang))
         self.menubar.entryconfig(5, label=localization.tr("menu_help", self.current_lang))
 
+        if hasattr(self, "menu_buttons"):
+            self.menu_buttons["file"].configure(text=localization.tr("menu_file", self.current_lang))
+            self.menu_buttons["logs"].configure(text=localization.tr("menu_logs", self.current_lang))
+            self.menu_buttons["settings"].configure(text=localization.tr("menu_settings", self.current_lang))
+            self.menu_buttons["bg"].configure(text=localization.tr("menu_background", self.current_lang))
+            self.menu_buttons["lang"].configure(text=localization.tr("menu_language", self.current_lang))
+            self.menu_buttons["help"].configure(text=localization.tr("menu_help", self.current_lang))
+
+    def _on_menu_button_click(self, key: str):
+        if getattr(self, "_active_menu_key", None) == key and ModernMenu._active_popups:
+            ModernMenu.close_all()
+            self._active_menu_key = None
+            return
+        self._open_menu(key)
+
+    def _open_menu(self, key: str):
+        btn = getattr(self, "menu_buttons", {}).get(key)
+        menu = getattr(self, "menu_targets", {}).get(key)
+        if btn and menu:
+            self._active_menu_key = key
+            try:
+                x = btn.winfo_rootx()
+                y = btn.winfo_rooty() + btn.winfo_height()
+                menu.post(x, y)
+            except Exception:
+                pass
+
+    def _on_menu_button_enter(self, key: str):
+        btn = getattr(self, "menu_buttons", {}).get(key)
+        if btn:
+            is_dark = self.theme_palette.get("is_dark", True)
+            hover_bg = "#27272A" if is_dark else "#E2E8F0"
+            btn.configure(bg=hover_bg)
+            if ModernMenu._active_popups and getattr(self, "_active_menu_key", None) != key:
+                self._open_menu(key)
+
+    def _on_menu_button_leave(self, key: str):
+        btn = getattr(self, "menu_buttons", {}).get(key)
+        if btn:
+            is_dark = self.theme_palette.get("is_dark", True)
+            normal_bg = "#18181B" if is_dark else "#F8FAFC"
+            btn.configure(bg=normal_bg)
+
     def _open_debug_dir(self):
-        auto_bot.DEBUG_DIR.mkdir(parents=True, exist_ok=True)
-        os.startfile(auto_bot.DEBUG_DIR)
+        self._safe_open_path(auto_bot.DEBUG_DIR)
 
     def clear_logs(self):
         self.sys_redirector.clear()
@@ -1903,63 +2173,13 @@ class HololiveBotUI(tk.Tk):
             pass
 
     def show_help_rules(self):
-        title = localization.tr("menu_rules_guide", self.current_lang)
-        body = (
-            "=== Hololive Dreams High-Low Mini-game Rules ===\n\n"
-            "1. Video Poker Entry:\n"
-            "   • Ticket Cost: 50 coins per game round.\n"
-            "   • 5-Card Draw with 1 Joker (53-card deck).\n"
-            "   • Minimum qualifying hand: Two Pair (pays 200 coins).\n"
-            "   • Payout Table: Royal Flush (10,000), 5 of a Kind (7,000), Straight Flush (3,000), "
-            "Four of a Kind (1,500), Full House (800), Flush (700), Straight (400), Three of a Kind (200), Two Pair (200).\n\n"
-            "2. High-Low Doubling Phase:\n"
-            "   • Base card is revealed (ranks 2 through Ace / 14).\n"
-            "   • Predict if the hidden card will be High or Low.\n"
-            "   • TIES ARE LOSSES: Equal rank wipes out the entire round pool!\n\n"
-            "3. The 20,000 Coin Cap Overflow Rule:\n"
-            "   • The 20k cap only prevents STARTING new poker rounds.\n"
-            "   • Any round started before 20k runs to full completion without limit.\n"
-            "   • Cushion Phase (< 19,800): Conservative grinding to safely build bankroll.\n"
-            "   • Sprint Phase (≥ 19,800): Aggressive doubling targeting 10k–32k+ in a single round for ~29,000–32,000+ total daily coins!"
-        )
-        messagebox.showinfo(title, body)
+        ui_show_help_rules(self)
 
     def show_help_strategies(self):
-        title = localization.tr("menu_strategy_guide", self.current_lang)
-        body = (
-            f"=== {len(STRATEGY_KEYS)} Strategy Catalog & Modifier System ===\n\n"
-            "Core Doubling Policies:\n"
-            "1. Max Profit (Recommended): Cushion grind to 19.8k, sprint for 10k+ (~29k-32k total).\n"
-            "2. Fastest Clear: Max double-up speedrun directly to 20k (~20k-22k total).\n"
-            "3. Balanced: Staged Build/Push/Sprint with win-rate safety floors (~25k-28k).\n"
-            "4. Aggressive Balanced: Lower win-rate floors, pushes harder (~28k-30k).\n"
-            "5. Adaptive Rush: Dynamic auto-downshifting on fail streaks (~25k-32k).\n"
-            "6. Grinder: Capped at 4 doubles per round, ultra-safe (~20k-25k).\n"
-            "7. Custom Parametric: User-configured win-rate and cashout thresholds.\n\n"
-            "Strategy Modifiers Drawer:\n"
-            "• Card Overrides: Force doubling on favorable cards (A/2, 3/K, etc.) under cap.\n"
-            "• Defensive Bailouts: Early cashout on volatile middle cards (8, 7/8, 6-9).\n"
-            "• Progression & Sprint: Fast Build to cushion, Free-Roll (<=200), and Sprint Floors (11.2k+ / 12.8k+).\n\n"
-            "Tip: Each modifier category can be expanded or collapsed in the UI drawer!"
-        )
-        messagebox.showinfo(title, body)
+        ui_show_help_strategies(self, len(STRATEGY_KEYS))
 
     def show_help_about(self):
-        title = localization.tr("menu_about", self.current_lang)
-        body = (
-            "Hololive Dreams Auto High-Low Bot v2.0\n\n"
-            "Features:\n"
-            f"- {len(STRATEGY_KEYS)} Modular High-Low Doubling Policies\n"
-            "- Monte Carlo Simulation & Strategy Comparison Engine\n"
-            "- Multi-Resolution Scaling & Win32 PrintWindow Background Capture\n"
-            "- Multilingual GUI (English, 简体中文, 繁體中文, 日本語)\n"
-            "- Automated State Machine with Vision OCR & Self-Healing\n\n"
-            "Credits & Acknowledgments:\n"
-            "• Original Author: mwty-0415\n"
-            "• Computer Vision Insights: harrykuang-dev\n"
-            "• Poker Hand Solver: Oreki0504"
-        )
-        messagebox.showinfo(title, body)
+        ui_show_help_about(self, len(STRATEGY_KEYS))
 
     def menu_reset_stats(self):
         if self.is_running:
@@ -1973,241 +2193,17 @@ class HololiveBotUI(tk.Tk):
         self.current_coins = 0
         self.current_fails = 0
         self.current_profit = 0
-        self.save_settings()
+        self.save_settings(rounds=0)
         self.update_stats_display()
         print(localization.tr("stats_reset_done", self.current_lang))
 
     def open_settings_dialog(self):
         """Open an interactive popup dialog for configuring global settings."""
-        dialog = tk.Toplevel(self)
-        dialog.title(localization.tr("settings_title", self.current_lang))
-        dialog.resizable(False, False)
-        dialog.transient(self)
-        dialog.grab_set()
-
-        frame = ttk.Frame(dialog, padding=(20, 16))
-        frame.pack(fill="both", expand=True)
-
-        font_label = (self.font_family, 9, "bold")
-
-        # --- Section 1: Game & Doubling Rules ---
-        lf_game = ttk.LabelFrame(frame, text=f" {localization.tr('section_game_rules', self.current_lang)} ", padding=(14, 10))
-        lf_game.pack(fill="x", expand=True, pady=(0, 10))
-        lf_game.columnconfigure(0, weight=1)
-        lf_game.columnconfigure(1, weight=0)
-
-        ttk.Label(lf_game, text=localization.tr("target_limit_label", self.current_lang), font=font_label).grid(row=0, column=0, sticky="w", pady=6)
-        ent_target = ttk.Entry(lf_game, width=14, justify="center")
-        ent_target.insert(0, str(self.target_limit))
-        ent_target.grid(row=0, column=1, sticky="e", pady=6)
-
-        ttk.Label(lf_game, text=localization.tr("ticket_cost_label", self.current_lang), font=font_label).grid(row=1, column=0, sticky="w", pady=6)
-        ent_ticket = ttk.Entry(lf_game, width=14, justify="center")
-        ent_ticket.insert(0, str(self.ticket_cost))
-        ent_ticket.grid(row=1, column=1, sticky="e", pady=6)
-
-        # --- Section 2: Log Maintenance & Archival ---
-        lf_logs = ttk.LabelFrame(frame, text=f" {localization.tr('section_log_maintenance', self.current_lang)} ", padding=(14, 10))
-        lf_logs.pack(fill="x", expand=True, pady=(0, 10))
-        lf_logs.columnconfigure(0, weight=1)
-        lf_logs.columnconfigure(1, weight=0)
-
-        ttk.Label(lf_logs, text=localization.tr("log_retention_days_label", self.current_lang), font=font_label).grid(row=0, column=0, sticky="w", pady=6)
-        ent_retention = ttk.Entry(lf_logs, width=14, justify="center")
-        ent_retention.insert(0, str(self.log_retention_days))
-        ent_retention.grid(row=0, column=1, sticky="e", pady=6)
-
-        ttk.Label(lf_logs, text=localization.tr("log_max_size_mb_label", self.current_lang), font=font_label).grid(row=1, column=0, sticky="w", pady=6)
-        ent_size = ttk.Entry(lf_logs, width=14, justify="center")
-        ent_size.insert(0, str(self.log_max_size_mb))
-        ent_size.grid(row=1, column=1, sticky="e", pady=6)
-
-        # --- Section 3: Display & Background ---
-        lf_display = ttk.LabelFrame(frame, text=f" {localization.tr('menu_background', self.current_lang)} ", padding=(14, 10))
-        lf_display.pack(fill="x", expand=True, pady=(0, 10))
-        lf_display.columnconfigure(0, weight=1)
-        lf_display.columnconfigure(1, weight=0)
-
-        ttk.Label(lf_display, text=localization.tr("field_box_opacity_label", self.current_lang), font=font_label).grid(row=0, column=0, sticky="w", pady=6)
-        dlg_frame_op = ttk.Frame(lf_display)
-        dlg_frame_op.grid(row=0, column=1, sticky="e", pady=6)
-        dlg_scale_op = ttk.Scale(dlg_frame_op, from_=0, to=100, value=self.field_box_opacity)
-        dlg_scale_op.pack(side="left", padx=(0, 6))
-        dlg_lbl_op = ttk.Label(dlg_frame_op, text=f"{self.field_box_opacity}%", width=5, font=font_label)
-        dlg_lbl_op.pack(side="right")
-
-        def _on_dlg_op(val):
-            try:
-                v = int(float(val))
-            except (ValueError, TypeError):
-                v = 80
-            dlg_lbl_op.configure(text=f"{v}%")
-            self.set_field_box_opacity(v, save=False)
-
-        dlg_scale_op.configure(command=_on_dlg_op)
-
-        # --- Section 4: Settlement Verification & OCR Recovery ---
-        lf_settle = ttk.LabelFrame(frame, text=f" {localization.tr('section_settlement_recovery', self.current_lang)} ", padding=(14, 10))
-        lf_settle.pack(fill="x", expand=True, pady=(0, 10))
-        lf_settle.columnconfigure(0, weight=1)
-        lf_settle.columnconfigure(1, weight=0)
-
-        ttk.Label(lf_settle, text=localization.tr("settlement_recovery_label", self.current_lang), font=font_label).grid(row=0, column=0, sticky="w", pady=6)
-        recovery_options = [
-            ("auto", localization.tr("recovery_mode_auto", self.current_lang)),
-            ("manual", localization.tr("recovery_mode_manual", self.current_lang)),
-            ("strict", localization.tr("recovery_mode_strict", self.current_lang)),
-        ]
-        rec_keys = [k for k, _ in recovery_options]
-        rec_labels = [lbl for _, lbl in recovery_options]
-        combo_recovery = ttk.Combobox(lf_settle, values=rec_labels, state="readonly", width=34)
-        rec_idx = rec_keys.index(self.settlement_recovery_mode) if self.settlement_recovery_mode in rec_keys else 0
-        combo_recovery.current(rec_idx)
-        combo_recovery.grid(row=0, column=1, sticky="e", pady=6)
-
-        ttk.Label(lf_settle, text=localization.tr("settlement_timeout_label", self.current_lang), font=font_label).grid(row=1, column=0, sticky="w", pady=6)
-        ent_settle_timeout = ttk.Entry(lf_settle, width=14, justify="center")
-        ent_settle_timeout.insert(0, str(int(self.settlement_ocr_timeout)))
-        ent_settle_timeout.grid(row=1, column=1, sticky="e", pady=6)
-
-        lbl_status = ttk.Label(frame, text="", font=(self.font_family, 9), foreground="#007700")
-        lbl_status.pack(pady=(0, 6))
-
-        btn_box = ttk.Frame(frame)
-        btn_box.pack(pady=(0, 4))
-
-        def on_save():
-            try:
-                target = int(ent_target.get().strip())
-                ticket = int(ent_ticket.get().strip())
-                retention = int(ent_retention.get().strip())
-                size_mb = int(ent_size.get().strip())
-                self.target_limit = max(1000, target)
-                self.ticket_cost = max(0, ticket)
-                self.log_retention_days = max(0, retention)
-                self.log_max_size_mb = max(0, size_mb)
-                selected_rec_idx = combo_recovery.current()
-                if 0 <= selected_rec_idx < len(rec_keys):
-                    self.settlement_recovery_mode = rec_keys[selected_rec_idx]
-                try:
-                    to_val = float(ent_settle_timeout.get().strip())
-                    self.settlement_ocr_timeout = max(3.0, min(60.0, to_val))
-                except (ValueError, TypeError):
-                    self.settlement_ocr_timeout = 8.0
-                self.entry_setting_target.delete(0, "end")
-                self.entry_setting_target.insert(0, str(self.target_limit))
-                self.entry_setting_ticket.delete(0, "end")
-                self.entry_setting_ticket.insert(0, str(self.ticket_cost))
-                self.set_field_box_opacity(int(float(dlg_scale_op.get())), save=True)
-                self.save_user_settings()
-                clean_old_logs(max_days=self.log_retention_days, max_size_mb=self.log_max_size_mb, lang=self.current_lang)
-                lbl_status.configure(text=localization.tr("settings_saved_msg", self.current_lang))
-                dialog.after(600, dialog.destroy)
-            except ValueError:
-                lbl_status.configure(text="Invalid numbers", foreground="red")
-
-        def on_restore():
-            self.restore_default_settings()
-            ent_target.delete(0, "end")
-            ent_target.insert(0, str(self.target_limit))
-            ent_ticket.delete(0, "end")
-            ent_ticket.insert(0, str(self.ticket_cost))
-            ent_retention.delete(0, "end")
-            ent_retention.insert(0, str(self.log_retention_days))
-            ent_size.delete(0, "end")
-            ent_size.insert(0, str(self.log_max_size_mb))
-            combo_recovery.current(0)
-            ent_settle_timeout.delete(0, "end")
-            ent_settle_timeout.insert(0, "8")
-            dlg_scale_op.set(30)
-            dlg_lbl_op.configure(text="30%")
-            self.set_field_box_opacity(30, save=True)
-            lbl_status.configure(text=localization.tr("settings_saved_msg", self.current_lang))
-
-        ttk.Button(btn_box, text=localization.tr("btn_save_settings", self.current_lang), command=on_save).pack(side="left", padx=5)
-        ttk.Button(btn_box, text=localization.tr("btn_restore_defaults", self.current_lang), command=on_restore).pack(side="left", padx=5)
-        ttk.Button(btn_box, text=localization.tr("btn_cancel", self.current_lang, default="Cancel"), command=dialog.destroy).pack(side="left", padx=5)
-
-        dialog.update_idletasks()
-        req_w = max(560, dialog.winfo_reqwidth() + 30)
-        req_h = max(510, dialog.winfo_reqheight() + 15)
-        x = self.winfo_x() + max(0, (self.winfo_width() - req_w) // 2)
-        y = self.winfo_y() + max(0, (self.winfo_height() - req_h) // 2)
-        dialog.geometry(f"{req_w}x{req_h}+{x}+{y}")
+        ui_open_settings_dialog(self)
 
     def open_custom_parametric_dialog(self):
         """Open an interactive popup dialog for fine-tuning custom strategy parameters."""
-        dialog = tk.Toplevel(self)
-        dialog.title(localization.tr("custom_param_dialog_title", self.current_lang))
-        dialog.geometry("380x360")
-        dialog.resizable(False, False)
-        dialog.transient(self)
-        dialog.grab_set()
-
-        x = self.winfo_x() + max(0, (self.winfo_width() - 380) // 2)
-        y = self.winfo_y() + max(0, (self.winfo_height() - 360) // 2)
-        dialog.geometry(f"+{x}+{y}")
-
-        frame = ttk.Frame(dialog, padding=16)
-        frame.pack(fill="both", expand=True)
-
-        font_label = (self.font_family, 9, "bold")
-
-        ttk.Label(frame, text=localization.tr("min_win_rate_label", self.current_lang), font=font_label).grid(row=0, column=0, sticky="w", pady=6)
-        ent_winrate = ttk.Entry(frame, width=10, justify="center")
-        ent_winrate.insert(0, str(self.param_min_win_rate))
-        ent_winrate.grid(row=0, column=1, sticky="e", pady=6)
-
-        ttk.Label(frame, text=localization.tr("cushion_target_label", self.current_lang), font=font_label).grid(row=1, column=0, sticky="w", pady=6)
-        ent_cushion = ttk.Entry(frame, width=10, justify="center")
-        ent_cushion.insert(0, str(self.param_cushion_target))
-        ent_cushion.grid(row=1, column=1, sticky="e", pady=6)
-
-        ttk.Label(frame, text=localization.tr("sprint_target_label", self.current_lang), font=font_label).grid(row=2, column=0, sticky="w", pady=6)
-        ent_sprint = ttk.Entry(frame, width=10, justify="center")
-        ent_sprint.insert(0, str(self.param_sprint_target))
-        ent_sprint.grid(row=2, column=1, sticky="e", pady=6)
-
-        ttk.Label(frame, text=localization.tr("max_doubles_label", self.current_lang), font=font_label).grid(row=3, column=0, sticky="w", pady=6)
-        ent_doubles = ttk.Entry(frame, width=10, justify="center")
-        ent_doubles.insert(0, str(self.param_max_doubles))
-        ent_doubles.grid(row=3, column=1, sticky="e", pady=6)
-
-        ttk.Label(frame, text=localization.tr("drop_seven_eight_label", self.current_lang), font=font_label).grid(row=4, column=0, sticky="w", pady=6)
-        var_drop = tk.BooleanVar(value=bool(self.param_drop_seven_eight))
-        chk_drop = ttk.Checkbutton(frame, variable=var_drop)
-        chk_drop.grid(row=4, column=1, sticky="e", pady=6)
-
-        lbl_status = ttk.Label(frame, text="", font=(self.font_family, 9), foreground="#007700")
-        lbl_status.grid(row=5, column=0, columnspan=2, pady=6)
-
-        btn_box = ttk.Frame(frame)
-        btn_box.grid(row=6, column=0, columnspan=2, pady=10)
-
-        def on_save():
-            try:
-                wr = max(10, min(95, int(ent_winrate.get().strip())))
-                cush = max(1000, min(50000, int(ent_cushion.get().strip())))
-                sp = max(1000, min(100000, int(ent_sprint.get().strip())))
-                md = max(1, min(20, int(ent_doubles.get().strip())))
-                dp = bool(var_drop.get())
-
-                self.param_min_win_rate = wr
-                self.param_cushion_target = cush
-                self.param_sprint_target = sp
-                self.param_max_doubles = md
-                self.param_drop_seven_eight = dp
-
-                self.save_settings()
-                print(f"[Settings] Custom parametric parameters updated: WinRate={wr}%, Cushion={cush}, Sprint={sp}, MaxDoubles={md}, Drop78={dp}")
-                dialog.destroy()
-            except Exception as e:
-                lbl_status.configure(text=f"Error: {e}", foreground="#cc0000")
-
-        btn_save = ttk.Button(btn_box, text=localization.tr("btn_save_settings", self.current_lang), command=on_save)
-        btn_save.pack(side="left", padx=6)
-        btn_cancel = ttk.Button(btn_box, text=localization.tr("btn_cancel", self.current_lang), command=dialog.destroy)
-        btn_cancel.pack(side="left", padx=6)
+        ui_open_custom_parametric_dialog(self)
 
     def menu_clean_old_logs(self):
         count, freed_mb = clean_old_logs(max_days=self.log_retention_days, max_size_mb=self.log_max_size_mb, lang=self.current_lang)
@@ -2260,6 +2256,7 @@ class HololiveBotUI(tk.Tk):
                 param_drop_seven_eight=self.param_drop_seven_eight,
                 field_box_opacity=self.field_box_opacity,
                 show_log=self.show_log,
+                theme_mode=self.theme_mode,
                 settlement_recovery_mode=self.settlement_recovery_mode,
                 settlement_ocr_timeout=self.settlement_ocr_timeout,
             )
@@ -2282,6 +2279,10 @@ class HololiveBotUI(tk.Tk):
         self.log_max_size_mb = 20
         self.settlement_recovery_mode = "auto"
         self.settlement_ocr_timeout = 8.0
+        self.theme_mode = "system"
+        if hasattr(self, "theme_var"):
+            self.theme_var.set("system")
+        self.apply_theme()
         self.var_opp_a2.set(True)
         self.var_opp_3k.set(False)
         self.var_opp_4q.set(False)
@@ -2297,6 +2298,8 @@ class HololiveBotUI(tk.Tk):
         self.var_mod_sprint_floor.set(False)
         self.var_mod_mega_sprint.set(False)
         self.var_debug_logging.set(False)
+        self.show_log = False
+        self.var_show_log.set(False)
         self.refresh_modifiers_ui()
         self.param_min_win_rate = 60
         self.param_cushion_target = 19800
@@ -2333,7 +2336,7 @@ class HololiveBotUI(tk.Tk):
             import simulation
             sim = simulation.HighLowSimulator(
                 num_decks=1,
-                tie_loses=True,
+                tie_loses=False,
                 opp_a2=bool(self.var_opp_a2.get()),
                 opp_3k=bool(self.var_opp_3k.get()),
                 opp_4q=bool(self.var_opp_4q.get()),
@@ -2392,115 +2395,13 @@ class HololiveBotUI(tk.Tk):
 
     def show_benchmark_results_dialog(self, results):
         """Display comparative benchmark results in a clean, human-friendly GUI table window."""
-        if not results:
-            return
-        dialog = tk.Toplevel(self)
-        dialog.title(localization.tr("menu_compare_all", self.current_lang))
-        dialog.transient(self)
-        dialog.resizable(True, True)
-
-        frame = ttk.Frame(dialog, padding=(16, 14))
-        frame.pack(fill="both", expand=True)
-
-        days_val = results[0].get("Days", 100)
-        header_lbl = ttk.Label(
-            frame,
-            text=f"📊 Strategy Comparison Benchmark ({days_val} Days Simulated Each)",
-            font=(self.font_family, 10, "bold"),
-        )
-        header_lbl.pack(anchor="w", pady=(0, 10))
-
-        cols = ("Rank", "Strategy", "AvgCoins", "Fails", "HitCap", "MaxCoins")
-        tree = ttk.Treeview(frame, columns=cols, show="headings", height=min(12, len(results)))
-        tree.heading("Rank", text="Rank")
-        tree.heading("Strategy", text="Strategy")
-        tree.heading("AvgCoins", text="Avg Coins / Day")
-        tree.heading("Fails", text="Avg Fails")
-        tree.heading("HitCap", text="Hit Cap (20k)")
-        tree.heading("MaxCoins", text="Max Recorded")
-
-        tree.column("Rank", width=50, anchor="center")
-        tree.column("Strategy", width=260, anchor="w")
-        tree.column("AvgCoins", width=120, anchor="e")
-        tree.column("Fails", width=75, anchor="center")
-        tree.column("HitCap", width=95, anchor="center")
-        tree.column("MaxCoins", width=105, anchor="e")
-
-        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
-        tree.configure(yscrollcommand=scrollbar.set)
-
-        tree.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        sorted_results = sorted(results, key=lambda r: r.get("MeanCoins", 0), reverse=True)
-        for rank, r in enumerate(sorted_results, 1):
-            tree.insert(
-                "",
-                "end",
-                values=(
-                    f"#{rank}",
-                    r.get("Strategy", ""),
-                    f"{r.get('MeanCoins', 0):,.0f}",
-                    f"{r.get('MeanFails', 0):.1f}",
-                    f"{r.get('HitCapPct', 0):.1f}%",
-                    f"{r.get('MaxCoins', 0):,.0f}",
-                ),
-            )
-
-        btn_bar = ttk.Frame(dialog, padding=(16, 10))
-        btn_bar.pack(fill="x", side="bottom")
-
-        ttk.Button(btn_bar, text="Close", command=dialog.destroy).pack(side="right", padx=4)
-        ttk.Button(btn_bar, text="💾 Export CSV", command=self.export_benchmark_csv).pack(side="right", padx=4)
-
-        dialog.update_idletasks()
-        req_w = max(730, dialog.winfo_reqwidth() + 30)
-        req_h = max(390, dialog.winfo_reqheight() + 20)
-        x = self.winfo_x() + max(0, (self.winfo_width() - req_w) // 2)
-        y = self.winfo_y() + max(0, (self.winfo_height() - req_h) // 2)
-        dialog.geometry(f"{req_w}x{req_h}+{x}+{y}")
+        ui_show_benchmark_results_dialog(self, results)
 
     def export_benchmark_csv(self):
-        if not self.last_benchmark_results:
-            messagebox.showinfo("Export CSV", "No simulation benchmark data available yet. Please run a simulation first!")
-            return
-        path = filedialog.asksaveasfilename(
-            parent=self,
-            defaultextension=".csv",
-            filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")],
-            initialfile="simulation_benchmark.csv",
-        )
-        if not path:
-            return
-        try:
-            with open(path, "w", newline="", encoding="utf-8-sig") as f:
-                writer = csv.DictWriter(f, fieldnames=list(self.last_benchmark_results[0].keys()))
-                writer.writeheader()
-                writer.writerows(self.last_benchmark_results)
-            print(f"[Export] Benchmark exported to CSV: {path}")
-            messagebox.showinfo("Export CSV", f"Successfully exported benchmark results to:\n{path}")
-        except Exception as e:
-            messagebox.showerror("Export Error", f"Failed to export CSV: {e}")
+        ui_export_benchmark_csv(self, self.last_benchmark_results)
 
     def export_benchmark_json(self):
-        if not self.last_benchmark_results:
-            messagebox.showinfo("Export JSON", "No simulation benchmark data available yet. Please run a simulation first!")
-            return
-        path = filedialog.asksaveasfilename(
-            parent=self,
-            defaultextension=".json",
-            filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")],
-            initialfile="simulation_benchmark.json",
-        )
-        if not path:
-            return
-        try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(self.last_benchmark_results, f, ensure_ascii=False, indent=2)
-            print(f"[Export] Benchmark exported to JSON: {path}")
-            messagebox.showinfo("Export JSON", f"Successfully exported benchmark results to:\n{path}")
-        except Exception as e:
-            messagebox.showerror("Export Error", f"Failed to export JSON: {e}")
+        ui_export_benchmark_json(self, self.last_benchmark_results)
 
     def on_strategy_change(self, event=None):
         idx = self.combo_strategy.current()
@@ -2649,22 +2550,10 @@ class HololiveBotUI(tk.Tk):
     def toggle_mod_cat(self, cat: str):
         if cat == "cards":
             self.cat_cards_expanded = not self.cat_cards_expanded
-            if self.cat_cards_expanded:
-                self.frame_cards_grid.pack(fill="x", pady=(0, 4))
-            else:
-                self.frame_cards_grid.pack_forget()
         elif cat == "bail":
             self.cat_bail_expanded = not self.cat_bail_expanded
-            if self.cat_bail_expanded:
-                self.frame_bail_grid.pack(fill="x", pady=(0, 4))
-            else:
-                self.frame_bail_grid.pack_forget()
         elif cat == "prog":
             self.cat_prog_expanded = not self.cat_prog_expanded
-            if self.cat_prog_expanded:
-                self.frame_prog_grid.pack(fill="x", pady=(0, 4))
-            else:
-                self.frame_prog_grid.pack_forget()
         self._update_mod_category_headers()
         self.save_settings()
         w = self.last_w if self.last_w else 480
@@ -2767,13 +2656,14 @@ class HololiveBotUI(tk.Tk):
         if hasattr(self, "btn_toggle_modifiers"):
             self.btn_toggle_modifiers.configure(text=header_text)
 
-    def save_settings(self):
+    def save_settings(self, rounds: Optional[int] = None):
         strat_idx = STRATEGY_KEYS.index(self.active_mode) if (hasattr(self, "active_mode") and self.active_mode in STRATEGY_KEYS) else (
             self.combo_strategy.current() if 0 <= self.combo_strategy.current() < len(STRATEGY_KEYS) else 0
         )
         auto_bot.save_daily_data(
             self.current_coins,
             self.current_fails,
+            rounds=rounds,
             language=self.current_lang,
             hotkey=self.current_hotkey,
             background_index=self.bg_index,
@@ -2807,6 +2697,7 @@ class HololiveBotUI(tk.Tk):
             param_drop_seven_eight=self.param_drop_seven_eight,
             field_box_opacity=self.field_box_opacity,
             show_log=self.show_log,
+            theme_mode=self.theme_mode,
         )
 
     def on_stats_manual_edit(self, event=None):
@@ -2973,7 +2864,7 @@ class HololiveBotUI(tk.Tk):
         self.canvas.itemconfig(self.coins_label_id, text=localization.tr("coins_label", self.current_lang))
         self.canvas.itemconfig(self.fails_label_id, text=localization.tr("fails_label", self.current_lang))
         self.canvas.itemconfig(self.coins_max_id, text=f"/ {self.target_limit}")
-        self.bg_var.set(self.bg_index if self.show_bg else -1)
+        self.bg_var.set(self._get_bg_var_value())
         self.lang_var.set(self.current_lang)
         self._update_combo_bg_values()
 
@@ -3032,6 +2923,7 @@ class HololiveBotUI(tk.Tk):
         self.canvas.itemconfig(self.lbl_setting_ticket_id, text=localization.tr("ticket_cost_label", self.current_lang))
         self.canvas.itemconfig(self.lbl_setting_opacity_id, text=localization.tr("field_box_opacity_label", self.current_lang))
         self.btn_open_custom_dialog.configure(text=localization.tr("btn_custom_strategy_config", self.current_lang))
+        self.chk_setting_show_log.configure(text=localization.tr("menu_toggle_log", self.current_lang))
         self.chk_setting_debug_log.configure(text=localization.tr("debug_logging_label", self.current_lang))
         self.btn_save_settings.configure(text=localization.tr("btn_save_settings", self.current_lang))
         self.btn_restore_defaults.configure(text=localization.tr("btn_restore_defaults", self.current_lang))
@@ -3043,13 +2935,16 @@ class HololiveBotUI(tk.Tk):
         if not self.is_running:
             self.entry_coins.configure(state="normal")
             self.entry_fails.configure(state="normal")
-            self.canvas.itemconfig(self.status_id, text=localization.tr("status_idle", self.current_lang), fill="#111111")
+            idle_color = self.theme_palette.get("status_idle", "#0F172A")
+            self.canvas.itemconfig(self.status_id, text=localization.tr("status_idle", self.current_lang), fill=idle_color)
             self.btn_start.configure(text=localization.tr("btn_start", self.current_lang), state="normal")
             self.btn_stop.configure(text=localization.tr("btn_stop", self.current_lang), state="disabled")
             self.btn_hotkey.configure(state="normal")
         else:
             self.entry_coins.configure(state="disabled")
             self.entry_fails.configure(state="disabled")
+            running_color = self.theme_palette.get("status_running", "#16A34A")
+            self.canvas.itemconfig(self.status_id, fill=running_color)
             self.btn_start.configure(text=localization.tr("btn_running", self.current_lang), state="disabled")
             self.btn_stop.configure(text=localization.tr("btn_stop", self.current_lang), state="normal")
             self.btn_hotkey.configure(state="disabled")
@@ -3082,7 +2977,7 @@ class HololiveBotUI(tk.Tk):
             print(localization.tr("sim_running", self.current_lang, name=strat_name))
             sim = simulation.HighLowSimulator(
                 num_decks=1,
-                tie_loses=True,
+                tie_loses=False,
                 opp_a2=bool(self.var_opp_a2.get()),
                 opp_3k=bool(self.var_opp_3k.get()),
                 opp_4q=bool(self.var_opp_4q.get()),
@@ -3151,13 +3046,13 @@ class HololiveBotUI(tk.Tk):
         self.refresh_texts()
         self.canvas.itemconfig(self.status_id,
                                text=localization.tr("status_running", self.current_lang),
-                               fill="green")
+                               fill=self.theme_palette.get("status_running", "#16A34A"))
 
         self.sys_redirector.clear()
         try:
             log_file = auto_bot.APP_DIR / "log.txt"
             with open(log_file, "a", encoding="utf-8", errors="replace") as f:
-                f.write(f"\n--- Bot Started ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---\n")
+                f.write(f"\n--- {localization.tr('bot_started_status', self.current_lang, time=time.strftime('%Y-%m-%d %H:%M:%S'))} ---\n")
         except Exception:
             pass
 
@@ -3173,10 +3068,12 @@ class HololiveBotUI(tk.Tk):
         self.btn_stop.configure(state="disabled")
         self.canvas.itemconfig(self.status_id,
                                text=localization.tr("status_stopping", self.current_lang),
-                               fill="orange")
+                               fill=self.theme_palette.get("status_stopping", "#D97706"))
 
     def _on_bot_crashed(self, err_msg):
-        self.canvas.itemconfig(self.status_id, text=localization.tr("status_crashed", self.current_lang), fill="red")
+        self.canvas.itemconfig(self.status_id,
+                               text=localization.tr("status_crashed", self.current_lang),
+                               fill=self.theme_palette.get("status_crashed", "#DC2626"))
 
     def _on_bot_finished(self):
         self.is_running = False
@@ -3189,85 +3086,7 @@ class HololiveBotUI(tk.Tk):
         return res_queue.get()
 
     def _show_settlement_modal(self, expected, observed, res_queue):
-        dialog = tk.Toplevel(self)
-        dialog.title(localization.tr("settlement_prompt_title", self.current_lang))
-        dialog.resizable(False, False)
-        dialog.transient(self)
-        dialog.grab_set()
-
-        frame = ttk.Frame(dialog, padding=(20, 16))
-        frame.pack(fill="both", expand=True)
-
-        font_label = (self.font_family, 9, "bold")
-        msg = localization.tr(
-            "settlement_prompt_msg",
-            self.current_lang,
-            observed=observed if observed else "None",
-            expected=expected if expected else "Unknown",
-        )
-        ttk.Label(frame, text=msg, font=(self.font_family, 9), justify="left").pack(anchor="w", pady=(0, 12))
-
-        entry_frame = ttk.Frame(frame)
-        entry_frame.pack(fill="x", pady=(0, 14))
-        ttk.Label(entry_frame, text=localization.tr("custom_amount_label", self.current_lang), font=font_label).pack(side="left")
-        custom_ent = ttk.Entry(entry_frame, width=12, justify="center")
-        custom_ent.insert(0, str(expected if expected else ""))
-        custom_ent.pack(side="right")
-
-        btn_box = ttk.Frame(frame)
-        btn_box.pack(fill="x")
-
-        def choose(val):
-            try:
-                dialog.destroy()
-            except Exception:
-                pass
-            res_queue.put(val)
-
-        def on_custom():
-            try:
-                v = int(custom_ent.get().strip())
-                if auto_bot.is_valid_settlement_amount(v):
-                    choose(v)
-                else:
-                    messagebox.showerror(
-                        localization.tr("settlement_prompt_title", self.current_lang),
-                        localization.tr("settlement_invalid_rejected", self.current_lang, amount=v),
-                        parent=dialog,
-                    )
-            except ValueError:
-                pass
-
-        if expected and expected > 0:
-            btn_exp = ttk.Button(
-                btn_box,
-                text=localization.tr("btn_use_expected", self.current_lang, expected=expected),
-                command=lambda: choose(expected),
-            )
-            btn_exp.pack(fill="x", pady=2)
-
-        btn_custom = ttk.Button(
-            btn_box,
-            text=localization.tr("btn_confirm_custom", self.current_lang),
-            command=on_custom,
-        )
-        btn_custom.pack(fill="x", pady=2)
-
-        btn_skip = ttk.Button(
-            btn_box,
-            text=localization.tr("btn_skip_zero", self.current_lang),
-            command=lambda: choose(0),
-        )
-        btn_skip.pack(fill="x", pady=2)
-
-        btn_stop = ttk.Button(
-            btn_box,
-            text=localization.tr("btn_stop_bot", self.current_lang),
-            command=lambda: choose(None),
-        )
-        btn_stop.pack(fill="x", pady=2)
-
-        dialog.protocol("WM_DELETE_WINDOW", lambda: choose(None))
+        ui_show_settlement_modal(self, expected, observed, res_queue)
 
     def run_bot(self):
         try:

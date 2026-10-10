@@ -99,10 +99,13 @@ class TestGameDateReset(unittest.TestCase):
              patch.object(auto_bot, "find_and_click_icon", return_value=False), \
              patch.object(auto_bot, "load_config", return_value={"debug_logging": False}), \
              patch.object(auto_bot, "load_daily_data", return_value=(0, 0)), \
+             patch.object(auto_bot, "save_daily_data"), \
+             patch.object(auto_bot, "clear_pending_cashout"), \
+             patch.object(auto_bot, "save_pending_cashout"), \
              contextlib.redirect_stdout(io.StringIO()):
 
             mock_cap.return_value = (numpy.zeros((100, 100, 3), dtype=numpy.uint8), 0, 0)
-            def fake_state(img):
+            def fake_state(img, *args, **kwargs):
                 auto_bot.bot_running = False
                 return "START_BET"
 
@@ -115,6 +118,51 @@ class TestGameDateReset(unittest.TestCase):
             finally:
                 auto_bot.bot_running = False
                 auto_bot._debug_logging_enabled = None
+
+
+
+class TestCurrentlyHeldIndices(unittest.TestCase):
+    def test_held_indices_detection(self):
+        import auto_bot
+
+        # Not 5 cards returns empty set
+        self.assertEqual(auto_bot.get_currently_held_indices([]), set())
+        self.assertEqual(auto_bot.get_currently_held_indices([(0, 341, 100, 150)] * 4), set())
+
+        # No cards held (all baseline y around 341)
+        rects_none = [(100 * i, 341, 120, 200) for i in range(5)]
+        self.assertEqual(auto_bot.get_currently_held_indices(rects_none, 1080), set())
+
+        # Cards 0 and 2 held (shifted down y around 380 vs baseline 341)
+        rects_partial = [
+            (0, 380, 120, 200),
+            (100, 341, 120, 200),
+            (200, 382, 120, 200),
+            (300, 340, 120, 200),
+            (400, 341, 120, 200),
+        ]
+        self.assertEqual(auto_bot.get_currently_held_indices(rects_partial, 1080), {0, 2})
+
+        # All 5 cards held (all shifted down y around 380)
+        rects_all = [(100 * i, 380, 120, 200) for i in range(5)]
+        self.assertEqual(auto_bot.get_currently_held_indices(rects_all, 1080), {0, 1, 2, 3, 4})
+
+        # Frame with lock icon stamped under cards 1 and 3
+        h_frame, w_frame = 500, 800
+        mock_img = numpy.zeros((h_frame, w_frame, 3), dtype=numpy.uint8)
+        rects_flat = [(150 * i, 200, 120, 180) for i in range(5)]
+        lock_tpl = auto_bot.get_template(auto_bot.TPL_CARD_LOCK)
+        if lock_tpl is not None:
+            tw = max(10, round(120 * 0.11))
+            th = max(10, round(tw * (lock_tpl.shape[0] / max(1, lock_tpl.shape[1]))))
+            scaled_lock = cv2.resize(lock_tpl, (tw, th))
+            for held_idx in (1, 3):
+                rx, ry, rw, rh = rects_flat[held_idx]
+                by0 = ry + int(0.75 * rh)
+                bx0 = rx + 10
+                mock_img[by0:by0 + th, bx0:bx0 + tw] = cv2.cvtColor(scaled_lock, cv2.COLOR_GRAY2BGR)
+
+            self.assertEqual(auto_bot.get_currently_held_indices(rects_flat, h_frame, img=mock_img), {1, 3})
 
 
 if __name__ == "__main__":

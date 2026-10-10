@@ -128,6 +128,8 @@ def _capture_client_with_printwindow(hwnd: int, width: int, height: int) -> np.n
 def _bring_game_to_front(hwnd: int) -> bool:
     if not hwnd or not _user32.IsWindow(hwnd):
         return False
+    if _user32.GetForegroundWindow() == hwnd:
+        return True
     _user32.ShowWindowAsync(hwnd, 9)  # SW_RESTORE
     _user32.BringWindowToTop(hwnd)
     _user32.SetForegroundWindow(hwnd)
@@ -158,7 +160,20 @@ def capture_game_window(
         left, top, width, height = _get_client_geometry(hwnd)
         if width < 640 or height < 360:
             raise RuntimeError(f"Unexpected game client area size: {width}x{height}")
-        img = _capture_client_with_printwindow(hwnd, width, height)
+
+        # When the game is already in the foreground, capture directly via desktop mss.
+        # This is 10x faster and eliminates DWM surface redraw flashes caused by PrintWindow(PW_RENDERFULLCONTENT) on GPU games.
+        img = None
+        if _user32.GetForegroundWindow() == hwnd:
+            try:
+                monitor = {"top": top, "left": left, "width": width, "height": height}
+                with mss.MSS() as sct:
+                    img = cv2.cvtColor(np.array(sct.grab(monitor)), cv2.COLOR_BGRA2BGR)
+            except Exception:
+                img = None
+
+        if img is None:
+            img = _capture_client_with_printwindow(hwnd, width, height)
     except Exception as exc:
         print(tr('warn_background_capture_fail', error=exc))
         _bring_game_to_front(hwnd)
@@ -222,9 +237,9 @@ def safe_click(
     pydirectinput.moveTo(target_x, target_y)
     time.sleep(random.uniform(0.02, 0.05))
 
-    pydirectinput.mouseDown()
+    pydirectinput.mouseDown(x=target_x, y=target_y)
     time.sleep(random.uniform(0.05, 0.08))
-    pydirectinput.mouseUp()
+    pydirectinput.mouseUp(x=target_x, y=target_y)
 
     time.sleep(random.uniform(0.05, 0.1))
     return True
