@@ -47,15 +47,16 @@ class MaxProfitStrategy(BaseStrategy):
         next_reward = next_reward or (current_cashout * 2)
         win_rate = win_rate if win_rate is not None else 1.0
         daily_coins = daily_coins or 0
-        # Sprint: daily >= 19,800 — chase 10k+ cashout
-        if daily_coins >= 19800:
+        cushion = getattr(self, "cushion_target", 19800)
+        # Sprint: daily >= cushion — chase 10k+ cashout
+        if daily_coins >= cushion:
             action = 'cashout' if current_cashout >= 10000 else 'challenge'
-        # Cushion: daily < 19,800
-        # Safe now, but next double overshoots 19,800
-        elif daily_coins + current_cashout <= 19800 and daily_coins + next_reward > 19800:
+        # Cushion: daily < cushion
+        # Safe now, but next double overshoots cushion
+        elif daily_coins + current_cashout <= cushion and daily_coins + next_reward > cushion:
             action = 'cashout'
-        # Cashout itself overshoots 19,800
-        elif daily_coins + current_cashout > 19800:
+        # Cashout itself overshoots cushion
+        elif daily_coins + current_cashout > cushion:
             action = 'cashout' if current_cashout >= 10000 else 'challenge'
         # Low win rate — play safe
         elif win_rate < 0.60:

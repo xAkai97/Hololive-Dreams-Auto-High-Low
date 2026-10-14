@@ -580,20 +580,6 @@ class ModernMenu(tk.Menu):
             def on_click(e, idx=i, itype=item_type):
                 if itype == "cascade":
                     return
-                try:
-                    if itype == "radiobutton":
-                        var_name = self.entrycget(idx, "variable")
-                        val = self.entrycget(idx, "value")
-                        if var_name:
-                            root.setvar(var_name, val)
-                    elif itype == "checkbutton":
-                        var_name = self.entrycget(idx, "variable")
-                        if var_name:
-                            curr = root.getvar(var_name)
-                            new_val = 0 if curr in (1, "1", True) else 1
-                            root.setvar(var_name, new_val)
-                except Exception:
-                    pass
 
                 ModernMenu.close_all()
                 try:
@@ -607,13 +593,34 @@ class ModernMenu(tk.Menu):
                 w.bind("<Button-1>", on_click)
 
         popup.update_idletasks()
-        sw = popup.winfo_screenwidth()
-        sh = popup.winfo_screenheight()
         pw = popup.winfo_reqwidth()
         ph = popup.winfo_reqheight()
-        if x + pw > sw:
-            x = sw - pw - 8
-        if y + ph > sh:
-            y = sh - ph - 8
-        popup.geometry(f"+{max(0, x)}+{max(0, y)}")
+
+        from src.ui.platform import get_monitor_work_area
+        work_area = get_monitor_work_area(x, y)
+        if work_area:
+            mon_left, mon_top, mon_right, mon_bottom = work_area
+            if self._parent_menu and (x + pw > mon_right):
+                parent_win = getattr(self._parent_menu, "_popup_window", None)
+                if parent_win:
+                    x = parent_win.winfo_rootx() - pw + 2
+            if x + pw > mon_right:
+                x = mon_right - pw - 8
+            if x < mon_left:
+                x = mon_left + 4
+            if y + ph > mon_bottom:
+                y = mon_bottom - ph - 8
+            if y < mon_top:
+                y = mon_top + 4
+        else:
+            sw = popup.winfo_screenwidth()
+            sh = popup.winfo_screenheight()
+            if x + pw > sw:
+                x = max(0, sw - pw - 8)
+            if y + ph > sh:
+                y = max(0, sh - ph - 8)
+            x = max(0, x)
+            y = max(0, y)
+        popup.geometry(f"+{x}+{y}")
+        popup.update_idletasks()
 

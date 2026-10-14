@@ -2,12 +2,15 @@
 .venv/
 venv/
 env/
+.env
+*.env
 
 # Python cache & artifacts
 __pycache__/
 *.py[cod]
 *.class
 .pytest_cache/
+numba_cache/
 
 # Build & packaging outputs
 build/
@@ -23,20 +26,26 @@ _internal/
 
 # Runtime state & debug data
 config.json
-*.bak
+config_*.tmp
+.write_test_*
+config.corrupt_*.json
+config.corrupt-*.json
 debug/
 log.txt
 log_*.txt
 debug_log.txt
+*.log
 logs/
 scratch/
 todo.md
 completed.md
-review.md
-plan.md
+private/
 
-# IDE configurations
+# IDE & OS configurations
 .idea/
 .vscode/
 *.swp
 *.swo
+.DS_Store
+Thumbs.db
+desktop.ini

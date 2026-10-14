@@ -76,10 +76,13 @@ class TestStateMachineHandlers(unittest.TestCase):
     @patch("src.auto_bot.find_and_click_icon", return_value=True)
     @patch("src.auto_bot.save_daily_data")
     def test_handle_start_bet_starts_round(self, mock_save, mock_click):
+        import contextlib
+        import io
         mock_img = np.zeros((720, 1280, 3), dtype=np.uint8)
         self.ctx.in_round = False
         initial_rounds = self.ctx.round_count
-        handle_start_bet(self.ctx, mock_img, win_left=0, win_top=0)
+        with contextlib.redirect_stdout(io.StringIO()):
+            handle_start_bet(self.ctx, mock_img, win_left=0, win_top=0)
         self.assertTrue(self.ctx.in_round)
         self.assertEqual(self.ctx.round_count, initial_rounds + 1)
         mock_save.assert_called_once()

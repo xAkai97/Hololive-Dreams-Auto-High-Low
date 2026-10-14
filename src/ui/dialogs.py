@@ -17,7 +17,7 @@ import webbrowser
 
 import localization
 import auto_bot
-from src.ui.platform import set_window_dark_titlebar
+from src.ui.platform import set_window_dark_titlebar, get_available_ui_font_families
 from src.ui.log_manager import clean_old_logs
 
 if TYPE_CHECKING:
@@ -69,7 +69,7 @@ def show_help_about(app: Any, num_strategies: int = 0):
     # Credits Section Header
     lbl_credits_header = tk.Label(
         frame,
-        text="Credits & Acknowledgments:",
+        text=localization.tr("about_credits_header", app.current_lang),
         font=font_bold,
         bg=bg_hex,
         fg=fg_hex,
@@ -98,7 +98,7 @@ def show_help_about(app: Any, num_strategies: int = 0):
     github_url = "https://github.com/xAkai97/Hololive-Dreams-Auto-High-Low"
     btn_github = ttk.Button(
         btn_frame,
-        text="GitHub Repository",
+        text=localization.tr("btn_github_repo", app.current_lang),
         command=lambda: webbrowser.open(github_url),
         cursor="hand2",
     )
@@ -106,7 +106,7 @@ def show_help_about(app: Any, num_strategies: int = 0):
 
     btn_ok = ttk.Button(
         btn_frame,
-        text="OK",
+        text=localization.tr("btn_ok", app.current_lang),
         command=dialog.destroy,
         width=8,
     )
@@ -117,7 +117,7 @@ def show_help_about(app: Any, num_strategies: int = 0):
     dh = dialog.winfo_reqheight()
     px = app.winfo_rootx() + (app.winfo_width() - dw) // 2
     py = app.winfo_rooty() + (app.winfo_height() - dh) // 2
-    dialog.geometry(f"+{max(0, px)}+{max(0, py)}")
+    dialog.geometry(f"+{px}+{py}")
 
 
 def open_settings_dialog(app: Any):
@@ -190,7 +190,7 @@ def open_settings_dialog(app: Any):
     ]
     rec_keys = [k for k, _ in recovery_options]
     rec_labels = [lbl for _, lbl in recovery_options]
-    combo_recovery = ttk.Combobox(lf_settle, values=rec_labels, state="readonly", width=34)
+    combo_recovery = ttk.Combobox(lf_settle, values=rec_labels, state="readonly", width=44)
     rec_idx = rec_keys.index(app.settlement_recovery_mode) if app.settlement_recovery_mode in rec_keys else 0
     combo_recovery.current(rec_idx)
     combo_recovery.grid(row=0, column=1, sticky="e", pady=6)
@@ -199,6 +199,39 @@ def open_settings_dialog(app: Any):
     ent_settle_timeout = ttk.Entry(lf_settle, width=14, justify="center")
     ent_settle_timeout.insert(0, str(int(app.settlement_ocr_timeout)))
     ent_settle_timeout.grid(row=1, column=1, sticky="e", pady=6)
+
+    # --- Section 4: Font & Typography Appearance ---
+    lf_font = ttk.LabelFrame(frame, text=f" {localization.tr('section_font_settings', app.current_lang)} ", padding=(14, 10))
+    lf_font.pack(fill="x", expand=True, pady=(0, 10))
+    lf_font.columnconfigure(0, weight=1)
+    lf_font.columnconfigure(1, weight=0)
+
+    ttk.Label(lf_font, text=localization.tr("font_family_label", app.current_lang), font=font_label).grid(row=0, column=0, sticky="w", pady=6)
+    font_options = [("auto", localization.tr("font_family_auto", app.current_lang))]
+    for fam in get_available_ui_font_families():
+        font_options.append((fam, fam))
+    font_keys = [k for k, _ in font_options]
+    font_labels = [lbl for _, lbl in font_options]
+    combo_font = ttk.Combobox(lf_font, values=font_labels, state="readonly", width=44)
+    cur_font = getattr(app, "custom_font_family", "auto")
+    cur_font_idx = font_keys.index(cur_font) if cur_font in font_keys else 0
+    combo_font.current(cur_font_idx)
+    combo_font.grid(row=0, column=1, sticky="e", pady=6)
+
+    ttk.Label(lf_font, text=localization.tr("font_scale_label", app.current_lang), font=font_label).grid(row=1, column=0, sticky="w", pady=6)
+    scale_frame = ttk.Frame(lf_font)
+    scale_frame.grid(row=1, column=1, sticky="e", pady=6)
+
+    cur_scale = getattr(app, "font_scale", 100)
+    lbl_scale_val = ttk.Label(scale_frame, text=f"{cur_scale}%", font=font_label, width=5)
+
+    def on_font_scale_slide(v):
+        val = int(float(v))
+        lbl_scale_val.configure(text=f"{val}%")
+
+    scale_font = ttk.Scale(scale_frame, from_=80, to=130, value=cur_scale, command=on_font_scale_slide)
+    scale_font.pack(side="left", padx=(0, 6))
+    lbl_scale_val.pack(side="left")
 
     lbl_status = ttk.Label(frame, text="", font=(app.font_family, 9), foreground="#007700")
     lbl_status.pack(pady=(0, 6))
@@ -212,7 +245,7 @@ def open_settings_dialog(app: Any):
             ticket = int(ent_ticket.get().strip())
             retention = int(ent_retention.get().strip())
             size_mb = int(ent_size.get().strip())
-            app.target_limit = max(1000, target)
+            app.target_limit = max(1000, min(50000, target))
             app.ticket_cost = max(0, ticket)
             app.log_retention_days = max(0, retention)
             app.log_max_size_mb = max(0, size_mb)
@@ -224,16 +257,24 @@ def open_settings_dialog(app: Any):
                 app.settlement_ocr_timeout = max(3.0, min(60.0, to_val))
             except (ValueError, TypeError):
                 app.settlement_ocr_timeout = 8.0
+
+            # Save font family & font scale
+            chosen_font_idx = combo_font.current()
+            if 0 <= chosen_font_idx < len(font_keys):
+                app.custom_font_family = font_keys[chosen_font_idx]
+            app.font_scale = max(80, min(130, int(float(scale_font.get()))))
+            if hasattr(app, "apply_font_settings"):
+                app.apply_font_settings(app.custom_font_family, app.font_scale)
+
             app.entry_setting_target.delete(0, "end")
             app.entry_setting_target.insert(0, str(app.target_limit))
             app.entry_setting_ticket.delete(0, "end")
             app.entry_setting_ticket.insert(0, str(app.ticket_cost))
             app.save_user_settings()
-            clean_old_logs(max_days=app.log_retention_days, max_size_mb=app.log_max_size_mb, lang=app.current_lang)
             lbl_status.configure(text=localization.tr("settings_saved_msg", app.current_lang))
             dialog.after(600, dialog.destroy)
         except ValueError:
-            lbl_status.configure(text="Invalid numbers", foreground="red")
+            lbl_status.configure(text=localization.tr("err_invalid_numbers", app.current_lang), foreground="red")
 
     def on_restore():
         app.restore_default_settings()
@@ -248,6 +289,13 @@ def open_settings_dialog(app: Any):
         combo_recovery.current(0)
         ent_settle_timeout.delete(0, "end")
         ent_settle_timeout.insert(0, "8")
+        combo_font.current(0)
+        scale_font.set(100)
+        lbl_scale_val.configure(text="100%")
+        app.custom_font_family = "auto"
+        app.font_scale = 100
+        if hasattr(app, "apply_font_settings"):
+            app.apply_font_settings("auto", 100)
         app.set_field_box_opacity(30, save=True)
         lbl_status.configure(text=localization.tr("settings_saved_msg", app.current_lang))
 
@@ -256,8 +304,8 @@ def open_settings_dialog(app: Any):
     ttk.Button(btn_box, text=localization.tr("btn_cancel", app.current_lang, default="Cancel"), command=dialog.destroy).pack(side="left", padx=5)
 
     dialog.update_idletasks()
-    req_w = max(560, dialog.winfo_reqwidth() + 30)
-    req_h = max(420, dialog.winfo_reqheight() + 15)
+    req_w = max(650, dialog.winfo_reqwidth() + 40)
+    req_h = max(560, dialog.winfo_reqheight() + 20)
     x = app.winfo_x() + max(0, (app.winfo_width() - req_w) // 2)
     y = app.winfo_y() + max(0, (app.winfo_height() - req_h) // 2)
     dialog.geometry(f"{req_w}x{req_h}+{x}+{y}")
@@ -330,7 +378,7 @@ def open_custom_parametric_dialog(app: Any):
             app.param_drop_seven_eight = dp
 
             app.save_settings()
-            print(f"[Settings] Custom parametric parameters updated: WinRate={wr}%, Cushion={cush}, Sprint={sp}, MaxDoubles={md}, Drop78={dp}")
+            auto_bot.log_debug(f"[Settings] Custom parametric parameters updated: WinRate={wr}%, Cushion={cush}, Sprint={sp}, MaxDoubles={md}, Drop78={dp}")
             dialog.destroy()
         except Exception as e:
             lbl_status.configure(text=f"Error: {e}", foreground="#cc0000")
@@ -359,19 +407,19 @@ def show_benchmark_results_dialog(app: Any, results: list[dict]):
     days_val = results[0].get("Days", 100)
     header_lbl = ttk.Label(
         frame,
-        text=f"📊 Strategy Comparison Benchmark ({days_val} Days Simulated Each)",
+        text=localization.tr("bench_dialog_header", app.current_lang, days=days_val),
         font=(app.font_family, 10, "bold"),
     )
     header_lbl.pack(anchor="w", pady=(0, 10))
 
     cols = ("Rank", "Strategy", "AvgCoins", "Fails", "HitCap", "MaxCoins")
     tree = ttk.Treeview(frame, columns=cols, show="headings", height=min(12, len(results)))
-    tree.heading("Rank", text="Rank")
-    tree.heading("Strategy", text="Strategy")
-    tree.heading("AvgCoins", text="Avg Coins / Day")
-    tree.heading("Fails", text="Avg Fails")
-    tree.heading("HitCap", text="Hit Cap (20k)")
-    tree.heading("MaxCoins", text="Max Recorded")
+    tree.heading("Rank", text=localization.tr("bench_col_rank", app.current_lang))
+    tree.heading("Strategy", text=localization.tr("bench_col_strategy", app.current_lang))
+    tree.heading("AvgCoins", text=localization.tr("bench_col_avg_coins", app.current_lang))
+    tree.heading("Fails", text=localization.tr("bench_col_avg_fails", app.current_lang))
+    tree.heading("HitCap", text=localization.tr("bench_col_hit_cap", app.current_lang))
+    tree.heading("MaxCoins", text=localization.tr("bench_col_max_coins", app.current_lang))
 
     tree.column("Rank", width=50, anchor="center")
     tree.column("Strategy", width=260, anchor="w")
@@ -404,8 +452,8 @@ def show_benchmark_results_dialog(app: Any, results: list[dict]):
     btn_bar = ttk.Frame(dialog, padding=(16, 10))
     btn_bar.pack(fill="x", side="bottom")
 
-    ttk.Button(btn_bar, text="Close", command=dialog.destroy).pack(side="right", padx=4)
-    ttk.Button(btn_bar, text="💾 Export CSV", command=lambda: export_benchmark_csv(app, results)).pack(side="right", padx=4)
+    ttk.Button(btn_bar, text=localization.tr("btn_close", app.current_lang), command=dialog.destroy).pack(side="right", padx=4)
+    ttk.Button(btn_bar, text=localization.tr("btn_export_csv", app.current_lang), command=lambda: export_benchmark_csv(app, results)).pack(side="right", padx=4)
 
     dialog.update_idletasks()
     req_w = max(730, dialog.winfo_reqwidth() + 30)

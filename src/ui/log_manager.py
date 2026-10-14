@@ -10,7 +10,7 @@ import localization
 def load_saved_stats():
     c, fl = auto_bot.load_daily_data()
     data = auto_bot.load_config()
-    ticket_cost = int(data.get("ticket_cost", 50))
+    ticket_cost = auto_bot.cfg_get_int(data, "ticket_cost", 50, min_val=0)
     return c, fl, c - (fl * ticket_cost)
 
 
@@ -57,7 +57,7 @@ def clean_old_logs(max_days: int = 14, max_size_mb: int = 20, lang: str = "en") 
             except Exception:
                 pass
 
-    log_files = [f for f in auto_bot.LOGS_DIR.glob("log_*.txt") if f.is_file()]
+    log_files = [f for f in auto_bot.LOGS_DIR.iterdir() if f.is_file() and f.suffix.lower() in (".txt", ".log")]
 
     # 1. Prune by Age (if max_days > 0)
     if max_days > 0:
@@ -65,9 +65,10 @@ def clean_old_logs(max_days: int = 14, max_size_mb: int = 20, lang: str = "en") 
         surviving_files = []
         for f in log_files:
             try:
-                age = now - f.stat().st_mtime
+                st = f.stat()
+                age = now - st.st_mtime
                 if age > max_age_seconds:
-                    size = f.stat().st_size
+                    size = st.st_size
                     f.unlink()
                     deleted_count += 1
                     freed_bytes += size

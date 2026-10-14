@@ -68,7 +68,7 @@ Like Balanced but pushes harder:
 Starts aggressive, auto-downshifts if failing too much:
 
 - **Rush mode (default):** Max double-up every round (like Fastest)
-- **Auto-adjust triggers:** 5+ consecutive fails OR net profit < -1,500
+- **Auto-adjust triggers:** 10+ consecutive fails OR net profit < -2,000
 - **Cushion mode (fallback):** Small cashouts (3,200+), win rate floor 55%
 - **Sprint** (daily ≥ 19,800): Max double-up for 10k+
 
@@ -138,22 +138,22 @@ graph TD
 
 ### 2. Defensive Bailouts (Collapsible, Under 19.8k Cushion)
 Provides immediate cashout protection on volatile middle cards during the cushion phase, avoiding 50/50 wipes:
-- **Bail on 8 only (`mod_drop_8`)**: Cashes out only when dealt card 8 (47.1% unfavorable odds due to tie-losses), while allowing 7 and 9 to continue.
+- **Bail on 8 only (`mod_drop_8`)**: Cashes out only when dealt card 8 (exact 50.0% coin-flip odds with zero edge), while allowing 7 and 9 to continue.
 - **Bail on 7 & 8 (`mod_drop_78`)**: Cashes out whenever dealt 7 or 8 to avoid coin-flip trap cards.
-- **Bail on 6/7/8/9 (`mod_drop_6789`)**: Ultra-safe grinding policy that cashes out on any middle card (6 through 9; $\le 62.7\%$ win rate).
+- **Bail on 6/7/8/9 (`mod_drop_6789`)**: Ultra-safe grinding policy that cashes out on any middle card (6 through 9; $\le 66.7\%$ win rate).
 
 ### 3. Card Overrides (Collapsible, Double Under Cap)
 Whenever the active strategy proposes a **Cashout**, the bot inspects the visible base card before accepting payout. If the card matches an enabled override and post-double coins remain strictly under the daily cap ($< 20,000$), the bot **overrides the cashout** to continue doubling:
 
-| Override Tier | Target Cards | 52-Card Win Odds (Ties Lose) | Risk Rating |
+| Override Tier | Target Cards | 52-Card Win Odds (Ties Push) | Risk Rating |
 |:---|:---|:---:|:---:|
-| **A & 2** *(Default ON)* | Ace (14) & 2 | **94.1%** (48 / 51) | Near Certain |
-| **3 & K** *(Default ON)* | 3 & King (13) | **86.3%** (44 / 51) | Highly Favorable |
-| **4 & Q** *(Default ON)* | 4 & Queen (12) | **78.4%** (40 / 51) | Favorable |
-| **5 & J** | 5 & Jack (11) | **70.6%** (36 / 51) | Aggressive Build |
-| **6 & 10** | 6 & 10 | **62.7%** (32 / 51) | High Risk |
-| **7 & 9** | 7 & 9 | **54.9%** (28 / 51) | Near Coin-Flip |
-| **8** | 8 | **47.1%** (24 / 51) | Unfavorable (Extreme Risk) |
+| **A & 2** *(Default ON)* | Ace (14) & 2 | **100.0%** (48 / 48) | Deterministic Win |
+| **3 & K** *(Default ON)* | 3 & King (13) | **91.7%** (44 / 48) | Highly Favorable |
+| **4 & Q** *(Default ON)* | 4 & Queen (12) | **83.3%** (40 / 48) | Favorable |
+| **5 & J** | 5 & Jack (11) | **75.0%** (36 / 48) | Aggressive Build |
+| **6 & 10** | 6 & 10 | **66.7%** (32 / 48) | Moderate Risk |
+| **7 & 9** | 7 & 9 | **58.3%** (28 / 48) | Near Coin-Flip |
+| **8** | 8 | **50.0%** (24 / 48) | Pure 50/50 Coin Flip |
 
 #### Strict Lockout Prevention Guard
 $$\text{daily\_coins} + \text{next\_reward} < \text{target\_limit}$$

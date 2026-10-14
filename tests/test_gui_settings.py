@@ -476,12 +476,17 @@ class TestGUISettingsAndMenus(unittest.TestCase):
                 thirty_days_ago = time.time() - (30 * 86400)
                 os.utime(old_log, (thirty_days_ago, thirty_days_ago))
 
+                old_debug = logs_dir / "debug_log_2026-01-01_12-00-00.txt"
+                old_debug.write_text("old debug", encoding="utf-8")
+                os.utime(old_debug, (thirty_days_ago, thirty_days_ago))
+
                 fresh_log = logs_dir / "log_2026-09-26_12-00-00.txt"
                 fresh_log.write_text("fresh", encoding="utf-8")
 
                 deleted, _ = clean_old_logs(max_days=7, max_size_mb=0)
-                self.assertEqual(deleted, 1)
+                self.assertEqual(deleted, 2)
                 self.assertFalse(old_log.exists())
+                self.assertFalse(old_debug.exists())
                 self.assertTrue(fresh_log.exists())
 
     def test_clean_old_logs_by_size(self):
@@ -515,6 +520,15 @@ class TestGUISettingsAndMenus(unittest.TestCase):
                 coins, fails = auto_bot.load_daily_data()
                 self.assertEqual(coins, 500)
                 self.assertEqual(fails, 2)
+
+                # Same date with rounds=None preserves rounds count
+                auto_bot.save_daily_data(600, 2)
+                self.assertEqual(auto_bot.load_daily_rounds(), 15)
+
+                # Date rollover with rounds=None resets rounds to 0
+                with patch("auto_bot.get_game_date", return_value="2099-01-01"):
+                    auto_bot.save_daily_data(0, 0)
+                    self.assertEqual(auto_bot.load_daily_rounds(), 0)
 
     def test_categorized_config_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -701,6 +715,53 @@ class TestToolTip(unittest.TestCase):
             mock_save.assert_called_once()
             _, kwargs = mock_save.call_args
             self.assertEqual(kwargs.get("theme_mode"), "system")
+
+    def test_font_family_and_scale_settings(self):
+        # 1. Test auto detection behavior
+        self.app.custom_font_family = "auto"
+        self.app.current_lang = "ja"
+        eff_ja = self.app.get_effective_font_family()
+        self.assertIsInstance(eff_ja, str)
+        self.assertTrue(len(eff_ja) > 0)
+
+        # 2. Test manual font and scale application
+        with patch.object(self.app, "save_settings") as mock_save:
+            self.app.apply_font_settings(font_family="Arial", font_scale=115)
+            self.assertEqual(self.app.custom_font_family, "Arial")
+            self.assertEqual(self.app.font_scale, 115)
+            self.assertEqual(self.app.get_effective_font_family(), "Arial")
+            mock_save.assert_called()
+
+        # 3. Test persistence via save_user_settings
+        with patch("auto_bot.save_daily_data") as mock_save_daily:
+            self.app.save_user_settings()
+            mock_save_daily.assert_called_once()
+            _, kwargs = mock_save_daily.call_args
+            self.assertEqual(kwargs.get("custom_font_family"), "Arial")
+            self.assertEqual(kwargs.get("font_scale"), 115)
+
+        # 4. Test restore defaults
+        with patch.object(self.app, "save_user_settings"):
+            self.app.restore_default_settings()
+            self.assertEqual(self.app.custom_font_family, "auto")
+            self.assertEqual(self.app.font_scale, 100)
+
+    def test_safe_open_path_file_and_dir(self):
+        tmp_dir = Path(self._temp_dir.name)
+        test_file = tmp_dir / "test_debug.txt"
+        test_file.write_text("sample log", encoding="utf-8")
+
+        # Opening an existing file should not raise WinError 183 or call mkdir on the file
+        with patch("os.startfile", create=True) as mock_startfile:
+            self.app._safe_open_path(test_file)
+            mock_startfile.assert_called_once_with(test_file)
+
+        # Opening a non-existent file should create parent and touch file without error
+        non_existent_file = tmp_dir / "subdir" / "new_log.txt"
+        with patch("os.startfile", create=True) as mock_startfile:
+            self.app._safe_open_path(non_existent_file)
+            self.assertTrue(non_existent_file.exists())
+            mock_startfile.assert_called_once_with(non_existent_file)
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ import re
 import sys
 import threading
 import datetime
-from typing import Optional
+from typing import Optional, Any, Callable
 from pathlib import Path
 import ddddocr
 
@@ -28,6 +28,12 @@ try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
+
+
+class SafeStop(Exception):
+    """Graceful stop triggered by user cancellation or intentional safety guard."""
+    pass
+
 
 # Directly initialize OCR engine globally
 ocr = ddddocr.DdddOcr(show_ad=False)
@@ -160,7 +166,7 @@ def get_card_point_value(card) -> Optional[int]:
     if raw in ROBUST_RANK_MAP:
         return ROBUST_RANK_MAP[raw]
 
-    print(f"[Warning] Recognizer output unparseable rank: '{raw}', ID: {getattr(card, 'card_id', None)}")
+    log_debug(f"[Warning] Recognizer output unparseable rank: '{raw}', ID: {getattr(card, 'card_id', None)}")
     return None
 
 
@@ -248,7 +254,6 @@ class HighLowCounter:
         self.reset()
 
     def reset(self):
-        self.deck = {i: 4 for i in range(2, 15)}
         self._counts = [0, 0, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
         self.total_cards = 52
 
@@ -256,7 +261,6 @@ class HighLowCounter:
         for card_val in cards_list:
             if 2 <= card_val <= 14 and self._counts[card_val] > 0:
                 self._counts[card_val] -= 1
-                self.deck[card_val] -= 1
                 self.total_cards -= 1
 
     def get_best_choice_and_rate(self, current_card: int) -> tuple[str, float]:
@@ -548,7 +552,9 @@ def read_settlement_payout(img, search_zone, expected=None):
         cyan_amount = read_result_number(img, search_zone, ocr)
         if cyan_amount > 0:
             if expected is not None and expected > 0:
-                if cyan_amount == expected or str(expected) in str(cyan_amount):
+                exp_str = str(expected)
+                cyan_str = str(cyan_amount)
+                if cyan_amount == expected or (cyan_str.startswith(exp_str) and len(cyan_str) - len(exp_str) <= 1):
                     return expected
             if is_valid_settlement_amount(cyan_amount):
                 return cyan_amount
@@ -569,11 +575,10 @@ def read_settlement_payout(img, search_zone, expected=None):
     text = text.translate(_SETTLEMENT_TRANS)
     digits = ''.join(filter(str.isdigit, text))
 
-    # Priority 1: If expected cashout is known, check if it's contained in the OCR digits
-    # (e.g. '1600' inside '160015' due to noise or trailing characters)
+    # Priority 1: If expected cashout is known, check if it matches with at most 1 trailing noise digit
     if expected is not None and expected > 0:
         exp_str = str(expected)
-        if exp_str in digits:
+        if digits == exp_str or (digits.startswith(exp_str) and len(digits) - len(exp_str) <= 1):
             return expected
 
     # Priority 2: Parse raw digits and validate against Hololive Dreams game rules
@@ -662,17 +667,12 @@ def _categorize_config_dict(cfg: dict) -> dict:
     return categorized
 
 
-def _order_config_dict(cfg: dict) -> dict:
-    """Return categorized nested config dictionary for readability."""
-    return _categorize_config_dict(cfg)
-
-
 def _write_config(updater_fn):
     global _config_cache, _config_mtime, _debug_logging_enabled
     with _CONFIG_LOCK:
         current = _load_config_unlocked()
         updater_fn(current)
-        ordered_data = _order_config_dict(current)
+        ordered_data = _categorize_config_dict(current)
         tmp_name = f"{DATA_FILE.stem}_{os.getpid()}_{threading.get_ident()}_{time.time_ns()}.tmp"
         temporary = DATA_FILE.parent / tmp_name
         try:
@@ -703,6 +703,9 @@ def save_pending_cashout(cash: int):
 
 
 def clear_pending_cashout():
+    cached = load_config()
+    if "pending_cashout" not in cached and "pending_cashout_date" not in cached:
+        return
     def update(cfg):
         cfg.pop("pending_cashout", None)
         cfg.pop("pending_cashout_date", None)
@@ -739,11 +742,66 @@ def _load_config_unlocked() -> dict:
                     _config_mtime = mtime
                     _debug_logging_enabled = bool(flat_data.get("debug_logging", False))
                     return dict(_config_cache)
-        except Exception:
-            pass
+                else:
+                    raise ValueError("Configuration JSON root is not an object.")
+        except Exception as exc:
+            try:
+                ts = time.strftime("%Y%m%d_%H%M%S")
+                corrupt_backup = DATA_FILE.parent / f"config.corrupt_{ts}.json"
+                if not corrupt_backup.exists() and DATA_FILE.stat().st_size > 0:
+                    import shutil
+                    shutil.copy2(DATA_FILE, corrupt_backup)
+                print(f"[Warning] Failed to parse config.json ({exc}). Backed up to {corrupt_backup.name}")
+            except Exception:
+                pass
     elif _config_file != DATA_FILE:
         return {}
     return dict(_config_cache) if _config_cache else {}
+
+
+def cfg_get_int(cfg: dict, key: str, default: int, min_val: Optional[int] = None, max_val: Optional[int] = None) -> int:
+    val = cfg.get(key)
+    try:
+        if val is None or val == "":
+            res = default
+        else:
+            res = int(float(val))
+    except (ValueError, TypeError):
+        res = default
+    if min_val is not None and res < min_val:
+        res = min_val
+    if max_val is not None and res > max_val:
+        res = max_val
+    return res
+
+
+def cfg_get_float(cfg: dict, key: str, default: float, min_val: Optional[float] = None, max_val: Optional[float] = None) -> float:
+    val = cfg.get(key)
+    try:
+        if val is None or val == "":
+            res = default
+        else:
+            res = float(val)
+    except (ValueError, TypeError):
+        res = default
+    if min_val is not None and res < min_val:
+        res = min_val
+    if max_val is not None and res > max_val:
+        res = max_val
+    return res
+
+
+def cfg_get_bool(cfg: dict, key: str, default: bool = False) -> bool:
+    val = cfg.get(key)
+    if val is None:
+        return default
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        return bool(val)
+    if isinstance(val, str):
+        return val.strip().lower() in ("true", "1", "yes", "on")
+    return default
 
 
 def load_config() -> dict:
@@ -776,15 +834,26 @@ def load_daily_data():
 def save_daily_data(coins, fails, rounds: Optional[int] = None, **settings):
     def update(cfg):
         cfg.pop("phased_stage", None)
+        old_date = cfg.get("date")
+        cur_date = get_game_date()
+        date_changed = (old_date != cur_date)
         cfg.update({
             "coins": coins,
             "fails": fails,
-            "date": get_game_date(),
+            "date": cur_date,
         })
         if rounds is not None:
             cfg["rounds"] = max(0, int(rounds))
-        elif "rounds" not in cfg:
+        elif date_changed or "rounds" not in cfg:
             cfg["rounds"] = 0
+        if settings:
+            cfg.update(settings)
+    _write_config(update)
+
+
+def save_settings_only(**settings):
+    """Save user settings and toggles without overwriting active coins, fails, or rounds stats."""
+    def update(cfg):
         if settings:
             cfg.update(settings)
     _write_config(update)
@@ -847,13 +916,13 @@ class BotSessionState:
         self.last_state: Optional[str] = None
         self._config: dict = load_config()
         try:
-            self._config_mtime: float = CONFIG_FILE.stat().st_mtime
+            self._config_mtime: float = DATA_FILE.stat().st_mtime
         except Exception:
             self._config_mtime = 0.0
 
     def get_config(self) -> dict:
         try:
-            mtime = CONFIG_FILE.stat().st_mtime
+            mtime = DATA_FILE.stat().st_mtime
             if mtime != self._config_mtime:
                 self._config = load_config()
                 self._config_mtime = mtime
@@ -1084,7 +1153,7 @@ def handle_ask_challenge(ctx: BotSessionState, img: np.ndarray, win_left: int, w
     ctx.try_log_final_poker_hand(img)
     if getattr(ctx.strategy, "base_cash", None) is None:
         if is_success_prompt(img):
-            raise RuntimeError('Currently mid-doubling, cannot recover win count. Please start from a fresh round.')
+            raise SafeStop('Currently mid-doubling, cannot recover win count. Please start from a fresh round.')
         real_reward = read_challenge_payout(img, REWARD_ZONE)
         next_reward = ctx.reward_reader.observe(real_reward, time.monotonic())
         if next_reward is None:
@@ -1119,8 +1188,6 @@ def handle_ask_challenge(ctx: BotSessionState, img: np.ndarray, win_left: int, w
         win_rate = 1.0
         rate_text = tr('risk_blind')
 
-    action = ctx.strategy.decide(current_cashout, next_reward, win_rate, ctx.daily_coins)
-
     # Apply active strategy modifiers and card overrides from cached configuration
     runtime_config = ctx.get_config()
     opp_a2 = runtime_config.get("opp_a2", True)
@@ -1139,10 +1206,13 @@ def handle_ask_challenge(ctx: BotSessionState, img: np.ndarray, win_left: int, w
     mod_sprint_floor = runtime_config.get("mod_sprint_floor", False)
     mod_mega_sprint = runtime_config.get("mod_mega_sprint", False)
 
-    user_cushion = runtime_config.get("param_cushion_target")
+    is_custom_parametric = getattr(ctx.strategy, "name", "") == "Custom Parametric"
+    user_cushion = runtime_config.get("param_cushion_target") if is_custom_parametric else None
     cushion_target = int(user_cushion) if user_cushion is not None else getattr(ctx.strategy, "cushion_target", 19800)
     if hasattr(ctx.strategy, "cushion_target"):
         ctx.strategy.cushion_target = cushion_target
+
+    action = ctx.strategy.decide(current_cashout, next_reward, win_rate, ctx.daily_coins)
 
     action, mod_reason = apply_strategy_modifiers(
         decision=action,
@@ -1236,7 +1306,7 @@ def handle_high_low(ctx: BotSessionState, img: np.ndarray, win_left: int, win_to
                 ctx.step_count += 1
                 card_label = card_text(single_card.card_id)
 
-                print(tr('hl_step_header', step=ctx.step_count, card=card_label, remaining=ctx.counter.total_cards))
+                print(f"\n" + tr('hl_step_header', step=ctx.step_count, card=card_label, remaining=ctx.counter.total_cards))
                 print(f"  " + tr('visible_card_choice', rank=card_label, choice=best_choice.upper(), rate=rate))
 
                 high_cards = sum(ctx.counter._counts[current_card_val + 1:])
@@ -1322,9 +1392,13 @@ def handle_high_low(ctx: BotSessionState, img: np.ndarray, win_left: int, win_to
                     log_debug(f"[Burst Tracking Warning] Frame tracking timed out after 25 frames. Unable to identify next card.")
 
                 time.sleep(0.15)
+            else:
+                log_debug("[High-Low Warning] Unexpected Joker detected in High-Low visible card zone.")
+                time.sleep(0.20)
         else:
             print(tr('warn_no_cards'))
             log_debug(f"[High-Low Warning] No white face-up card contours found in {HIGH_LOW_SEARCH_ZONE}")
+            time.sleep(0.20)
     except Exception as e:
         print(tr('err_high_low', error=e))
         log_debug(f"[High-Low Exception] {e}")
@@ -1395,10 +1469,10 @@ def auto_play_loop(mode='max_profit', on_stats_update=None, lang=None, on_prompt
     if lang is not None:
         set_lang(lang)
     config = load_config()
-    target_limit = int(config.get("target_limit", TARGET_LIMIT))
-    ticket_cost = int(config.get("ticket_cost", 50))
-    recovery_mode = config.get("settlement_recovery_mode", "auto")
-    ocr_timeout = float(config.get("settlement_ocr_timeout", 8.0))
+    target_limit = cfg_get_int(config, "target_limit", TARGET_LIMIT, min_val=1000)
+    ticket_cost = cfg_get_int(config, "ticket_cost", 50, min_val=0)
+    recovery_mode = str(config.get("settlement_recovery_mode", "auto"))
+    ocr_timeout = cfg_get_float(config, "settlement_ocr_timeout", 8.0, min_val=1.0)
 
     strategy = get_strategy(mode, **strategy_kwargs_from_config(mode, config))
     counter = HighLowCounter()
@@ -1412,7 +1486,8 @@ def auto_play_loop(mode='max_profit', on_stats_update=None, lang=None, on_prompt
     keys = tuple(STRATEGY_REGISTRY.keys())
     idx = keys.index(mode) if mode in keys else -1
     strat_display = strat_labels[idx] if 0 <= idx < len(strat_labels) else strat_name
-    user_cushion = config.get("param_cushion_target")
+    is_custom_parametric = mode == "custom_parametric" or getattr(strategy, "name", "") == "Custom Parametric"
+    user_cushion = config.get("param_cushion_target") if is_custom_parametric else None
     cushion_val = int(user_cushion) if user_cushion is not None else getattr(strategy, "cushion_target", 19800)
     if hasattr(strategy, "cushion_target"):
         strategy.cushion_target = cushion_val

@@ -5,6 +5,12 @@ try:
 except ImportError:
     PRIZES = (200, 400, 700, 800, 1500, 3000, 7000, 10000)
 
+try:
+    from auto_bot import SafeStop
+except ImportError:
+    class SafeStop(Exception):
+        pass
+
 
 VALID_NEXT_REWARDS = frozenset(prize * 2**n for prize in PRIZES for n in range(1, 33))
 
@@ -42,5 +48,5 @@ class ChallengeRewardReader:
             self.last = value
             return value
         if now - self.started >= 8:
-            raise RuntimeError('Challenge payout cannot be confirmed; stopped. Will not use inaccurate or fallback payout to decide doubling. Please check the game screen.')
+            raise SafeStop('Challenge payout cannot be confirmed; stopped. Will not use inaccurate or fallback payout to decide doubling. Please check the game screen.')
         return None

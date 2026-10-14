@@ -4,17 +4,17 @@ Provides modular overrides that can be applied to any doubling strategy:
 1. Defensive Bailouts:
    - Bail on 6, 7, 8, 9 (mod_drop_6789): Drop out on wide middle danger zone in cushion phase.
    - Bail on 7 & 8 (mod_drop_78): Early cashout on 50/50 trap cards in cushion phase.
-   - Bail on 8 (mod_drop_8): Early cashout on single worst negative EV card (47.1%).
-2. Small Hand Free-Roll (mod_free_roll): Always double small payouts (<= 200) until >= 800.
+   - Bail on 8 (mod_drop_8): Early cashout on neutral 50/50 coin flip card (50.0%).
+2. Small Hand Free-Roll (mod_free_roll): Always double small payouts (<= 200).
 3. Fast Build (mod_fast_build): Force double if next reward still safely <= cushion_target (e.g. 19,800).
 4. Opportunistic Card Overrides:
-   - A & 2 (opp_a2, ~94.1%)
-   - 3 & K (opp_3k, ~86.3%)
-   - 4 & Q (opp_4q, ~78.4%)
-   - 5 & J (opp_5j, ~70.6%)
-   - 6 & 10 (opp_610, ~62.7%)
-   - 7 & 9 (opp_79, ~54.9%)
-   - 8 (opp_8, ~47.1%)
+   - A & 2 (opp_a2, 100.0%)
+   - 3 & K (opp_3k, ~91.7%)
+   - 4 & Q (opp_4q, ~83.3%)
+   - 5 & J (opp_5j, 75.0%)
+   - 6 & 10 (opp_610, ~66.7%)
+   - 7 & 9 (opp_79, ~58.3%)
+   - 8 (opp_8, 50.0%)
 5. Sprint Floors:
    - Mega Sprint Floor >= 12,800 (mod_mega_sprint): Pushes for 32k+ cap.
    - Sprint Floor >= 11,200 (mod_sprint_floor): Pushes past 10,000 to guarantee >= 30,000 daily total.
@@ -31,8 +31,8 @@ def apply_strategy_modifiers(
     target_limit: int = 20000,
     cushion_target: int = 19800,
     opp_a2: bool = True,
-    opp_3k: bool = True,
-    opp_4q: bool = True,
+    opp_3k: bool = False,
+    opp_4q: bool = False,
     opp_5j: bool = False,
     opp_610: bool = False,
     opp_79: bool = False,
@@ -69,7 +69,7 @@ def apply_strategy_modifiers(
         if mod_drop_8 and card_val == 8:
             return "cashout", "mod_drop_8"
 
-    # 2. Small Hand Free-Roll: Force doubling small initial hands (<= 200) until >= 800
+    # 2. Small Hand Free-Roll: Force doubling small initial hands (<= 200)
     if mod_free_roll and decision == "cashout" and current_cashout <= 200:
         if daily_coins + next_reward < target_limit:
             return "challenge", "mod_free_roll"

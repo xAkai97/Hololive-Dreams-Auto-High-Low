@@ -20,6 +20,12 @@ except ImportError:
 
 
 class I18nTests(unittest.TestCase):
+    def setUp(self):
+        self._orig_lang = localization.get_lang()
+
+    def tearDown(self):
+        localization.set_lang(self._orig_lang)
+
     def test_all_languages_have_identical_keys(self):
         languages = list(localization.TRANSLATIONS.keys())
         self.assertIn("zh", languages)

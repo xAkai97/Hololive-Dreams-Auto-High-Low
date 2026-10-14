@@ -29,6 +29,7 @@ class AdaptiveRushStrategy(BaseStrategy):
     """
 
     name: str = "Adaptive Rush (~25-32k)"
+    cushion_target: int = 19800
 
     def __init__(self):
         self.reset_round()
@@ -65,15 +66,17 @@ class AdaptiveRushStrategy(BaseStrategy):
         next_reward = next_reward or (current_cashout * 2)
         win_rate = win_rate if win_rate is not None else 1.0
         daily_coins = daily_coins or 0
-        # Sprint: daily >= 19,800 (both modes)
-        if daily_coins >= 19800:
+        cushion = getattr(self, "cushion_target", 19800)
+
+        # Sprint: daily >= cushion (both modes)
+        if daily_coins >= cushion:
             action = 'cashout' if current_cashout >= 10000 else 'challenge'
 
         # Cushion mode (auto-adjusted)
         elif self._in_cushion_mode:
-            if daily_coins + current_cashout <= 19800 and daily_coins + next_reward > 19800:
+            if daily_coins + current_cashout <= cushion and daily_coins + next_reward > cushion:
                 action = 'cashout'
-            elif daily_coins + current_cashout > 19800:
+            elif daily_coins + current_cashout > cushion:
                 action = 'cashout' if current_cashout >= 10000 else 'challenge'
             elif current_cashout >= 3200:
                 action = 'cashout'

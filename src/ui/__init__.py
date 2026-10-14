@@ -3,7 +3,9 @@ from src.ui.platform import (
     is_windows_dark_mode,
     set_window_dark_titlebar,
     get_locale_font_family,
+    get_available_ui_font_families,
     THEME_PALETTES,
+    get_monitor_work_area,
 )
 from src.ui.widgets import (
     DummyFrame,
@@ -40,7 +42,9 @@ __all__ = [
     "is_windows_dark_mode",
     "set_window_dark_titlebar",
     "get_locale_font_family",
+    "get_available_ui_font_families",
     "THEME_PALETTES",
+    "get_monitor_work_area",
     "DummyFrame",
     "CanvasHeaderLabel",
     "CanvasCheckbutton",

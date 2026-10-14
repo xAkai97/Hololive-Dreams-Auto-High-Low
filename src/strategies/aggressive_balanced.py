@@ -23,6 +23,7 @@ class AggressiveBalancedStrategy(BaseStrategy):
     """
 
     name: str = "Aggressive Balanced (~28k)"
+    cushion_target: int = 19800
 
     def __init__(self):
         self.reset_round()
@@ -49,15 +50,17 @@ class AggressiveBalancedStrategy(BaseStrategy):
         next_reward = next_reward or (current_cashout * 2)
         win_rate = win_rate if win_rate is not None else 1.0
         daily_coins = daily_coins or 0
-        # Sprint: daily >= 19,800
-        if daily_coins >= 19800:
+        cushion = getattr(self, "cushion_target", 19800)
+
+        # Sprint: daily >= cushion
+        if daily_coins >= cushion:
             action = 'cashout' if current_cashout >= 10000 else 'challenge'
 
-        # Push: 12,000 <= daily < 19,800
+        # Push: 12,000 <= daily < cushion
         elif daily_coins >= 12000:
-            if daily_coins + current_cashout <= 19800 and daily_coins + next_reward > 19800:
+            if daily_coins + current_cashout <= cushion and daily_coins + next_reward > cushion:
                 action = 'cashout'
-            elif daily_coins + current_cashout > 19800:
+            elif daily_coins + current_cashout > cushion:
                 action = 'cashout' if current_cashout >= 10000 else 'challenge'
             elif win_rate < 0.45:
                 action = 'cashout'
@@ -66,7 +69,7 @@ class AggressiveBalancedStrategy(BaseStrategy):
 
         # Build: daily < 12,000
         else:
-            if daily_coins + current_cashout <= 19800 and daily_coins + next_reward > 19800:
+            if daily_coins + current_cashout <= cushion and daily_coins + next_reward > cushion:
                 action = 'cashout'
             elif current_cashout >= 6400:
                 action = 'cashout'

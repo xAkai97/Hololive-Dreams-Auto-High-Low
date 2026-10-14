@@ -121,5 +121,6 @@ class CustomParametricStrategy(BaseStrategy):
             self._in_safety_mode = True
 
     def notify_win(self) -> None:
-        """Called when a round wins. Resets fail counter."""
+        """Called when a round wins. Resets fail counter and clears safety mode."""
         self._consecutive_fails = 0
+        self._in_safety_mode = False

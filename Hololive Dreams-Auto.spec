@@ -16,6 +16,8 @@ datas += [
     ('locales', 'locales'),
     ('backgrounds', 'backgrounds'),
     ('assets', 'assets'),
+    ('LICENSE', '.'),
+    ('THIRD_PARTY_NOTICES.md', '.'),
 ]
 
 hiddenimports += [

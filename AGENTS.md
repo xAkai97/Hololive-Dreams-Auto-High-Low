@@ -9,7 +9,7 @@ This document provides architectural context, development guidelines, game mecha
 - **Operating System**: Windows (Win32 background capture, DPI scaling).
 - **Shell**: PowerShell (`pwsh`).
 - **Python Version**: 3.10+ (tested through 3.14).
-- **Virtual Environment**: `. .venv` (activates workspace environment).
+- **Virtual Environment**: `. .venv` or `.\.venv\Scripts\Activate.ps1`.
 - **Run Application**:
   ```powershell
   python main_ui.py
@@ -50,14 +50,22 @@ This document provides architectural context, development guidelines, game mecha
 
 ```text
 ├── main_ui.py                 # Modern Tkinter GUI (canvas glassmorphism, tab manager, tooltips)
+├── build.ps1                  # 1-click automated PowerShell packaging script
+├── build.bat                  # 1-click automated Command Prompt packaging script
+├── requirements.txt           # Core runtime dependencies
+├── requirements-build.txt     # Packaging & PyInstaller dependencies
+├── LICENSE                    # MIT License
+├── THIRD_PARTY_NOTICES.md     # Upstream open-source attribution
 ├── src/
 │   ├── auto_bot.py            # Automation state machine, template detection, and click dispatch
 │   ├── window_control.py      # Multi-resolution DPI scaling (Per-Monitor V2) & Win32 capture
+│   ├── recognizer.py          # Multi-scale OpenCV template matching card & icon recognizer
 │   ├── simulation.py          # Offline Monte Carlo simulator & strategy benchmark suite
 │   ├── localization.py        # Dynamic JSON-based i18n localization engine
 │   ├── poker_core.py          # Numba JIT accelerated combinatorial 5-card poker hand solver
 │   ├── reward_vision.py       # Real-time cyan HSV OCR for challenge and settlement numbers
 │   ├── settlement.py          # Payout verification, expected value validation, and OCR recovery
+│   ├── challenge_reward.py    # Challenge payout verification and stabilization
 │   ├── ui/                    # Modular GUI framework (ModernMenu, platform, widgets, dialogs)
 │   └── strategies/            # 7 modular doubling policies + modifiers engine
 │       ├── base.py            # BaseStrategy abstract base class
@@ -73,32 +81,35 @@ This document provides architectural context, development guidelines, game mecha
 ├── backgrounds/               # Custom UI backgrounds (auto-detected, cyclic selection)
 ├── assets/                    # Static assets & application icons
 ├── templates/                 # OpenCV template matching reference images
-└── tests/                     # 19 unit & integration test files (150 tests)
+├── tools/                     # Development utilities & calibration helpers
+└── tests/                     # 18 unit & integration test files (154 tests)
 ```
 
 ---
 
 ## 4. Strategy Modifier Precedence & Hierarchy
 
-The modifier engine in `src/strategies/modifiers.py` (`evaluate_modifiers`) follows strict operational precedence:
+The modifier engine in `src/strategies/modifiers.py` (`apply_strategy_modifiers`) follows strict operational precedence:
 
 ```mermaid
 graph TD
-    A["Strategy Proposes Action (Double vs. Cashout)"] --> B{"Current Cashout <= 200 & Free-Roll ON?"}
-    B -- Yes --> C["Action: Double (mod_free_roll)"]
-    B -- No --> D{"Daily Coins < Cushion Target (19.8k)?"}
-    D -- Yes --> E{"Fast Build ON & Next Reward fits Cushion?"}
-    E -- Yes --> F["Action: Double (mod_fast_build)<br><i>(Supersedes Bailouts & Overrides)</i>"]
-    E -- No --> G{"Middle Card Bailout Triggered?"}
-    G -- Yes --> H["Action: Cashout (mod_drop)"]
-    G -- No --> I{"Card Override Matched (A/2, 3/K, etc.) & <20k?"}
-    I -- Yes --> J["Action: Double (opportunistic_card)"]
-    I -- No --> K["Keep Strategy Base Decision"]
-    D -- No (Sprint Phase >= 19.8k) --> L{"Strategy Decided Cashout?"}
-    L -- Yes --> M{"Sprint Floor / Mega Sprint Triggered?"}
-    M -- Yes --> N["Action: Double (mod_sprint_floor / mega)"]
-    M -- No --> K
-    L -- No --> K
+    A["Strategy Proposes Action (Double vs. Cashout)"] --> B{"Decision == 'stop'?"}
+    B -- Yes --> C["Action: Stop"]
+    B -- No --> D{"Strategy Chose Double & Cushion (<19.8k) & Not Fast Build?"}
+    D -- Yes --> E{"Middle Card Bailout Triggered (6-9, 7-8, 8)?"}
+    E -- Yes --> F["Action: Cashout (mod_drop)"]
+    E -- No --> G["Keep Strategy Double"]
+    D -- No --> H{"Strategy Chose Cashout?"}
+    H -- Yes --> I{"Current Cashout <= 200 & Free-Roll ON & Fits Cap?"}
+    I -- Yes --> J["Action: Double (mod_free_roll)"]
+    I -- No --> K{"Fast Build ON & Fits Cushion?"}
+    K -- Yes --> L["Action: Double (mod_fast_build)"]
+    K -- No --> M{"Card Override ON & Fits Cap & Not Bailed Card?"}
+    M -- Yes --> N["Action: Double (opportunistic_card)"]
+    M -- No --> O{"Sprint Phase (>=19.8k) & Sprint Floor ON?"}
+    O -- Yes --> P["Action: Double (mod_sprint_floor / mega)"]
+    O -- No --> Q["Keep Strategy Cashout"]
+    H -- No --> G
 ```
 
 ### UI Mutual Exclusion Rules

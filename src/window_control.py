@@ -176,14 +176,18 @@ def capture_game_window(
             img = _capture_client_with_printwindow(hwnd, width, height)
     except Exception as exc:
         print(tr('warn_background_capture_fail', error=exc))
-        _bring_game_to_front(hwnd)
-        time.sleep(0.2)
-        left, top, width, height = _get_client_geometry(hwnd)
-        if width < 640 or height < 360:
-            raise RuntimeError(f"Unexpected game client area size: {width}x{height}")
-        monitor = {"top": top, "left": left, "width": width, "height": height}
-        with mss.MSS() as sct:
-            img = cv2.cvtColor(np.array(sct.grab(monitor)), cv2.COLOR_BGRA2BGR)
+        try:
+            _bring_game_to_front(hwnd)
+            time.sleep(0.2)
+            left, top, width, height = _get_client_geometry(hwnd)
+            if width < 640 or height < 360:
+                raise RuntimeError(f"Unexpected game client area size: {width}x{height}")
+            monitor = {"top": top, "left": left, "width": width, "height": height}
+            with mss.MSS() as sct:
+                img = cv2.cvtColor(np.array(sct.grab(monitor)), cv2.COLOR_BGRA2BGR)
+        except Exception:
+            _capture_context = None
+            return None, 0, 0
 
     _capture_context = {
         "hwnd": hwnd,

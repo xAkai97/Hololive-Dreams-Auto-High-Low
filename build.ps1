@@ -33,10 +33,15 @@ if ($PythonPath -and (Test-Path $PythonPath)) {
 Write-Host "[2/3] Compiling executable on local temp drive (using $py)..." -ForegroundColor Yellow
 & $py -m PyInstaller -y --workpath "$env:TEMP\pyi_build" --distpath "$env:TEMP\pyi_dist" "Hololive Dreams-Auto.spec"
 
-# 3. Synchronize to dist/
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "`n[ERROR] PyInstaller compilation failed with exit code $LASTEXITCODE." -ForegroundColor Red
+    exit $LASTEXITCODE
+}
+
+# 4. Synchronize to dist/
 Write-Host "[3/3] Synchronizing release files to dist\Hololive-Dreams-Auto\..." -ForegroundColor Yellow
 if (-not (Test-Path "dist")) { New-Item -ItemType Directory -Path "dist" | Out-Null }
-robocopy "$env:TEMP\pyi_dist\Hololive-Dreams-Auto" "dist\Hololive-Dreams-Auto" /MIR /R:2 /W:1 | Out-Null
+robocopy "$env:TEMP\pyi_dist\Hololive-Dreams-Auto" "dist\Hololive-Dreams-Auto" /MIR /XF config.json log.txt debug_log.txt /XD logs debug /R:2 /W:1 | Out-Null
 
 if ($LASTEXITCODE -le 7) {
     Write-Host "`n===================================================" -ForegroundColor Green

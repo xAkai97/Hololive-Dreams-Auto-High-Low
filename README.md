@@ -7,7 +7,7 @@ An advanced automated assistant, card-counting engine, and simulation suite for 
 ## ✨ Key Features
 
 - **Optimal Hand Selection**: Powered by Numba JIT acceleration to evaluate initial poker hands and hold the mathematically optimal card combinations.
-- **Dynamic Card Counting**: Tracks remaining cards across the 52-card deck during the High-Low phase (and 53-card deck with Joker in poker), accurately factoring in equal-rank tie-losses to calculate exact real-time winning probabilities.
+- **Dynamic Card Counting**: Tracks remaining cards across the 52-card deck during the High-Low phase (and 53-card deck with Joker in poker), accurately factoring in equal-rank tie pushes (re-rolls) to calculate exact real-time winning probabilities.
 - **Multi-Resolution & High-DPI Support**: Native support for any display resolution (720p, 1080p, 1440p / 2K, 2160p / 4K) and Windows display scaling (100%–200%+). Automatically normalizes frames using Per-Monitor DPI V2 awareness and area-averaged anti-aliasing, with proportional subpixel mouse click mapping.
 - **Smart Cushion & Sprint Mechanics**:
   - **Cushion Phase**: Automatically cashes out when odds are unfavorable to steadily build bankroll toward 19,800 without prematurely crossing the 20,000 daily cap.
@@ -18,6 +18,8 @@ An advanced automated assistant, card-counting engine, and simulation suite for 
   - **Card Overrides**: Opportunistic doubling overrides for high-value cards (A/2, 3/K, 4/Q, 5/J, 6/10, 7/9, 8) with strict daily cap lockout prevention guard ($< 20,000$).
   - **Interactive Drawer**: Each modifier category can be collapsed or expanded independently (`▼` / `▶`) with persistent state saving and dynamic container resizing.
   - **Intelligent Mutual Exclusion**: Automatically prevents contradictory modifier combinations directly in the UI.
+- **Unified Start & Stop Control**: Modern full-width toggle button with dynamic state switching between Start Bot and glowing red Stop Bot.
+- **Multilingual Fonts & Dynamic Scaling**: Locale-aware typography adaptation (Chinese, Japanese, English) with manual font overrides and dynamic UI font scale slider (80% to 130%).
 - **Glassmorphic UI & Field Box Opacity**: Real-time PIL alpha-blended frosted glass styling across stats and settings cards with customizable opacity (0% to 100%) and clean plain default background.
 - **Integrated Help & Documentation**: Instant access to verified game rules, paytables, cap overflow guides, online GitHub documentation, and local Markdown references directly from the Help menu.
 - **Automated Daily Rollover**: Synchronized with the 4:00 PM EST daily reset cycle to seamlessly reset session counters and data without manual intervention.
@@ -33,11 +35,17 @@ An advanced automated assistant, card-counting engine, and simulation suite for 
 ```text
 ├── AGENTS.md                  # Development guide & system context for AI coding assistants
 ├── main_ui.py                 # Main application graphical launcher
-├── requirements.txt           # Python dependencies
+├── build.ps1                  # 1-click automated PowerShell packaging script
+├── build.bat                  # 1-click automated Command Prompt packaging script
+├── requirements.txt           # Core runtime dependencies
+├── requirements-build.txt     # Packaging & PyInstaller dependencies
+├── LICENSE                    # MIT License
+├── THIRD_PARTY_NOTICES.md     # Upstream open-source attribution
 ├── Hololive Dreams-Auto.spec  # PyInstaller packaging configuration
 ├── src/                       # Core engine and decision-making logic
 │   ├── auto_bot.py            # Main automation loop and game control
 │   ├── window_control.py      # Multi-resolution DPI-aware capture and click manager
+│   ├── recognizer.py          # Multi-scale OpenCV template matching card & icon recognizer
 │   ├── simulation.py          # Offline Monte Carlo simulation and benchmark engine
 │   ├── localization.py        # Dynamic language registry and translation helper
 │   ├── poker_core.py          # Numba JIT accelerated hand strategy solver
@@ -50,7 +58,7 @@ An advanced automated assistant, card-counting engine, and simulation suite for 
 │   │   ├── adaptive_rush.py   # Auto-downshifting rush policy
 │   │   ├── grinder.py         # Ultra-safe conservative policy
 │   │   ├── custom_parametric.py # User-tunable parametric policy
-│   │   └── modifiers.py       # Fast Build, Sprint Floor, Bail 7/8, Opportunistic overrides
+│   │   └── modifiers.py       # Fast Build, Sprint Floor, Bailouts, Opportunistic overrides
 │   ├── challenge_reward.py    # Challenge payout validation and stabilization
 │   ├── settlement.py          # Settlement balance verification & recovery
 │   ├── reward_vision.py       # Real-time challenge bonus OCR
@@ -62,10 +70,11 @@ An advanced automated assistant, card-counting engine, and simulation suite for 
 ├── assets/                    # Application icons and static assets
 ├── locales/                   # External JSON translations (en.json, zh.json, ja.json, tw.json)
 ├── templates/                 # Game recognition templates
+├── tools/                     # Development utilities & calibration helpers
 ├── docs/                      # Documentation and detailed technical guides
 │   ├── strategies.md          # Comprehensive 7-strategy guide & modifiers
 │   └── ALGORITHMS.md          # Mathematical formulas, probability models & Numba solver
-└── tests/                     # Unit test suite
+└── tests/                     # 18 unit & integration test files (154 tests)
 ```
 
 ---
@@ -76,9 +85,11 @@ An advanced automated assistant, card-counting engine, and simulation suite for 
 - Python 3.10+ (tested through 3.14)
 - Windows OS (game window scaling and background capture support)
 
-```bash
+```powershell
 git clone https://github.com/xAkai97/Hololive-Dreams-Auto-High-Low.git
 cd Hololive-Dreams-Auto-High-Low
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 python main_ui.py
 ```
@@ -89,7 +100,7 @@ python main_ui.py
 
 Install dependencies:
 ```powershell
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-build.txt
 ```
 
 Run the automated 1-click build script:
@@ -141,7 +152,7 @@ The application operates in **Portable Mode** by default and automatically falls
 ### Generated Files & Folders
 - `config.json`: Stores user preferences (language, hotkeys, strategy selection, strategy modifiers toggles, log retention settings, and daily coin stats).
 - `log.txt`: Active session execution log. You can view or export this from the **Logs** menu bar.
-- `logs/`: Timestamped archives of previous sessions (`log_YYYY-MM-DD_HH-MM-SS.txt`), automatically rotated on launch and pruned according to your configured retention settings (default: 14 days or 20 MB).
+- `logs/`: Timestamped archives of previous sessions (`log_YYYY-MM-DD_*.txt`, `debug_log_*.txt`), automatically rotated on launch and pruned according to your configured retention settings (default: 14 days or 20 MB).
 - `debug/`: Debug screenshots captured during vision or OCR failures (when debug mode is active).
 
 ---

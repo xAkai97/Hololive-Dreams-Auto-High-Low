@@ -56,22 +56,24 @@ class GrinderStrategy(BaseStrategy):
         win_rate = win_rate if win_rate is not None else 1.0
         daily_coins = daily_coins or 0
 
-        # Sprint: daily >= 19,800
-        if daily_coins >= 19800:
+        cushion = getattr(self, "cushion_target", 19800)
+
+        # Sprint: daily >= cushion
+        if daily_coins >= cushion:
             action = 'cashout' if current_cashout >= 10000 else 'challenge'
 
-        # Build: daily < 19,800
+        # Build: daily < cushion
         # Hit max doubles — take whatever we have
         elif self._doubles_this_round >= MAX_DOUBLES:
             action = 'cashout'
         # Low win rate — bail
         elif win_rate < 0.60:
             action = 'cashout'
-        # Guard: don't overshoot 19,800
-        elif daily_coins + current_cashout <= 19800 and daily_coins + next_reward > 19800:
+        # Guard: don't overshoot cushion
+        elif daily_coins + current_cashout <= cushion and daily_coins + next_reward > cushion:
             action = 'cashout'
         # Overshoot — force double if small
-        elif daily_coins + current_cashout > 19800:
+        elif daily_coins + current_cashout > cushion:
             action = 'cashout' if current_cashout >= 10000 else 'challenge'
         # Any reasonable cashout — take it (grinder mentality)
         elif current_cashout >= 1600:

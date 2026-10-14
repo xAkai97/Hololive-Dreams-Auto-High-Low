@@ -1,6 +1,13 @@
 """Confirm result amounts after the count-up animation, without game strategy."""
 
 
+try:
+    from auto_bot import SafeStop
+except ImportError:
+    class SafeStop(Exception):
+        pass
+
+
 class SettlementTimeoutError(RuntimeError):
     """Raised when settlement payout reading fails to stabilize within timeout."""
 
@@ -109,7 +116,7 @@ class SettlementManager:
             from localization import tr
 
             if self.settlement_reader.started is None:
-                print(tr('state_settlement_wait'))
+                print(f"\n" + tr('state_settlement_wait'))
             if strategy is not None:
                 cashout_requested = (self.expected_cashout is not None)
                 strategy.begin_settlement(cashout_requested)
@@ -137,7 +144,7 @@ class SettlementManager:
                 elif recovery == "manual" and prompt_fn:
                     earned = prompt_fn(self.expected_cashout, last_amt)
                     if earned is None:
-                        raise
+                        raise SafeStop("Settlement confirmation cancelled or stopped by user.")
                     print(tr('settle_manual_confirmed', amount=earned))
                     log_debug(f"[Settlement Manual] Confirmed payout: {earned}")
                 elif recovery == "manual" and self.expected_cashout:
@@ -145,7 +152,7 @@ class SettlementManager:
                     print(tr('settle_auto_recovered', observed=last_amt, expected=earned))
                     log_debug(f"[Settlement Recovery] OCR discrepancy (observed={last_amt}). Auto-recovered using expected={earned}")
                 else:
-                    raise
+                    raise SafeStop(f"Settlement OCR recovery failed: {err}") from err
 
             if earned is None:
                 return daily_coins, False
