@@ -171,11 +171,20 @@ The application operates in **Portable Mode** by default and automatically falls
 
 This project originated as an enhanced extension of foundational automation work created by the open-source community:
 
-- **Original Project & Concept**: [mwty-0415/Hololive-Dreams-Auto-High-Low](https://github.com/mwty-0415/Hololive-Dreams-Auto-High-Low) by [mwty-0415](https://github.com/mwty-0415) (Bilibili: [hmr0000](https://space.bilibili.com/519062381) / YouTube: [@hmr0000](https://www.youtube.com/@hmr0000)) for the initial game automation architecture and High-Low core.
-- **Computer Vision & Strategy Insights**: [harrykuang-dev/Hololive-Dreams-Auto-High-Low](https://github.com/harrykuang-dev/Hololive-Dreams-Auto-High-Low) by [harrykuang-dev](https://github.com/harrykuang-dev) for OCR enhancements and diagnostic insights.
-- **Poker Card Recognition & Hand Solver**: [Oreki0504/hololive-dreams-helper](https://github.com/Oreki0504/hololive-dreams-helper) by [Oreki0504](https://github.com/Oreki0504) for card recognition templates and poker hand evaluation logic.
+- **Original Project & Core Concept**:
+  - **Repository**: [mwty-0415/Hololive-Dreams-Auto-High-Low](https://github.com/mwty-0415/Hololive-Dreams-Auto-High-Low)
+  - **Author**: [mwty-0415](https://github.com/mwty-0415) (Bilibili: [hmr0000](https://space.bilibili.com/519062381) / YouTube: [@hmr0000](https://www.youtube.com/@hmr0000))
+  - **Notice**: Foundational game automation state machine and High-Low core recognition.
+- **Computer Vision & Strategy Insights**:
+  - **Repository**: [harrykuang-dev/Hololive-Dreams-Auto-High-Low](https://github.com/harrykuang-dev/Hololive-Dreams-Auto-High-Low)
+  - **Author**: [harrykuang-dev](https://github.com/harrykuang-dev)
+  - **Notice**: Enhanced OCR heuristics, settlement verification routines, and diagnostic insights.
+- **Poker Card Recognition & Hand Solver**:
+  - **Repository**: [Oreki0504/hololive-dreams-helper](https://github.com/Oreki0504/hololive-dreams-helper)
+  - **Author**: [Oreki0504](https://github.com/Oreki0504)
+  - **Notice**: Card template patterns and poker hand evaluation logic.
 
-All original copyrights and licenses are respected and retained.
+All original copyrights, trademarks, and open-source licenses are respected and retained. For complete attribution notices, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ---
 
