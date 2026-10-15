@@ -130,13 +130,24 @@ To customize the interface appearance:
 
 ---
 
-## 🌐 Custom Translations
+## 🌐 Custom Translations & In-Game Language Support
 
-To add a new language or modify existing strings:
+### Adding Bot UI Translations
+To translate the bot interface into a new language:
 1. Navigate to the `locales/` folder.
 2. Copy an existing file (e.g. `en.json`) and name it with your locale code (e.g. `ko.json`, `es.json`).
-3. Set `"language_name"` (e.g. `"한국어"`) and translate the values.
+3. Set `"language_name"` (e.g. `"한국어"`) and translate the string values.
 4. Restart the bot — the new language will automatically appear in the UI dropdown.
+
+> [!IMPORTANT]
+> **In-Game Language Requirement**:
+> While *Hololive Dreams* provides 6 language options, the bot's computer vision engine currently includes button recognition templates (`Start`, `Proceed`, `Chance`, `Result`, `Too Bad`, etc.) for **4 supported game languages**:
+> - 🇬🇧 **English (`en`)**
+> - 🇯🇵 **Japanese (`ja`)**
+> - 🇨🇳 **Simplified Chinese (`zh`)**
+> - 🇹🇼 **Traditional Chinese (`tw`)**
+>
+> You can set the bot's UI to any custom language, but **the game's in-game language must be set to one of the 4 supported languages above** for automatic button detection. Supporting a new in-game language requires adding corresponding button capture templates under `templates/icons/<lang>/` and registering them in `src/auto_bot.py`.
 
 ---
 
@@ -160,7 +171,7 @@ The application operates in **Portable Mode** by default and automatically falls
 ## 📖 Instructions
 
 1. Launch *Hololive Dreams* and ensure the game window is not minimized to the taskbar (it can be obscured or running behind other windows).
-2. Ensure the game is running in a standard **16:9 aspect ratio** (e.g. 1280x720, 1920x1080, 2560x1440, or 3840x2160 in windowed or fullscreen mode). Displays with custom Windows DPI scaling (125%, 150%, 200%) are supported out of the box.
+2. Set the in-game language to one of the 4 supported languages (**English**, **Japanese**, **Simplified Chinese**, or **Traditional Chinese**). Ensure the game runs in a standard **16:9 aspect ratio** (e.g. 1280x720, 1920x1080, 2560x1440, or 3840x2160 in windowed or fullscreen mode). Custom Windows DPI scaling (125%, 150%, 200%) is supported out of the box.
 3. Launch the bot and configure your preferred language and stop hotkey.
 4. Select your desired strategy mode and click **"Start Bot"**.
 5. Press your configured stop hotkey at any time to safely halt automation.
