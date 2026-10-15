@@ -147,7 +147,7 @@ To translate the bot interface into a new language:
 > - 🇨🇳 **Simplified Chinese (`zh`)**
 > - 🇹🇼 **Traditional Chinese (`tw`)**
 >
-> You can set the bot's UI to any custom language, but **the game's in-game language must be set to one of the 4 supported languages above** for automatic button detection. Supporting a new in-game language requires adding corresponding button capture templates under `templates/icons/<lang>/` and registering them in `src/auto_bot.py`.
+> You can set the bot's UI to any custom language, but **the game's in-game language must be set to one of the 4 supported languages above** for automatic button detection. Supporting a new in-game language (e.g. Korean or Indonesian) is as simple as creating a new folder with corresponding button capture templates under `templates/icons/<lang>/` — the bot will automatically discover and register them on launch without requiring code changes.
 
 ---
 

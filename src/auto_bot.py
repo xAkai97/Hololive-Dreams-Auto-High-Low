@@ -170,75 +170,86 @@ def get_card_point_value(card) -> Optional[int]:
     return None
 
 
-ICON_TEMPLATES = {
-    "START_BET": [
-        resource_path("templates", "icons", "en", "start_en.png"),
-        resource_path("templates", "icons", "ja", "start_ja.png"),
-        resource_path("templates", "icons", "zh", "start_zh.png"),
-        resource_path("templates", "icons", "tw", "start_tw.png"),
-    ],
-    "HOLD_CARDS": [
-        resource_path("templates", "icons", "tpl_replace.png"),
-        resource_path("templates", "icons", "en", "full_en.png"),
-        resource_path("templates", "icons", "ja", "full_ja.png"),
-        resource_path("templates", "icons", "zh", "full_zh.png"),
-        resource_path("templates", "icons", "tw", "full_tw.png"),
-    ],
-    "TAP_TO_PROCEED": [
-        resource_path("templates", "icons", "en", "proceed_en.png"),
-        resource_path("templates", "icons", "ja", "proceed_ja.png"),
-        resource_path("templates", "icons", "zh", "proceed_zh.png"),
-        resource_path("templates", "icons", "tw", "proceed_tw.png"),
-    ],
-    "HIGH_LOW": [resource_path("templates", "icons", "tpl_high.png")],
-    "RESULT": [
-        resource_path("templates", "icons", "en", "result_en.png"),
-        resource_path("templates", "icons", "ja", "result_ja.png"),
-        resource_path("templates", "icons", "zh", "result_zh.png"),
-        resource_path("templates", "icons", "tw", "result_tw.png"),
-    ],
-    "FAIL": [
-        resource_path("templates", "icons", "en", "fail_en.png"),
-        resource_path("templates", "icons", "en", "toobad_en.png"),
-        resource_path("templates", "icons", "ja", "fail_ja.png"),
-        resource_path("templates", "icons", "ja", "toobad_ja.png"),
-        resource_path("templates", "icons", "zh", "fail_zh.png"),
-        resource_path("templates", "icons", "zh", "toobad_zh.png"),
-        resource_path("templates", "icons", "tw", "fail_tw.png"),
-        resource_path("templates", "icons", "tw", "toobad_tw.png"),
-    ],
-    "ASK_CHALLENGE": [
-        resource_path("templates", "icons", "en", "chance_en.png"),
-        resource_path("templates", "icons", "en", "success_en.png"),
-        resource_path("templates", "icons", "ja", "chance_ja.png"),
-        resource_path("templates", "icons", "ja", "success_ja.png"),
-        resource_path("templates", "icons", "zh", "chance_zh.png"),
-        resource_path("templates", "icons", "zh", "success_zh.png"),
-        resource_path("templates", "icons", "tw", "chance_tw.png"),
-        resource_path("templates", "icons", "tw", "success_tw.png"),
-    ],
-}
+def _build_icon_templates() -> tuple[dict[str, list[str]], dict[str, list[tuple[str, str]]], list[str]]:
+    """Dynamically scan templates/icons/ for language-specific button templates.
 
-_LANG_TEMPLATES: dict[str, list[tuple[str, str]]] = {"en": [], "ja": [], "zh": [], "tw": [], "other": []}
-for _state, _tpl_paths in ICON_TEMPLATES.items():
-    for _tpl_path in _tpl_paths:
-        _p_str = str(_tpl_path)
-        _matched = False
-        for _lk in ("en", "ja", "zh", "tw"):
-            if f"_{_lk}." in _p_str or f"/{_lk}/" in _p_str or f"\\{_lk}\\" in _p_str:
-                _LANG_TEMPLATES[_lk].append((_state, _tpl_path))
-                _matched = True
-                break
-        if not _matched:
-            _LANG_TEMPLATES["other"].append((_state, _tpl_path))
+    Automatically registers any language subfolder (e.g. en, ja, zh, tw, ko, id) containing:
+      - start_*.png   -> START_BET
+      - full_*.png    -> HOLD_CARDS, OK_AS_IS_TEMPLATES
+      - proceed_*.png -> TAP_TO_PROCEED
+      - result_*.png  -> RESULT
+      - fail_*.png, toobad_*.png -> FAIL
+      - chance_*.png, success_*.png -> ASK_CHALLENGE
+    """
+    icons_dir = Path(resource_path("templates", "icons"))
+    icon_templates: dict[str, list[str]] = {
+        "START_BET": [],
+        "HOLD_CARDS": [resource_path("templates", "icons", "tpl_replace.png")],
+        "TAP_TO_PROCEED": [],
+        "HIGH_LOW": [resource_path("templates", "icons", "tpl_high.png")],
+        "RESULT": [],
+        "FAIL": [],
+        "ASK_CHALLENGE": [],
+    }
+    lang_templates: dict[str, list[tuple[str, str]]] = {"other": [
+        ("HOLD_CARDS", resource_path("templates", "icons", "tpl_replace.png")),
+        ("HIGH_LOW", resource_path("templates", "icons", "tpl_high.png")),
+    ]}
+    ok_as_is: list[str] = []
 
+    prefix_map = {
+        "start": "START_BET",
+        "full": "HOLD_CARDS",
+        "proceed": "TAP_TO_PROCEED",
+        "result": "RESULT",
+        "fail": "FAIL",
+        "toobad": "FAIL",
+        "chance": "ASK_CHALLENGE",
+        "success": "ASK_CHALLENGE",
+    }
+
+    if icons_dir.is_dir():
+        for lang_dir in sorted(icons_dir.iterdir()):
+            if not lang_dir.is_dir():
+                continue
+            lang_code = lang_dir.name.lower()
+            lang_templates.setdefault(lang_code, [])
+            for file_path in sorted(lang_dir.glob("*.png")):
+                stem_lower = file_path.stem.lower()
+                p_str = str(file_path)
+                for prefix, state in prefix_map.items():
+                    if stem_lower.startswith(prefix):
+                        icon_templates[state].append(p_str)
+                        lang_templates[lang_code].append((state, p_str))
+                        if prefix == "full":
+                            ok_as_is.append(p_str)
+                        break
+
+    # Static fallback if directory scan returns no templates
+    if not icon_templates["START_BET"]:
+        default_langs = ("en", "ja", "zh", "tw")
+        for lk in default_langs:
+            lang_templates.setdefault(lk, [])
+            icon_templates["START_BET"].append(resource_path("templates", "icons", lk, f"start_{lk}.png"))
+            icon_templates["HOLD_CARDS"].append(resource_path("templates", "icons", lk, f"full_{lk}.png"))
+            icon_templates["TAP_TO_PROCEED"].append(resource_path("templates", "icons", lk, f"proceed_{lk}.png"))
+            icon_templates["RESULT"].append(resource_path("templates", "icons", lk, f"result_{lk}.png"))
+            icon_templates["FAIL"].append(resource_path("templates", "icons", lk, f"fail_{lk}.png"))
+            icon_templates["FAIL"].append(resource_path("templates", "icons", lk, f"toobad_{lk}.png"))
+            icon_templates["ASK_CHALLENGE"].append(resource_path("templates", "icons", lk, f"chance_{lk}.png"))
+            icon_templates["ASK_CHALLENGE"].append(resource_path("templates", "icons", lk, f"success_{lk}.png"))
+            ok_as_is.append(resource_path("templates", "icons", lk, f"full_{lk}.png"))
+            for state in ("START_BET", "HOLD_CARDS", "TAP_TO_PROCEED", "RESULT", "FAIL", "ASK_CHALLENGE"):
+                for p in icon_templates[state]:
+                    if f"_{lk}." in str(p) or f"/{lk}/" in str(p) or f"\\{lk}\\" in str(p):
+                        if (state, p) not in lang_templates[lk]:
+                            lang_templates[lk].append((state, p))
+
+    return icon_templates, lang_templates, ok_as_is
+
+
+ICON_TEMPLATES, _LANG_TEMPLATES, OK_AS_IS_TEMPLATES = _build_icon_templates()
 TPL_REPLACE = resource_path("templates", "icons", "tpl_replace.png")
-OK_AS_IS_TEMPLATES = [
-    resource_path("templates", "icons", "en", "full_en.png"),
-    resource_path("templates", "icons", "ja", "full_ja.png"),
-    resource_path("templates", "icons", "zh", "full_zh.png"),
-    resource_path("templates", "icons", "tw", "full_tw.png"),
-]
 TPL_HIGH = resource_path("templates", "icons", "tpl_high.png")
 TPL_LOW = resource_path("templates", "icons", "tpl_low.png")
 TPL_CONFIRM_DOUBLE = resource_path("templates", "icons", "tpl_check.png")

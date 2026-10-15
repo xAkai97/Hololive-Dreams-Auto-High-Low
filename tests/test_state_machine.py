@@ -87,6 +87,39 @@ class TestStateMachineHandlers(unittest.TestCase):
         self.assertEqual(self.ctx.round_count, initial_rounds + 1)
         mock_save.assert_called_once()
 
+    def test_dynamic_icon_templates_discovery(self):
+        import tempfile
+        from pathlib import Path
+        from src.auto_bot import _build_icon_templates
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            icons_dir = Path(tmpdir) / "templates" / "icons"
+            icons_dir.mkdir(parents=True)
+            (icons_dir / "tpl_replace.png").touch()
+            (icons_dir / "tpl_high.png").touch()
+
+            for lk in ("ko", "id"):
+                ld = icons_dir / lk
+                ld.mkdir()
+                (ld / f"start_{lk}.png").touch()
+                (ld / f"full_{lk}.png").touch()
+                (ld / f"proceed_{lk}.png").touch()
+                (ld / f"result_{lk}.png").touch()
+                (ld / f"fail_{lk}.png").touch()
+                (ld / f"toobad_{lk}.png").touch()
+                (ld / f"chance_{lk}.png").touch()
+                (ld / f"success_{lk}.png").touch()
+
+            with patch("src.auto_bot.resource_path", side_effect=lambda *parts: str(Path(tmpdir).joinpath(*parts))):
+                icons, langs, ok_as_is = _build_icon_templates()
+
+            self.assertIn("ko", langs)
+            self.assertIn("id", langs)
+            self.assertEqual(len(langs["ko"]), 8)
+            self.assertEqual(len(langs["id"]), 8)
+            self.assertEqual(len(icons["START_BET"]), 2)
+            self.assertEqual(len(ok_as_is), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
