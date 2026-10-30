@@ -42,9 +42,18 @@ class TestStrategies(unittest.TestCase):
 
     def test_max_profit_lucky_cashout(self):
         strat = MaxProfitStrategy()
-        # total + current > 19800 and current >= 10000 -> cashout
-        decision = strat.decide(current_cashout=10000, next_reward=20000, win_rate=0.80, daily_coins=11000)
+        # Royal Flush (10,000 -> 20,000) at 5,000 coins fits under cushion (15,000 <= 19,900, 25,000 > 19,900) -> cashout
+        decision = strat.decide(current_cashout=10000, next_reward=20000, win_rate=0.80, daily_coins=5000)
         self.assertEqual(decision, 'cashout')
+        # Royal Flush (10,000 -> 20,000) at 13,600 coins overshoots cushion (23,600 < 32,600),
+        # but 13,600 + 20,000 = 33,600 >= 32,600 -> challenge to WIN (not cashout at 23,600!)
+        decision_13600 = strat.decide(current_cashout=10000, next_reward=20000, win_rate=0.80, daily_coins=13600)
+        self.assertEqual(decision_13600, 'challenge')
+        self.assertFalse(strat.intent_to_fail)
+        # Royal Flush at 11,000 coins overshoots cushion (21,000) and 11,000 + 20,000 = 31,000 < 32,600 -> challenge with intent_to_fail
+        decision_11000 = strat.decide(current_cashout=10000, next_reward=20000, win_rate=0.80, daily_coins=11000)
+        self.assertEqual(decision_11000, 'challenge')
+        self.assertTrue(strat.intent_to_fail)
 
     def test_max_profit_force_double(self):
         strat = MaxProfitStrategy()

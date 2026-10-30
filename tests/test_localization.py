@@ -124,6 +124,11 @@ class I18nTests(unittest.TestCase):
             "observed": 160015,
             "expected": 1600,
             "amount": 1600,
+            "max_payout": 12800,
+            "style": "Default",
+            "items": "A/2, 3/K",
+            "attempts": 3,
+            "state": "ON",
         }
         for lang in ("zh", "tw", "en", "ja"):
             for key in localization.TRANSLATIONS[lang]:

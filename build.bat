@@ -17,6 +17,15 @@ if "%PY_CMD%"=="python" if defined VIRTUAL_ENV if exist "%VIRTUAL_ENV%\Scripts\p
 if "%PY_CMD%"=="python" if defined CONDA_PREFIX if exist "%CONDA_PREFIX%\python.exe" set "PY_CMD=%CONDA_PREFIX%\python.exe"
 if "%PY_CMD%"=="python" if exist ".venv\Scripts\python.exe" set "PY_CMD=.venv\Scripts\python.exe"
 if "%PY_CMD%"=="python" if exist "venv\Scripts\python.exe" set "PY_CMD=venv\Scripts\python.exe"
+"%PY_CMD%" -c "import PyInstaller" >nul 2>&1
+if errorlevel 1 (
+    set "PY_CMD=python"
+    for %%V in (-3.14 -3.13 -3.12 -3.11 -3.10) do (
+        if "%PY_CMD%"=="python" (
+            for /f "delims=" %%P in ('py %%V -c "import sys, PyInstaller; print(sys.executable)" 2^>nul') do set "PY_CMD=%%P"
+        )
+    )
+)
 
 echo [2/3] Compiling executable on local temp drive (using %PY_CMD%)...
 "%PY_CMD%" -m PyInstaller -y --workpath "%TEMP%\pyi_build" --distpath "%TEMP%\pyi_dist" "Hololive Dreams-Auto.spec"

@@ -6,7 +6,7 @@ and behavior switches.
 """
 from typing import Optional
 
-from strategies.base import BaseStrategy
+from strategies.base import BaseStrategy, normalize_play_style
 
 
 class CustomParametricStrategy(BaseStrategy):
@@ -33,7 +33,9 @@ class CustomParametricStrategy(BaseStrategy):
         max_doubles: int = 0,
         drop_on_seven_eight: bool = False,
         fail_safety_limit: int = 0,
+        play_style: str = "default",
     ):
+        self.play_style = normalize_play_style(play_style)
         self.cashout_target = cashout_target
         self.min_win_rate = min_win_rate
         self.sprint_threshold = sprint_threshold
@@ -49,6 +51,7 @@ class CustomParametricStrategy(BaseStrategy):
     def reset_round(self) -> None:
         self.base_cash: Optional[int] = None
         self.last_cashout: Optional[int] = None
+        self.intent_to_fail: bool = False
         self._doubles_this_round = 0
 
     def start_round(self, base_cash: int, coins: int) -> None:
@@ -62,6 +65,10 @@ class CustomParametricStrategy(BaseStrategy):
     def guess_clicked(self) -> None:
         self._doubles_this_round += 1
 
+    def notify_push(self) -> None:
+        if self._doubles_this_round > 0:
+            self._doubles_this_round -= 1
+
     def decide(
         self,
         current_cashout: Optional[int] = None,
@@ -73,43 +80,35 @@ class CustomParametricStrategy(BaseStrategy):
         next_reward = next_reward or (current_cashout * 2)
         win_rate = win_rate if win_rate is not None else 1.0
         daily_coins = daily_coins or 0
+        cushion = getattr(self, "cushion_target", self.sprint_threshold)
+        self.intent_to_fail = False
 
         # 1. Sprint check
-        if daily_coins >= self.sprint_threshold:
+        if daily_coins >= cushion:
             action = 'cashout' if current_cashout >= self.sprint_cashout else 'challenge'
-
-        # 2. Fail safety check
-        elif self._in_safety_mode:
-            action = 'cashout' if current_cashout >= 200 else 'challenge'
-
-        # 3. Max doubles check
-        elif self.max_doubles > 0 and self._doubles_this_round >= self.max_doubles:
-            action = 'cashout'
-
-        # 4. Drop on 7/8 check (win_rate proxy: 7 or 8 gives ~50% rate)
-        elif self.drop_on_seven_eight and win_rate <= 0.52:
-            action = 'cashout'
-
-        # 5. Win rate check
-        elif win_rate < self.min_win_rate:
-            action = 'cashout'
-
-        # 6. Build targets
-        # Guard: don't overshoot sprint threshold
-        elif (daily_coins + current_cashout <= self.sprint_threshold
-                and daily_coins + next_reward > self.sprint_threshold):
-            action = 'cashout'
-
-        # Overshoot sprint — force double if under sprint cashout
-        elif daily_coins + current_cashout > self.sprint_threshold:
-            action = 'cashout' if current_cashout >= self.sprint_cashout else 'challenge'
-
-        # Cashout target reached
-        elif current_cashout >= self.cashout_target:
-            action = 'cashout'
-
         else:
-            action = 'challenge'
+            guard = self.evaluate_cushion_guard(
+                current_cashout=current_cashout,
+                next_reward=next_reward,
+                daily_coins=daily_coins,
+                cushion=cushion,
+                sprint_floor=self.sprint_cashout,
+                force_19900=(cushion == 19900),
+            )
+            if guard is not None:
+                action = guard
+            elif self._in_safety_mode:
+                action = 'cashout' if current_cashout >= 200 else 'challenge'
+            elif self.max_doubles > 0 and self._doubles_this_round >= self.max_doubles:
+                action = 'cashout'
+            elif self.drop_on_seven_eight and win_rate <= 0.52:
+                action = 'cashout'
+            elif win_rate < self.min_win_rate:
+                action = 'cashout'
+            elif current_cashout >= self.cashout_target:
+                action = 'cashout'
+            else:
+                action = 'challenge'
 
         self.last_cashout = current_cashout if action == 'cashout' else None
         return action

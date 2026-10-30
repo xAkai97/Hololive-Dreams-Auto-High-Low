@@ -1,17 +1,30 @@
 import unittest
 from unittest.mock import MagicMock, patch
+import contextlib
+import io
 import numpy as np
 
-from src.auto_bot import (
+import auto_bot
+from auto_bot import (
     BotSessionState,
     STATE_HANDLERS,
     handle_tap_to_proceed,
     handle_start_bet,
+    handle_hold_cards,
 )
 
 
 class TestStateMachineHandlers(unittest.TestCase):
     def setUp(self):
+        self._patchers = [
+            patch.object(auto_bot, "save_daily_data"),
+            patch.object(auto_bot, "save_pending_cashout"),
+            patch.object(auto_bot, "clear_pending_cashout"),
+        ]
+        self.mock_save_daily = self._patchers[0].start()
+        self._patchers[1].start()
+        self._patchers[2].start()
+
         self.mock_strategy = MagicMock()
         self.mock_counter = MagicMock()
         self.mock_card_rec = MagicMock()
@@ -37,6 +50,10 @@ class TestStateMachineHandlers(unittest.TestCase):
             on_stats_update=None,
             on_prompt_settlement=None,
         )
+
+    def tearDown(self):
+        for p in self._patchers:
+            p.stop()
 
     def test_state_handlers_registered(self):
         expected_states = {
@@ -67,15 +84,14 @@ class TestStateMachineHandlers(unittest.TestCase):
         self.assertFalse(self.ctx.poker_deal_solved)
         self.assertFalse(self.ctx.has_recorded_fail)
 
-    @patch("src.auto_bot.safe_click")
+    @patch("auto_bot.safe_click")
     def test_handle_tap_to_proceed(self, mock_click):
         mock_img = np.zeros((720, 1280, 3), dtype=np.uint8)
         handle_tap_to_proceed(self.ctx, mock_img, win_left=100, win_top=50)
         mock_click.assert_called_once_with(640, 360, 100, 50)
 
-    @patch("src.auto_bot.find_and_click_icon", return_value=True)
-    @patch("src.auto_bot.save_daily_data")
-    def test_handle_start_bet_starts_round(self, mock_save, mock_click):
+    @patch("auto_bot.find_and_click_icon", return_value=True)
+    def test_handle_start_bet_starts_round(self, mock_click):
         import contextlib
         import io
         mock_img = np.zeros((720, 1280, 3), dtype=np.uint8)
@@ -85,12 +101,77 @@ class TestStateMachineHandlers(unittest.TestCase):
             handle_start_bet(self.ctx, mock_img, win_left=0, win_top=0)
         self.assertTrue(self.ctx.in_round)
         self.assertEqual(self.ctx.round_count, initial_rounds + 1)
-        mock_save.assert_called_once()
+        self.mock_save_daily.assert_called_once()
+
+    @patch("auto_bot.time.sleep")
+    @patch("auto_bot.find_and_click_icon")
+    @patch("auto_bot.safe_click")
+    @patch("auto_bot.get_currently_held_indices")
+    def test_handle_hold_cards_verifies_before_replace_and_resyncs_on_miss(
+        self, mock_get_held, mock_safe_click, mock_find_click, mock_sleep
+    ):
+        from src.recognizer import RecognizedCard
+
+        # Mock 5 dealt cards
+        cards = [
+            RecognizedCard(0, "2", "C", 0.95, 0.90, 0.5),
+            RecognizedCard(4, "3", "C", 0.95, 0.90, 0.5),
+            RecognizedCard(8, "4", "C", 0.95, 0.90, 0.5),
+            RecognizedCard(12, "5", "C", 0.95, 0.90, 0.5),
+            RecognizedCard(16, "6", "C", 0.95, 0.90, 0.5),
+        ]
+        rects = [(100 + 100 * i, 300, 80, 120) for i in range(5)]
+        self.mock_card_rec.recognize.return_value = (cards, rects)
+
+        mock_img = np.zeros((720, 1280, 3), dtype=np.uint8)
+
+        # 1. First invocation: solver chooses target holds (e.g. slots 0, 1, 2).
+        # Currently none are held.
+        mock_get_held.return_value = set()
+        with contextlib.redirect_stdout(io.StringIO()):
+            handle_hold_cards(self.ctx, mock_img, win_left=10, win_top=20)
+
+        # Verify cards to toggle were clicked
+        self.assertEqual(mock_safe_click.call_count, len(self.ctx.target_held_indices))
+        self.assertTrue(self.ctx.has_done_initial_hold)
+        # MUST NOT have clicked replace yet because hold state is unverified
+        mock_find_click.assert_not_called()
+
+        # 2. Second invocation: Simulate cursor moved away during click, missing slot 1.
+        # Screen shows only slots {0, 2} are actually held. Target is {0, 1, 2}.
+        target_slots = set(self.ctx.target_held_indices)
+        mock_safe_click.reset_mock()
+        mock_find_click.reset_mock()
+        mock_get_held.return_value = target_slots - {1}
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            handle_hold_cards(self.ctx, mock_img, win_left=10, win_top=20)
+
+        # Verify only missing slot 1 was re-clicked (resync)
+        self.assertEqual(mock_safe_click.call_count, 1)
+        expected_x = rects[1][0] + rects[1][2] // 2
+        expected_y = rects[1][1] + rects[1][3] // 2
+        mock_safe_click.assert_called_once_with(expected_x, expected_y, 10, 20)
+        # Still unverified, so replace must NOT be clicked
+        mock_find_click.assert_not_called()
+
+        # 3. Third invocation: All target slots {0, 1, 2} are now verified on screen
+        mock_safe_click.reset_mock()
+        mock_find_click.reset_mock()
+        mock_get_held.return_value = target_slots
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            handle_hold_cards(self.ctx, mock_img, win_left=10, win_top=20)
+
+        # No cards needed re-clicking
+        mock_safe_click.assert_not_called()
+        # Hold state verified: Replace button click is finally authorized
+        self.assertTrue(mock_find_click.called)
 
     def test_dynamic_icon_templates_discovery(self):
         import tempfile
         from pathlib import Path
-        from src.auto_bot import _build_icon_templates
+        from auto_bot import _build_icon_templates
 
         with tempfile.TemporaryDirectory() as tmpdir:
             icons_dir = Path(tmpdir) / "templates" / "icons"
@@ -110,7 +191,7 @@ class TestStateMachineHandlers(unittest.TestCase):
                 (ld / f"chance_{lk}.png").touch()
                 (ld / f"success_{lk}.png").touch()
 
-            with patch("src.auto_bot.resource_path", side_effect=lambda *parts: str(Path(tmpdir).joinpath(*parts))):
+            with patch("auto_bot.resource_path", side_effect=lambda *parts: str(Path(tmpdir).joinpath(*parts))):
                 icons, langs, ok_as_is = _build_icon_templates()
 
             self.assertIn("ko", langs)

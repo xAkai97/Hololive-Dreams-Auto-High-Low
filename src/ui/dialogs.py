@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import csv
 import json
-import re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from typing import TYPE_CHECKING, Any, Optional
@@ -18,7 +17,6 @@ import webbrowser
 import localization
 import auto_bot
 from src.ui.platform import set_window_dark_titlebar, get_available_ui_font_families
-from src.ui.log_manager import clean_old_logs
 
 if TYPE_CHECKING:
     import queue
@@ -29,12 +27,12 @@ def show_help_rules(app: Any):
     webbrowser.open("https://github.com/xAkai97/Hololive-Dreams-Auto-High-Low/blob/main/docs/strategies.md#game-rules")
 
 
-def show_help_strategies(app: Any, num_strategies: int = 7):
+def show_help_strategies(app: Any, num_strategies: Optional[int] = None):
     """Open online strategy catalog and modifier system guide on GitHub in the default browser."""
     webbrowser.open("https://github.com/xAkai97/Hololive-Dreams-Auto-High-Low/blob/main/docs/strategies.md#available-strategies")
 
 
-def show_help_about(app: Any, num_strategies: int = 0):
+def show_help_about(app: Any, num_strategies: Optional[int] = None):
     """Display application metadata, author acknowledgments, and repository link."""
     dialog = tk.Toplevel(app)
     dialog.title(localization.tr("menu_about", app.current_lang))
@@ -315,7 +313,7 @@ def open_custom_parametric_dialog(app: Any):
     """Open an interactive popup dialog for fine-tuning custom strategy parameters."""
     dialog = tk.Toplevel(app)
     dialog.title(localization.tr("custom_param_dialog_title", app.current_lang))
-    dialog.geometry("380x360")
+    dialog.geometry("410x400")
     dialog.resizable(False, False)
     dialog.transient(app)
     dialog.grab_set()
@@ -323,8 +321,8 @@ def open_custom_parametric_dialog(app: Any):
     set_window_dark_titlebar(dialog, is_dark)
     dialog.configure(bg=app.theme_palette["bg_plain_hex"])
 
-    x = app.winfo_x() + max(0, (app.winfo_width() - 380) // 2)
-    y = app.winfo_y() + max(0, (app.winfo_height() - 360) // 2)
+    x = app.winfo_x() + max(0, (app.winfo_width() - 410) // 2)
+    y = app.winfo_y() + max(0, (app.winfo_height() - 400) // 2)
     dialog.geometry(f"+{x}+{y}")
 
     frame = ttk.Frame(dialog, padding=16)
@@ -352,16 +350,21 @@ def open_custom_parametric_dialog(app: Any):
     ent_doubles.insert(0, str(app.param_max_doubles))
     ent_doubles.grid(row=3, column=1, sticky="e", pady=6)
 
-    ttk.Label(frame, text=localization.tr("drop_seven_eight_label", app.current_lang), font=font_label).grid(row=4, column=0, sticky="w", pady=6)
+    ttk.Label(frame, text=localization.tr("lbl_hunt_14k_attempts", app.current_lang), font=font_label).grid(row=4, column=0, sticky="w", pady=6)
+    ent_hunt_attempts = ttk.Entry(frame, width=10, justify="center")
+    ent_hunt_attempts.insert(0, str(getattr(app, "hunt_14k_attempts", 0)))
+    ent_hunt_attempts.grid(row=4, column=1, sticky="e", pady=6)
+
+    ttk.Label(frame, text=localization.tr("drop_seven_eight_label", app.current_lang), font=font_label).grid(row=5, column=0, sticky="w", pady=6)
     var_drop = tk.BooleanVar(value=bool(app.param_drop_seven_eight))
     chk_drop = ttk.Checkbutton(frame, variable=var_drop)
-    chk_drop.grid(row=4, column=1, sticky="e", pady=6)
+    chk_drop.grid(row=5, column=1, sticky="e", pady=6)
 
     lbl_status = ttk.Label(frame, text="", font=(app.font_family, 9), foreground="#007700")
-    lbl_status.grid(row=5, column=0, columnspan=2, pady=6)
+    lbl_status.grid(row=6, column=0, columnspan=2, pady=6)
 
     btn_box = ttk.Frame(frame)
-    btn_box.grid(row=6, column=0, columnspan=2, pady=10)
+    btn_box.grid(row=7, column=0, columnspan=2, pady=10)
 
     def on_save():
         try:
@@ -369,16 +372,20 @@ def open_custom_parametric_dialog(app: Any):
             cush = max(1000, min(50000, int(ent_cushion.get().strip())))
             sp = max(1000, min(100000, int(ent_sprint.get().strip())))
             md = max(1, min(20, int(ent_doubles.get().strip())))
+            ha = max(0, min(10000, int(ent_hunt_attempts.get().strip())))
             dp = bool(var_drop.get())
 
             app.param_min_win_rate = wr
             app.param_cushion_target = cush
             app.param_sprint_target = sp
             app.param_max_doubles = md
+            app.hunt_14k_attempts = ha
             app.param_drop_seven_eight = dp
 
             app.save_settings()
-            auto_bot.log_debug(f"[Settings] Custom parametric parameters updated: WinRate={wr}%, Cushion={cush}, Sprint={sp}, MaxDoubles={md}, Drop78={dp}")
+            auto_bot.log_debug(
+                f"[Settings] Custom parametric parameters updated: WinRate={wr}%, Cushion={cush}, Sprint={sp}, MaxDoubles={md}, Hunt14kAttempts={ha}, Drop78={dp}"
+            )
             dialog.destroy()
         except Exception as e:
             lbl_status.configure(text=f"Error: {e}", foreground="#cc0000")

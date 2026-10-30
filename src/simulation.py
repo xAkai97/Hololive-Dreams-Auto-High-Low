@@ -18,7 +18,6 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from poker_core import (
-    JOKER_ID,
     PRIZES,
     calculate_best,
     _evaluate_category5,
@@ -171,6 +170,9 @@ class GameSimulator:
         mod_free_roll: bool = False,
         mod_sprint_floor: bool = False,
         mod_mega_sprint: bool = False,
+        mod_force_19900: bool = False,
+        mod_hunt_14k: bool = False,
+        hunt_14k_attempts: int = 0,
         cushion_target: int = 19800,
         time_poker_round: float = TIME_POKER_ROUND_SEC,
         time_doubling_step: float = TIME_DOUBLING_STEP_SEC,
@@ -196,6 +198,10 @@ class GameSimulator:
         self.mod_free_roll = mod_free_roll
         self.mod_sprint_floor = mod_sprint_floor
         self.mod_mega_sprint = mod_mega_sprint
+        self.mod_force_19900 = mod_force_19900
+        self.mod_hunt_14k = mod_hunt_14k
+        self.hunt_14k_attempts = hunt_14k_attempts
+        self.sprint_attempts = 0
         self.cushion_target = cushion_target
         self.time_poker_round = time_poker_round
         self.time_doubling_step = time_doubling_step
@@ -314,14 +320,25 @@ class GameSimulator:
                 mod_free_roll=self.mod_free_roll,
                 mod_sprint_floor=self.mod_sprint_floor,
                 mod_mega_sprint=self.mod_mega_sprint,
+                mod_force_19900=self.mod_force_19900,
+                mod_hunt_14k=self.mod_hunt_14k,
+                hunt_14k_attempts=self.hunt_14k_attempts,
+                sprint_attempts=self.sprint_attempts,
+                force_adaptive_sprint=getattr(strategy, "force_adaptive_sprint", False),
                 win_rate=win_rate,
             )
 
             if mod_reason and decision == "challenge":
                 if hasattr(strategy, "last_cashout"):
                     strategy.last_cashout = None
+                if mod_reason in ("mod_mega_sprint_fail", "mod_sprint_floor_fail", "mod_hunt_14k_fail", "mod_force_19900_fail"):
+                    strategy.intent_to_fail = True
+                else:
+                    strategy.intent_to_fail = False
 
             if decision == "cashout" or decision == "stop":
+                if hasattr(strategy, "intent_to_fail"):
+                    strategy.intent_to_fail = False
                 strategy.begin_settlement(cashout_requested=True)
                 duration = (
                     self.time_poker_round
@@ -341,6 +358,8 @@ class GameSimulator:
                 )
 
             # Strategy chose 'challenge'
+            if getattr(strategy, "intent_to_fail", False):
+                choice, _ = counter.get_worst_choice_and_rate(current_card)
             strategy.guess_clicked()
 
             if not hl_deck:
@@ -358,6 +377,8 @@ class GameSimulator:
                     is_win = False
                 else:
                     # In-game push: card remains and player makes another choice
+                    if hasattr(strategy, "notify_push"):
+                        strategy.notify_push()
                     current_card = next_card
                     continue
             else:
@@ -437,16 +458,22 @@ class GameSimulator:
         max_daily_rounds: int = 500,
         exact_poker: bool = False,
         target_limit: int = 20000,
+        unlimited_hunt_rounds: Optional[bool] = None,
     ) -> DaySimulationResult:
         """Simulate a complete day until the target coin cap stops new games."""
         strategy = strategy_cls(**(strategy_kwargs or {}))
-        if hasattr(strategy, "cushion_target"):
+        if hasattr(strategy, "cushion_target") and strategy.__class__.__name__ not in ("TrueMaxCoinsStrategy", "TrueMaxProfitStrategy"):
             strategy.cushion_target = self.cushion_target
+        if hasattr(strategy, "hunt_14k_attempts") and self.hunt_14k_attempts > 0 and getattr(strategy, "hunt_14k_attempts", 0) == 0:
+            strategy.hunt_14k_attempts = self.hunt_14k_attempts
+        self.sprint_attempts = 0
+        allow_high_rounds = unlimited_hunt_rounds if unlimited_hunt_rounds is not None else (strategy.__class__.__name__ in ("TrueMaxCoinsStrategy", "TrueMaxProfitStrategy") or self.mod_hunt_14k)
+        eff_max_rounds = max(max_daily_rounds, 10000) if allow_high_rounds else max_daily_rounds
         daily_coins = 0
         daily_fails = 0
         rounds: list[RoundResult] = []
 
-        while daily_coins < target_limit and len(rounds) < max_daily_rounds:
+        while daily_coins < target_limit and len(rounds) < eff_max_rounds:
             payout, _, _ = self.draw_poker_hand(exact_poker=exact_poker)
             if payout == 0:
                 daily_fails += 1
@@ -482,6 +509,8 @@ class GameSimulator:
             else:
                 daily_fails += 1
                 strategy.notify_fail()
+                if daily_coins >= getattr(strategy, "cushion_target", self.cushion_target):
+                    self.sprint_attempts += 1
                 if hasattr(strategy, "_check_auto_adjust"):
                     strategy._check_auto_adjust(daily_coins, daily_fails, int(ENTRY_FEE))
 
@@ -549,11 +578,18 @@ class GameSimulator:
         days: int = 100,
         exact_poker: bool = False,
         target_limit: int = 20000,
+        strategy_kwargs: Optional[dict] = None,
     ) -> list[MonteCarloSummary]:
         """Benchmark all registered strategies over N days and return sorted summaries."""
         summaries: list[MonteCarloSummary] = []
         for _, cls in STRATEGY_REGISTRY.items():
-            summary = self.run_monte_carlo(cls, days=days, exact_poker=exact_poker, target_limit=target_limit)
+            summary = self.run_monte_carlo(
+                cls,
+                strategy_kwargs=strategy_kwargs,
+                days=days,
+                exact_poker=exact_poker,
+                target_limit=target_limit,
+            )
             summaries.append(summary)
         summaries.sort(key=lambda s: s.avg_net_profit, reverse=True)
         return summaries
@@ -566,21 +602,30 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Hololive Dreams Strategy Simulator & Benchmarker")
-    parser.add_argument("--strategy", choices=list(STRATEGY_REGISTRY.keys()), default="max_profit",
+    choices = list(STRATEGY_REGISTRY.keys()) + ["true_max_profit", "aggressive_balanced"]
+    parser.add_argument("--strategy", choices=choices, default="balanced",
                         help="Select a specific strategy to simulate")
+    parser.add_argument("--play-style", choices=["aggressive", "default", "conservative"], default="default",
+                        help="Select play style threshold profile")
     parser.add_argument("--compare", action="store_true", help="Benchmark and compare all registered strategies")
     parser.add_argument("--days", type=int, default=100, help="Number of simulated days per strategy")
     parser.add_argument("--exact", action="store_true", help="Run exact JIT poker solver instead of empirical distribution")
     args = parser.parse_args()
+    if args.strategy == "true_max_profit":
+        args.strategy = "true_max_coins"
+    elif args.strategy == "aggressive_balanced":
+        args.strategy = "balanced"
+        args.play_style = "aggressive"
 
     sim = GameSimulator()
+    cli_kwargs = {"play_style": args.play_style} if args.play_style != "default" else None
 
     if args.compare:
         print(f"=== Running Monte Carlo Benchmark across all {len(STRATEGY_REGISTRY)} strategies ({args.days} days each) ===\n")
         summaries: list[MonteCarloSummary] = []
         for key, cls in STRATEGY_REGISTRY.items():
             print(f"  -> Simulating {key}...", end="", flush=True)
-            summary = sim.run_monte_carlo(cls, days=args.days, exact_poker=args.exact)
+            summary = sim.run_monte_carlo(cls, strategy_kwargs=cli_kwargs, days=args.days, exact_poker=args.exact)
             summaries.append(summary)
             print(" Done.")
 
@@ -596,7 +641,7 @@ if __name__ == "__main__":
         print("=" * 105)
     else:
         print(f"Running Monte Carlo simulation for '{args.strategy}' over {args.days} days...")
-        summary = sim.run_monte_carlo(STRATEGY_REGISTRY[args.strategy], days=args.days, exact_poker=args.exact)
+        summary = sim.run_monte_carlo(STRATEGY_REGISTRY[args.strategy], strategy_kwargs=cli_kwargs, days=args.days, exact_poker=args.exact)
         print(f"\nResults for {summary.strategy_name}:")
         print(f"  Avg Daily Coins:   {summary.avg_coins:,.0f} (Min: {summary.min_coins:,}, Max: {summary.max_coins:,})")
         print(f"  Avg Net Profit:    {summary.avg_net_profit:,.0f} coins")

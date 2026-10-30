@@ -1,6 +1,6 @@
 # Hololive Dreams Auto Bot
 
-An advanced automated assistant, card-counting engine, and simulation suite for the casino mini-game in *Hololive Dreams*. Features Numba JIT accelerated poker hand optimization, dynamic High-Low odds tracking, 7 modular doubling policies with strategy modifiers, OCR self-healing, and an extensible multilingual GUI.
+An advanced automated assistant, card-counting engine, and simulation suite for the casino mini-game in *Hololive Dreams*. Features Numba JIT accelerated poker hand optimization, dynamic High-Low odds tracking, 7 modular doubling policies with 3 Strategy Play Styles (`Aggressive`, `Default`, `Conservative`) and strategy modifiers, OCR self-healing, and an extensible multilingual GUI.
 
 ---
 
@@ -9,18 +9,28 @@ An advanced automated assistant, card-counting engine, and simulation suite for 
 - **Optimal Hand Selection**: Powered by Numba JIT acceleration to evaluate initial poker hands and hold the mathematically optimal card combinations.
 - **Dynamic Card Counting**: Tracks remaining cards across the 52-card deck during the High-Low phase (and 53-card deck with Joker in poker), accurately factoring in equal-rank tie pushes (re-rolls) to calculate exact real-time winning probabilities.
 - **Multi-Resolution & High-DPI Support**: Native support for any display resolution (720p, 1080p, 1440p / 2K, 2160p / 4K) and Windows display scaling (100%–200%+). Automatically normalizes frames using Per-Monitor DPI V2 awareness and area-averaged anti-aliasing, with proportional subpixel mouse click mapping.
-- **Smart Cushion & Sprint Mechanics**:
-  - **Cushion Phase**: Automatically cashes out when odds are unfavorable to steadily build bankroll toward 19,800 without prematurely crossing the 20,000 daily cap.
-  - **Sprint Phase**: Unlocks aggressive play once total coins reach 19,800, pushing for 10,000+ coins in a single final run for maximum daily profit (~29k-32k).
-- **Strategy Modifiers Drawer with Collapsible Categories**:
-  - **Progression & Sprint**: Fast Build (double to cushion limit), Free-Roll (double on 200 or less), Sprint Floor (11.2k+), and Mega Sprint Floor (12.8k+).
+- **Smart Dynamic Cushion & Sprint Mechanics**:
+  - **Cushion Phase (19,800–19,900)**: Automatically cashes out when odds are unfavorable to steadily build bankroll toward 19,800–19,900 without prematurely crossing the 20,000 daily cap, and intentionally fails early overshoot hands unless they can reach a 32,600+ total finish.
+  - **Sprint Phase**: Unlocks aggressive play once total coins reach 19,800–19,900, pushing for 10,000–14,000 coins in a single final run for maximum daily profit (~29k-33.9k).
+- **Strategy Play Styles & Collapsible Modifiers Drawer**:
+  - **Strategy Play Style (`Aggressive` / `Default` / `Conservative`)**: Located directly above the Strategy Modifiers drawer on both the Auto Bot and Simulation tabs. Mutually-exclusive risk profile toggles rendered as a modern segmented pill selector that tunes internal strategy win-rate floors, cashout targets, and downshift thresholds (`Default` active by default and persisted on toggle and exit).
+  - **Progression & Sprint**: Fast Build (double to cushion limit), Free-Roll (double on 200 or less), Force 19,900 Cushion (parity-aware 19,900 alignment), Sprint Floor (11.2k+), Mega Sprint Floor (12.8k+), and Hunt 14k (Five of a Kind 14,000 sprint hunting).
   - **Defensive Bailouts**: Middle-card protection against volatility under 19.8k cushion (Bail on 8 only, Bail on 7/8, Bail on 6/7/8/9).
-  - **Card Overrides**: Opportunistic doubling overrides for high-value cards (A/2, 3/K, 4/Q, 5/J, 6/10, 7/9, 8) with strict daily cap lockout prevention guard ($< 20,000$).
-  - **Interactive Drawer**: Each modifier category can be collapsed or expanded independently (`▼` / `▶`) with persistent state saving and dynamic container resizing.
+  - **Card Overrides**: Opportunistic doubling overrides for high-value cards (A/2, 3/K, 4/Q, 5/J, 6/10, 7/9, 8) with strict daily cap lockout prevention guard ($\le 19,900$).
+  - **Interactive Drawer & Quick Reset**: Each modifier category can be collapsed or expanded independently (`▼` / `▶`) with persistent state saving and dynamic container resizing. A one-click **`↺ Reset`** button instantly restores all modifiers to clean default recommendations.
+  - **Anti-Aliased Pill Switches & Live Feedback**: All modifiers, overrides, and settings utilize smooth 4x supersampled rounded pill toggle switches with instant live mid-game log feedback on state changes.
   - **Intelligent Mutual Exclusion**: Automatically prevents contradictory modifier combinations directly in the UI.
-- **Unified Start & Stop Control**: Modern full-width toggle button with dynamic state switching between Start Bot and glowing red Stop Bot.
+- **Modern Segmented Glassmorphic UI**:
+  - **Segmented Top Tabs**: Sleek canvas segmented pill selector for switching between `Auto Bot` and `Simulation` modes with full alpha transparency.
+  - **Grouped Settings Cards**: Settings tab organized into 3 clear glassmorphic cards (`Appearance & Display`, `Gameplay & Automation`, `Diagnostics & Logging`) with pill switches and streamlined controls.
+  - **Field Box Opacity**: Real-time PIL alpha-blended frosted glass styling across stats, modifiers, and settings cards with customizable opacity (0% to 100%) and clean plain default background.
+- **Dual Modes: Auto Bot & Observer Mode**:
+  - **Auto Bot (`▶ START BOT`)**: Fully autonomous play with optimal card holding, deck tracking, and strategy-driven High-Low doubling.
+  - **Observer Mode (`👁 OBSERVER MODE`)**: Zero-click real-time assistant for manual players. Calculates remaining deck odds, optimal poker holds, and doubling recommendations without sending any clicks.
+  - **Live Mode Switching**: Switch between Auto Bot and Observer Mode on the fly with a single click or by pressing the Observer Mode hotkey (`F9`).
+- **Dual Hotkey Selectors**: Customizable hotkeys for Stop Bot (default `INSERT`) and Observer Mode (default `F9`) configured directly from the top card.
+- **Unified Start & Stop Control + Live Adaptive Intercept**: Two-column action button row (`▶ START BOT` and `👁 OBSERVER MODE`) with dynamic state updates, plus a live `⚡ Intercept: Adaptive` button to gracefully switch from 14k hunting to Adaptive Sprint mid-session.
 - **Multilingual Fonts & Dynamic Scaling**: Locale-aware typography adaptation (Chinese, Japanese, English) with manual font overrides and dynamic UI font scale slider (80% to 130%).
-- **Glassmorphic UI & Field Box Opacity**: Real-time PIL alpha-blended frosted glass styling across stats and settings cards with customizable opacity (0% to 100%) and clean plain default background.
 - **Integrated Help & Documentation**: Instant access to verified game rules, paytables, cap overflow guides, online GitHub documentation, and local Markdown references directly from the Help menu.
 - **Automated Daily Rollover**: Synchronized with the 4:00 PM EST daily reset cycle to seamlessly reset session counters and data without manual intervention.
 - **Interactive Tooltips**: Built-in hover tooltips explaining every setting and modifier in natural, accessible language across English, Simplified Chinese, Traditional Chinese, and Japanese.
@@ -49,16 +59,16 @@ An advanced automated assistant, card-counting engine, and simulation suite for 
 │   ├── simulation.py          # Offline Monte Carlo simulation and benchmark engine
 │   ├── localization.py        # Dynamic language registry and translation helper
 │   ├── poker_core.py          # Numba JIT accelerated hand strategy solver
-│   ├── strategies/            # 7 modular doubling policy engines & modifiers
-│   │   ├── base.py            # BaseStrategy abstract interface
-│   │   ├── max_profit.py      # Max profit ~29-32k cushion/sprint policy
+│   ├── strategies/            # 7 modular doubling policy engines, play styles & modifiers
+│   │   ├── base.py            # BaseStrategy abstract interface, play_style & dynamic cushion guard
+│   │   ├── balanced.py        # Default strategy (~30.2k net; supports Aggressive/Default/Conservative styles)
+│   │   ├── aggressive_balanced.py # Backward-compatible alias for BalancedStrategy(play_style='aggressive')
+│   │   ├── max_profit.py      # Adaptive Max Profit (~29-33k) & True Max Coins (33.9k trophy) policies
 │   │   ├── fastest_clear.py   # Speedrun all-or-nothing policy
-│   │   ├── balanced.py        # Moderate risk ~25k policy
-│   │   ├── aggressive_balanced.py # Aggressive ~28k policy
 │   │   ├── adaptive_rush.py   # Auto-downshifting rush policy
 │   │   ├── grinder.py         # Ultra-safe conservative policy
 │   │   ├── custom_parametric.py # User-tunable parametric policy
-│   │   └── modifiers.py       # Fast Build, Sprint Floor, Bailouts, Opportunistic overrides
+│   │   └── modifiers.py       # Fast Build, Force 19,900, Hunt 14k, Sprint Floors, Bailouts, Overrides
 │   ├── challenge_reward.py    # Challenge payout validation and stabilization
 │   ├── settlement.py          # Settlement balance verification & recovery
 │   ├── reward_vision.py       # Real-time challenge bonus OCR
@@ -72,18 +82,30 @@ An advanced automated assistant, card-counting engine, and simulation suite for 
 ├── templates/                 # Game recognition templates
 ├── tools/                     # Development utilities & calibration helpers
 ├── docs/                      # Documentation and detailed technical guides
-│   ├── strategies.md          # Comprehensive 7-strategy guide & modifiers
+│   ├── strategies.md          # Comprehensive 7-strategy guide, play styles & modifiers
 │   └── ALGORITHMS.md          # Mathematical formulas, probability models & Numba solver
-└── tests/                     # 18 unit & integration test files (154 tests)
+└── tests/                     # 20 unit, integration & fuzz test files (204 tests)
 ```
+
+---
+
+## 💻 System & Game Requirements
+
+| Category | Minimum Requirement |
+| :--- | :--- |
+| **Operating System** | **Windows 10 / Windows 11 (64-bit)** |
+| **Processor (CPU)** | Any 64-bit dual-core CPU or newer (Intel Core i3 / AMD Ryzen 3+; runs 100% on CPU — **no dedicated GPU required**) |
+| **Memory & Storage** | **~300 MB** free RAM for the bot (~4 GB+ system RAM recommended); **~350 MB** disk space for standalone release |
+| **Game Display** | **16:9 aspect ratio** (`1280x720`, `1600x900`, `1920x1080`, `2560x1440`, `3840x2160`) in **Windowed** or **Borderless Windowed** mode (any Windows DPI scaling `100%–200%+`) |
+| **In-Game Language** | **English**, **Japanese (`日本語`)**, **Simplified Chinese (`简体中文`)**, or **Traditional Chinese (`繁體中文`)** |
 
 ---
 
 ## 🛠️ Running from Source
 
 ### Prerequisites
-- Python 3.10+ (tested through 3.14)
-- Windows OS (game window scaling and background capture support)
+- Python 3.10–3.14 (64-bit) with `tkinter`
+- Windows 10/11 (64-bit)
 
 ```powershell
 git clone https://github.com/xAkai97/Hololive-Dreams-Auto-High-Low.git
@@ -172,9 +194,9 @@ The application operates in **Portable Mode** by default and automatically falls
 
 1. Launch *Hololive Dreams* and ensure the game window is not minimized to the taskbar (it can be obscured or running behind other windows).
 2. Set the in-game language to one of the 4 supported languages (**English**, **Japanese**, **Simplified Chinese**, or **Traditional Chinese**). Ensure the game runs in a standard **16:9 aspect ratio** (e.g. 1280x720, 1920x1080, 2560x1440, or 3840x2160 in windowed or fullscreen mode). Custom Windows DPI scaling (125%, 150%, 200%) is supported out of the box.
-3. Launch the bot and configure your preferred language and stop hotkey.
-4. Select your desired strategy mode and click **"Start Bot"**.
-5. Press your configured stop hotkey at any time to safely halt automation.
+3. Launch the bot and configure your preferred language and hotkeys (`Stop Key`: `INSERT`, `Observer Key`: `F9`).
+4. Select your desired strategy mode and click **"Start Bot"** for full automation, or **"Observer Mode"** (or press `F9`) for zero-click manual odds guidance.
+5. Press your configured stop hotkey (`INSERT`) at any time to safely halt automation, or press `F9` to toggle live between Auto and Observer modes.
 
 ---
 

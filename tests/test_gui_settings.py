@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 import unittest
 from unittest.mock import patch, MagicMock
+import tkinter as tk
+from tkinter import ttk
 
 SRC_DIR = Path(__file__).resolve().parents[1] / 'src'
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -31,8 +33,12 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         cls._temp_dir = tempfile.TemporaryDirectory()
         cls._orig_app_dir = auto_bot.APP_DIR
         cls._orig_data_file = auto_bot.DATA_FILE
+        cls._orig_logs_dir = auto_bot.LOGS_DIR
+        cls._orig_debug_log = auto_bot.DEBUG_LOG_FILE
         auto_bot.APP_DIR = Path(cls._temp_dir.name)
         auto_bot.DATA_FILE = Path(cls._temp_dir.name) / "config.json"
+        auto_bot.LOGS_DIR = Path(cls._temp_dir.name) / "logs"
+        auto_bot.DEBUG_LOG_FILE = Path(cls._temp_dir.name) / "debug_log.txt"
         with patch("keyboard.add_hotkey"), patch("keyboard.hook"):
             cls.app = HololiveBotUI()
             cls.app.withdraw()
@@ -47,6 +53,8 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         finally:
             auto_bot.APP_DIR = cls._orig_app_dir
             auto_bot.DATA_FILE = cls._orig_data_file
+            auto_bot.LOGS_DIR = cls._orig_logs_dir
+            auto_bot.DEBUG_LOG_FILE = cls._orig_debug_log
             cls._temp_dir.cleanup()
 
     def tearDown(self):
@@ -101,6 +109,11 @@ class TestGUISettingsAndMenus(unittest.TestCase):
             self.app.restore_default_settings()
             self.assertEqual(self.app.entry_setting_target.get(), "20000")
             self.assertEqual(self.app.entry_setting_ticket.get(), "50")
+            self.assertEqual(self.app.active_mode, "balanced")
+            self.assertEqual(self.app.play_style, "default")
+            self.assertTrue(self.app.var_style_default.get())
+            self.assertFalse(self.app.var_style_aggressive.get())
+            self.assertFalse(self.app.var_style_conservative.get())
             self.assertEqual(self.app.param_min_win_rate, 60)
             self.assertEqual(self.app.param_cushion_target, 19800)
             self.assertEqual(self.app.param_sprint_target, 10000)
@@ -212,17 +225,17 @@ class TestGUISettingsAndMenus(unittest.TestCase):
             # Test 1: Fastest clear
             self.app.apply_strategy_preset("fastest_clear")
             self.assertEqual(self.app.active_mode, "fastest_clear")
-            self.assertEqual(self.app.combo_strategy.current(), 1)
+            self.assertEqual(self.app.combo_strategy.current(), STRATEGY_KEYS.index("fastest_clear"))
 
             # Test 2: Balanced
             self.app.apply_strategy_preset("balanced")
             self.assertEqual(self.app.active_mode, "balanced")
-            self.assertEqual(self.app.combo_strategy.current(), 2)
+            self.assertEqual(self.app.combo_strategy.current(), STRATEGY_KEYS.index("balanced"))
 
             # Test 3: Profit
             self.app.apply_strategy_preset("max_profit")
             self.assertEqual(self.app.active_mode, "max_profit")
-            self.assertEqual(self.app.combo_strategy.current(), 0)
+            self.assertEqual(self.app.combo_strategy.current(), STRATEGY_KEYS.index("max_profit"))
 
     def test_select_background_menu(self):
         with patch.object(self.app, "save_settings"):
@@ -584,19 +597,23 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         self.assertIn("mod_drop_6789", self.app.tooltips)
         self.assertIn("mod_free_roll", self.app.tooltips)
         self.assertIn("mod_mega_sprint", self.app.tooltips)
+        self.assertIn("btn_start", self.app.tooltips)
+        self.assertIn("btn_companion", self.app.tooltips)
 
         # In English:
         self.app.current_lang = "en"
         self.app.refresh_texts()
-        self.assertIn("94.1%", self.app.tooltips["opp_a2"].text)
+        self.assertIn("100.0%", self.app.tooltips["opp_a2"].text)
         self.assertIn("6/7/8/9", self.app.tooltips["mod_drop_6789"].text)
         self.assertIn("19.8k", self.app.tooltips["mod_sprint_floor"].text)
         self.assertIn("19.8k", self.app.tooltips["mod_mega_sprint"].text)
+        self.assertIn("Auto Bot", self.app.tooltips["btn_start"].text)
+        self.assertIn("Observer Mode", self.app.tooltips["btn_companion"].text)
 
         # In Japanese:
         self.app.current_lang = "ja"
         self.app.refresh_texts()
-        self.assertIn("94.1%", self.app.tooltips["opp_a2"].text)
+        self.assertIn("100.0%", self.app.tooltips["opp_a2"].text)
         self.assertIn("クッション", self.app.tooltips["mod_drop_6789"].text)
 
         # In Simplified Chinese:
@@ -612,63 +629,6 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         # Reset to English
         self.app.current_lang = "en"
         self.app.refresh_texts()
-
-
-@unittest.skipUnless(HAVE_GUI, 'GUI dependencies not installed')
-class TestAppDirResolution(unittest.TestCase):
-    def test_resolve_app_dir_writable(self):
-        import auto_bot
-        # Under normal conditions, workspace is writable
-        res = auto_bot._resolve_app_dir()
-        self.assertTrue(res.exists())
-
-    def test_resolve_app_dir_fallback_on_permission_error(self):
-        import auto_bot
-        with tempfile.TemporaryDirectory() as fake_appdata:
-            with patch.dict(os.environ, {"APPDATA": fake_appdata}):
-                with patch.object(Path, "touch", side_effect=PermissionError("Read-only")):
-                    res = auto_bot._resolve_app_dir()
-                    self.assertEqual(res, Path(fake_appdata) / "HololiveDreamsAuto")
-                    self.assertTrue(res.exists())
-
-
-class TestToolTip(unittest.TestCase):
-    def setUp(self):
-        try:
-            self.root = tk.Tk()
-            self.root.withdraw()
-        except Exception:
-            self.skipTest("Tkinter display not available")
-
-    def tearDown(self):
-        if hasattr(self, "root"):
-            try:
-                self.root.destroy()
-            except Exception:
-                pass
-
-    def test_tooltip_lifecycle(self):
-        from main_ui import ToolTip
-        btn = ttk.Button(self.root, text="Test")
-        btn.pack()
-        tip = ToolTip(btn, text="Initial Tooltip", delay_ms=10)
-        self.assertEqual(tip.text, "Initial Tooltip")
-
-        # Test show
-        tip._show()
-        self.assertIsNotNone(tip._tip_window)
-        self.assertTrue(tip._tip_window.winfo_exists())
-
-        # Test update_text
-        tip.update_text("Updated Tooltip")
-        self.assertEqual(tip.text, "Updated Tooltip")
-        self.assertIsNone(tip._tip_window)
-
-        # Test hide
-        tip._show()
-        self.assertIsNotNone(tip._tip_window)
-        tip._hide()
-        self.assertIsNone(tip._tip_window)
 
     def test_fast_build_disables_card_overrides_in_gui(self):
         # Enable Fast Build
@@ -762,6 +722,327 @@ class TestToolTip(unittest.TestCase):
             self.app._safe_open_path(non_existent_file)
             self.assertTrue(non_existent_file.exists())
             mock_startfile.assert_called_once_with(non_existent_file)
+
+    def test_observer_mode_button_and_hotkey_selectors_layout(self):
+        self.app.switch_tab("bot")
+        self.app.draw_ui(480, 850)
+
+        # Both Start Bot and Observer Mode buttons should be visible and side by side (2 columns)
+        self.assertEqual(self.app.canvas.itemcget(self.app.btn_start_win, "state"), "normal")
+        self.assertEqual(self.app.canvas.itemcget(self.app.btn_companion_win, "state"), "normal")
+        start_coords = self.app.canvas.coords(self.app.btn_start_win)
+        comp_coords = self.app.canvas.coords(self.app.btn_companion_win)
+        self.assertAlmostEqual(start_coords[1], comp_coords[1])
+        self.assertLess(start_coords[0], comp_coords[0])
+
+        # Both Stop Hotkey and Observer Hotkey buttons & labels above them should be visible on Bot tab
+        self.assertEqual(self.app.canvas.itemcget(self.app.hotkey_window, "state"), "normal")
+        self.assertEqual(self.app.canvas.itemcget(self.app.companion_hotkey_window, "state"), "normal")
+        self.assertEqual(self.app.canvas.itemcget(self.app.hotkey_label_id, "state"), "normal")
+        self.assertEqual(self.app.canvas.itemcget(self.app.companion_hotkey_label_id, "state"), "normal")
+
+        hk1_coords = self.app.canvas.coords(self.app.hotkey_window)
+        hk2_coords = self.app.canvas.coords(self.app.companion_hotkey_window)
+        hk1_lbl_coords = self.app.canvas.coords(self.app.hotkey_label_id)
+        hk2_lbl_coords = self.app.canvas.coords(self.app.companion_hotkey_label_id)
+
+        # Observer hotkey button is to the right of Stop hotkey button, and labels are above buttons
+        self.assertLess(hk1_coords[0], hk2_coords[0])
+        self.assertAlmostEqual(hk1_coords[1], hk2_coords[1])
+        self.assertLess(hk1_lbl_coords[1], hk1_coords[1])
+        self.assertLess(hk2_lbl_coords[1], hk2_coords[1])
+
+    def test_start_stop_button_states_auto_and_observer_modes(self):
+        import auto_bot
+        self.app.switch_tab("bot")
+        self.app.current_lang = "en"
+
+        # 1. Bot is stopped
+        self.app.is_running = False
+        self.app._update_start_stop_button_state()
+        self.assertIn("START BOT", self.app.btn_start.cget("text"))
+        self.assertIn("OBSERVER MODE", self.app.btn_companion.cget("text"))
+
+        # 2. Bot is running in Auto Mode (scan_mode is False)
+        self.app.is_running = True
+        auto_bot.bot_running = True
+        self.app.var_scan_mode.set(False)
+        self.app._update_start_stop_button_state()
+        self.assertIn("STOP BOT", self.app.btn_start.cget("text"))
+        self.assertIn("OBSERVER MODE", self.app.btn_companion.cget("text"))
+
+        # 3. Bot is running in Observer Mode (scan_mode is True)
+        self.app.var_scan_mode.set(True)
+        self.app._update_start_stop_button_state()
+        self.assertIn("STOP BOT", self.app.btn_start.cget("text"))
+        self.assertIn("AUTO MODE", self.app.btn_companion.cget("text"))
+
+        # 4. Bot is in the middle of stopping
+        auto_bot.bot_running = False
+        self.app._update_start_stop_button_state()
+        self.assertIn("STOPPING...", self.app.btn_start.cget("text"))
+        self.assertEqual(self.app.btn_companion.cget("state"), "disabled")
+
+        # Cleanup
+        self.app.is_running = False
+        self.app._update_start_stop_button_state()
+
+    def test_play_style_mutual_exclusion_and_persistence(self):
+        # Localized label checks in en
+        self.app.current_lang = "en"
+        self.app.refresh_texts()
+        self.assertIn("Strategy Play Style", self.app.lbl_sec_play_style.text)
+        self.assertEqual(self.app.chk_style_aggressive.text, "Aggressive")
+        self.assertEqual(self.app.chk_style_default.text, "Default")
+        self.assertEqual(self.app.chk_style_conservative.text, "Conservative")
+
+        # Localized label checks in zh
+        self.app.current_lang = "zh"
+        self.app.refresh_texts()
+        self.assertIn("策略风格", self.app.lbl_sec_play_style.text)
+        self.assertEqual(self.app.chk_style_aggressive.text, "激进")
+        self.assertEqual(self.app.chk_style_default.text, "默认")
+        self.assertEqual(self.app.chk_style_conservative.text, "保守")
+
+        # Localized label checks in ja
+        self.app.current_lang = "ja"
+        self.app.refresh_texts()
+        self.assertIn("プレイスタイル", self.app.lbl_sec_play_style.text)
+        self.assertEqual(self.app.chk_style_aggressive.text, "攻撃的")
+        self.assertEqual(self.app.chk_style_default.text, "標準")
+        self.assertEqual(self.app.chk_style_conservative.text, "堅実")
+
+        # Reset to English
+        self.app.current_lang = "en"
+        self.app.refresh_texts()
+
+        # Default starts toggled on
+        self.app.var_style_default.set(True)
+        self.app.var_style_aggressive.set(False)
+        self.app.var_style_conservative.set(False)
+        self.app.play_style = "default"
+
+        with patch("auto_bot.save_daily_data") as mock_save:
+            # 1. Toggle Aggressive on -> untoggles Default and Conservative
+            self.app.var_style_aggressive.set(True)
+            self.app.on_play_style_toggle("aggressive")
+            self.assertEqual(self.app.play_style, "aggressive")
+            self.assertTrue(self.app.var_style_aggressive.get())
+            self.assertFalse(self.app.var_style_default.get())
+            self.assertFalse(self.app.var_style_conservative.get())
+            _, kwargs = mock_save.call_args
+            self.assertEqual(kwargs.get("play_style"), "aggressive")
+
+            # 2. Toggle Conservative on -> untoggles Aggressive and Default
+            self.app.var_style_conservative.set(True)
+            self.app.on_play_style_toggle("conservative")
+            self.assertEqual(self.app.play_style, "conservative")
+            self.assertFalse(self.app.var_style_aggressive.get())
+            self.assertFalse(self.app.var_style_default.get())
+            self.assertTrue(self.app.var_style_conservative.get())
+            _, kwargs = mock_save.call_args
+            self.assertEqual(kwargs.get("play_style"), "conservative")
+
+            # 3. Untoggle Conservative -> falls back to Default
+            self.app.var_style_conservative.set(False)
+            self.app.on_play_style_toggle("conservative")
+            self.assertEqual(self.app.play_style, "default")
+            self.assertFalse(self.app.var_style_aggressive.get())
+            self.assertTrue(self.app.var_style_default.get())
+            self.assertFalse(self.app.var_style_conservative.get())
+            _, kwargs = mock_save.call_args
+            self.assertEqual(kwargs.get("play_style"), "default")
+
+    def test_reset_strategy_modifiers_button(self):
+        self.assertTrue(hasattr(self.app, "btn_reset_modifiers"))
+        self.assertIn("btn_reset_modifiers", self.app.tooltips)
+        self.assertEqual(self.app.btn_reset_modifiers.cget("text"), "↺ Reset")
+
+        # Mutate modifiers
+        self.app.var_mod_fast_build.set(True)
+        self.app.var_mod_drop_78.set(True)
+        self.app.var_mod_mega_sprint.set(True)
+        self.app.var_opp_5j.set(True)
+        self.app.var_opp_a2.set(False)
+
+        # Trigger reset
+        with patch.object(self.app, "save_settings") as mock_save, \
+             patch.object(self.app, "draw_ui") as mock_draw:
+            self.app.reset_strategy_modifiers()
+            mock_save.assert_called_once()
+            mock_draw.assert_called_once()
+
+        # Check restored defaults
+        self.assertFalse(self.app.var_mod_fast_build.get())
+        self.assertFalse(self.app.var_mod_drop_78.get())
+        self.assertFalse(self.app.var_mod_mega_sprint.get())
+        self.assertFalse(self.app.var_opp_5j.get())
+        self.assertTrue(self.app.var_opp_a2.get())
+        self.assertFalse(self.app.var_opp_3k.get())
+
+        # Test localization
+        self.app.current_lang = "zh"
+        self.app.refresh_texts()
+        self.assertEqual(self.app.btn_reset_modifiers.cget("text"), "↺ 重置")
+        self.app.current_lang = "ja"
+        self.app.refresh_texts()
+        self.assertEqual(self.app.btn_reset_modifiers.cget("text"), "↺ リセット")
+        self.app.current_lang = "en"
+        self.app.refresh_texts()
+        self.assertEqual(self.app.btn_reset_modifiers.cget("text"), "↺ Reset")
+
+    def test_mid_game_play_style_and_modifier_logging(self):
+        self.app.current_lang = "en"
+        self.app.play_style = "default"
+        self.app.var_style_aggressive.set(False)
+        self.app.var_style_default.set(True)
+        self.app.var_style_conservative.set(False)
+        self.app.is_running = True
+        try:
+            while not self.app.ui_queue.empty():
+                self.app.ui_queue.get_nowait()
+
+            with patch.object(self.app, "save_settings"):
+                self.app.on_play_style_toggle("aggressive")
+
+            logs = []
+            while not self.app.ui_queue.empty():
+                item = self.app.ui_queue.get_nowait()
+                if item[0] == "log":
+                    logs.append(item[1])
+            self.assertTrue(any("Play Style" in m and "Aggressive" in m for m in logs))
+
+            self.app.var_mod_fast_build.set(not self.app.mod_fast_build)
+            with patch.object(self.app, "save_settings"), patch.object(self.app, "draw_ui"):
+                self.app.on_modifier_toggle()
+
+            mod_logs = []
+            while not self.app.ui_queue.empty():
+                item = self.app.ui_queue.get_nowait()
+                if item[0] == "log":
+                    mod_logs.append(item[1])
+            self.assertTrue(any("Modifier" in m and "Fast Build" in m for m in mod_logs))
+
+            with patch.object(self.app, "save_settings"), patch.object(self.app, "draw_ui"):
+                self.app.reset_strategy_modifiers()
+
+            reset_logs = []
+            while not self.app.ui_queue.empty():
+                item = self.app.ui_queue.get_nowait()
+                if item[0] == "log":
+                    reset_logs.append(item[1])
+            self.assertTrue(any("Modifiers" in m and "Reset" in m for m in reset_logs))
+        finally:
+            self.app.is_running = False
+
+
+    def test_segmented_pill_and_toggle_switch_widgets(self):
+        from src.ui.widgets import CanvasSegmentedPill, CanvasCheckbutton, SegmentProxy
+
+        # Verify CanvasSegmentedPill attributes on main_ui
+        self.assertIsInstance(self.app.pill_play_style, CanvasSegmentedPill)
+        self.assertIsInstance(self.app.chk_style_aggressive, SegmentProxy)
+        self.assertEqual(len(self.app.pill_play_style.segments), 3)
+
+        # Test selecting via segmented pill
+        self.app.pill_play_style._on_segment_click("aggressive")
+        self.assertEqual(self.app.play_style, "aggressive")
+        self.assertTrue(self.app.var_style_aggressive.get())
+        self.assertFalse(self.app.var_style_default.get())
+
+        self.app.pill_play_style._on_segment_click("conservative")
+        self.assertEqual(self.app.play_style, "conservative")
+        self.assertTrue(self.app.var_style_conservative.get())
+        self.assertFalse(self.app.var_style_aggressive.get())
+
+        # Test proxy winfo methods and cget
+        proxy = self.app.chk_style_conservative
+        self.assertGreater(proxy.winfo_width(), 0)
+        self.assertGreater(proxy.winfo_height(), 0)
+        self.assertEqual(proxy.cget("state"), "normal")
+        self.assertEqual(proxy.cget("text"), proxy.text)
+
+        # Test CanvasCheckbutton toggle switch functionality
+        chk = self.app.chk_opp_a2
+        self.assertIsInstance(chk, CanvasCheckbutton)
+        initial_val = self.app.var_opp_a2.get()
+        chk._on_click()
+        self.assertEqual(self.app.var_opp_a2.get(), not initial_val)
+        chk._on_click()
+        self.assertEqual(self.app.var_opp_a2.get(), initial_val)
+
+        # Test theme changes on pill and toggle switch
+        self.app.pill_play_style.set_theme("light")
+        self.assertEqual(self.app.pill_play_style.theme_mode, "light")
+        self.app.pill_play_style.set_theme("dark")
+        self.assertEqual(self.app.pill_play_style.theme_mode, "dark")
+
+        chk.set_theme("light")
+        self.assertEqual(chk.theme_mode, "light")
+        chk.set_theme("dark")
+        self.assertEqual(chk.theme_mode, "dark")
+
+        # Restore default style
+        self.app.pill_play_style._on_segment_click("default")
+        self.assertEqual(self.app.play_style, "default")
+
+
+@unittest.skipUnless(HAVE_GUI, 'GUI dependencies not installed')
+class TestAppDirResolution(unittest.TestCase):
+    def test_resolve_app_dir_writable(self):
+        import auto_bot
+        # Under normal conditions, workspace is writable
+        res = auto_bot._resolve_app_dir()
+        self.assertTrue(res.exists())
+
+    def test_resolve_app_dir_fallback_on_permission_error(self):
+        import auto_bot
+        with tempfile.TemporaryDirectory() as fake_appdata:
+            with patch.dict(os.environ, {"APPDATA": fake_appdata}):
+                with patch.object(Path, "touch", side_effect=PermissionError("Read-only")):
+                    res = auto_bot._resolve_app_dir()
+                    self.assertEqual(res, Path(fake_appdata) / "HololiveDreamsAuto")
+                    self.assertTrue(res.exists())
+
+
+@unittest.skipUnless(HAVE_GUI, 'GUI dependencies not installed')
+class TestToolTip(unittest.TestCase):
+    def setUp(self):
+        try:
+            self.root = tk.Tk()
+            self.root.withdraw()
+        except Exception:
+            self.skipTest("Tkinter display not available")
+
+    def tearDown(self):
+        if hasattr(self, "root"):
+            try:
+                self.root.destroy()
+            except Exception:
+                pass
+
+    def test_tooltip_lifecycle(self):
+        from main_ui import ToolTip
+        btn = ttk.Button(self.root, text="Test")
+        btn.pack()
+        tip = ToolTip(btn, text="Initial Tooltip", delay_ms=10)
+        self.assertEqual(tip.text, "Initial Tooltip")
+
+        # Test show
+        tip._show()
+        self.assertIsNotNone(tip._tip_window)
+        self.assertTrue(tip._tip_window.winfo_exists())
+
+        # Test update_text
+        tip.update_text("Updated Tooltip")
+        self.assertEqual(tip.text, "Updated Tooltip")
+        self.assertIsNone(tip._tip_window)
+
+        # Test hide
+        tip._show()
+        self.assertIsNotNone(tip._tip_window)
+        tip._hide()
+        self.assertIsNone(tip._tip_window)
 
 
 if __name__ == "__main__":

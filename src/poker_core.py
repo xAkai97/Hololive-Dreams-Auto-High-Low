@@ -7,7 +7,7 @@ import numpy as np
 from numba import njit
 
 ENTRY_FEE = 50.0
-ENGINE_VERSION = "1.0.0"
+ENGINE_VERSION = "1.1.0"
 CATEGORY_NAMES = (
     "No Win / One Pair",
     "Two Pair",
@@ -154,7 +154,7 @@ def _evaluate_category5(c0: int, c1: int, c2: int, c3: int, c4: int) -> int:
                 first = count
             elif count > second:
                 second = count
-        if (first == 3 and second == 1) or (first == 2 and second == 2):
+        if first == 2 and second == 2:
             return 5
 
     if flush_possible:
@@ -163,7 +163,7 @@ def _evaluate_category5(c0: int, c1: int, c2: int, c3: int, c4: int) -> int:
         return 3
     if max_count + jokers >= 3:
         return 2
-    if pair_ranks >= 2 or (jokers == 1 and pair_ranks >= 1 and singleton_ranks >= 1):
+    if pair_ranks >= 2:
         return 1
     return 0
 

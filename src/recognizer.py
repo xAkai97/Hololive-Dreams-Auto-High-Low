@@ -348,7 +348,7 @@ class CardRecognizer:
         joker_corner_mask = self._normalize(self._foreground_mask(corner))
         joker_corner_score = self._shape_score(joker_corner_mask, self.joker_corner)
         joker_card_score = self._joker_similarity(card)
-        if rank_score < 0.58 and (joker_corner_score > 0.47 or joker_card_score > 0.42):
+        if (rank_score < 0.58 and (joker_corner_score > 0.47 or joker_card_score > 0.42)) or joker_card_score >= 0.65:
             return RecognizedCard(
                 JOKER_ID,
                 "JOKER",

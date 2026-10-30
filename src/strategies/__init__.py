@@ -1,8 +1,13 @@
 """Strategy package providing modular doubling policies for Hololive Dreams Auto Bot."""
 from typing import Any, Callable, Optional, Union, Type
 
-from strategies.base import BaseStrategy
-from strategies.max_profit import MaxProfitStrategy
+from strategies.base import BaseStrategy, get_max_round_payout, normalize_play_style, VALID_PLAY_STYLES
+from strategies.max_profit import (
+    MaxProfitStrategy,
+    AdaptiveMaxProfitStrategy,
+    TrueMaxProfitStrategy,
+    TrueMaxCoinsStrategy,
+)
 from strategies.fastest_clear import FastestClearStrategy
 from strategies.balanced import BalancedStrategy
 from strategies.aggressive_balanced import AggressiveBalancedStrategy
@@ -13,7 +18,13 @@ from strategies.modifiers import apply_strategy_modifiers
 
 __all__ = [
     "BaseStrategy",
+    "get_max_round_payout",
+    "normalize_play_style",
+    "VALID_PLAY_STYLES",
     "MaxProfitStrategy",
+    "AdaptiveMaxProfitStrategy",
+    "TrueMaxProfitStrategy",
+    "TrueMaxCoinsStrategy",
     "FastestClearStrategy",
     "BalancedStrategy",
     "AggressiveBalancedStrategy",
@@ -27,19 +38,29 @@ __all__ = [
 ]
 
 STRATEGY_REGISTRY: dict[str, Type[BaseStrategy]] = {
-    "max_profit": MaxProfitStrategy,
-    "fastest_clear": FastestClearStrategy,
+    # Category A: Maximum Net Profit (~30k Wallet Gain)
     "balanced": BalancedStrategy,
-    "aggressive_balanced": AggressiveBalancedStrategy,
+    "max_profit": MaxProfitStrategy,
+    # Category B: Speed & Stability Grinding
+    "fastest_clear": FastestClearStrategy,
     "adaptive_rush": AdaptiveRushStrategy,
     "grinder": GrinderStrategy,
+    # Category C: Specialized & Trophy
     "custom_parametric": CustomParametricStrategy,
+    "true_max_coins": TrueMaxCoinsStrategy,
 }
 
 
 def get_strategy(name: str, **kwargs) -> BaseStrategy:
     """Factory function to instantiate a strategy by key or name."""
     normalized = str(name).strip().lower()
+    if normalized in ("adaptive_max_profit", "maxprofit"):
+        normalized = "max_profit"
+    elif normalized in ("true_max_profit", "true_max_coins_possible", "truemaxprofit", "truemaxcoins"):
+        normalized = "true_max_coins"
+    elif normalized in ("aggressive_balanced", "aggressivebalanced"):
+        return AggressiveBalancedStrategy(**kwargs)
+
     for key, cls in STRATEGY_REGISTRY.items():
         if normalized == key.lower():
             return cls(**kwargs)
@@ -63,9 +84,21 @@ _CUSTOM_PARAM_MAP: dict[str, tuple[str, Callable[[Any], Any]]] = {
 
 def strategy_kwargs_from_config(mode: str, config: dict) -> dict:
     """Translate saved config values into constructor kwargs for ``mode``."""
-    if str(mode).strip().lower() != "custom_parametric":
-        return {}
+    norm = str(mode).strip().lower()
     kwargs = {}
+    if "play_style" in config and config["play_style"] is not None:
+        style = normalize_play_style(config["play_style"])
+        if style != "default":
+            kwargs["play_style"] = style
+    if norm in ("true_max_coins", "true_max_profit", "true_max_coins_possible"):
+        if "hunt_14k_attempts" in config and config["hunt_14k_attempts"] is not None:
+            try:
+                kwargs["hunt_14k_attempts"] = int(config["hunt_14k_attempts"])
+            except (TypeError, ValueError):
+                pass
+        return kwargs
+    if norm != "custom_parametric":
+        return kwargs
     for key, (kwarg, convert) in _CUSTOM_PARAM_MAP.items():
         if key in config and config[key] is not None:
             try:

@@ -316,6 +316,78 @@ class TestStrategyModifiers(unittest.TestCase):
         self.assertEqual(dec_high, "cashout")
         self.assertIsNone(reason_high)
 
+        # In sprint phase, if hand max payout is < 12800 (e.g. 700 Flush -> 11200, or 1500 -> 12000), triggers mod_mega_sprint_fail
+        dec_fail, reason_fail = apply_strategy_modifiers(
+            decision="challenge",
+            card_val=5,
+            current_cashout=700,
+            next_reward=1400,
+            daily_coins=19800,
+            cushion_target=19800,
+            mod_mega_sprint=True,
+        )
+        self.assertEqual(dec_fail, "challenge")
+        self.assertEqual(reason_fail, "mod_mega_sprint_fail")
+
+    def test_mod_force_19900_and_mod_hunt_14k(self):
+        # 1. mod_force_19900 locks in odd parity on 700 Flush when daily_coins is even
+        dec_parity, reason_parity = apply_strategy_modifiers(
+            decision="challenge",
+            card_val=14,
+            current_cashout=700,
+            next_reward=1400,
+            daily_coins=12000,
+            cushion_target=19800,
+            mod_force_19900=True,
+        )
+        self.assertEqual(dec_parity, "cashout")
+        self.assertEqual(reason_parity, "mod_force_19900")
+
+        # 2. mod_hunt_14k in sprint phase fails hands whose max payout < 14,000
+        dec_hunt_fail, reason_hunt_fail = apply_strategy_modifiers(
+            decision="challenge",
+            card_val=14,
+            current_cashout=200,
+            next_reward=400,
+            daily_coins=19900,
+            cushion_target=19800,
+            mod_force_19900=True,
+            mod_hunt_14k=True,
+            hunt_14k_attempts=5,
+            sprint_attempts=1,
+        )
+        self.assertEqual(dec_hunt_fail, "challenge")
+        self.assertEqual(reason_hunt_fail, "mod_hunt_14k_fail")
+
+        # 3. Once sprint_attempts > hunt_14k_attempts, falls back to Mega Sprint (200 -> 12,800 is allowed)
+        dec_fallback, reason_fallback = apply_strategy_modifiers(
+            decision="challenge",
+            card_val=14,
+            current_cashout=200,
+            next_reward=400,
+            daily_coins=19900,
+            cushion_target=19800,
+            mod_force_19900=True,
+            mod_hunt_14k=True,
+            hunt_14k_attempts=5,
+            sprint_attempts=6,
+        )
+        self.assertEqual(dec_fallback, "challenge")
+        self.assertIsNone(reason_fallback)
+
+        # 4. Five of a Kind (7,000 -> 14,000) is challenged normally under mod_hunt_14k
+        dec_5k, reason_5k = apply_strategy_modifiers(
+            decision="cashout",
+            card_val=14,
+            current_cashout=7000,
+            next_reward=14000,
+            daily_coins=19900,
+            cushion_target=19800,
+            mod_hunt_14k=True,
+        )
+        self.assertEqual(dec_5k, "challenge")
+        self.assertEqual(reason_5k, "mod_hunt_14k")
+
     def test_opportunistic_cards_expanded(self):
         pairs = [
             ((5, 11), {"opp_5j": True}),
@@ -452,6 +524,34 @@ class TestStrategyModifiers(unittest.TestCase):
         )
         self.assertEqual(dec2, "challenge")
         self.assertEqual(reason2, "mod_fast_build")
+
+    def test_modifier_fail_vs_play_to_win_reason_suffix(self):
+        # Play-to-win overrides should NOT end with _fail
+        dec_opp, reason_opp = apply_strategy_modifiers(
+            decision="cashout",
+            card_val=14,
+            current_cashout=800,
+            next_reward=1600,
+            daily_coins=5000,
+            opp_a2=True,
+        )
+        self.assertEqual(dec_opp, "challenge")
+        self.assertEqual(reason_opp, "opportunistic_card")
+        self.assertFalse(reason_opp.endswith("_fail"))
+
+        # Intentional fail sprint floor modifier MUST end with _fail
+        # A Flush (700 -> max 11,200) cannot reach Mega Sprint floor (12,800), so it intent-fails
+        dec_fail, reason_fail = apply_strategy_modifiers(
+            decision="challenge",
+            card_val=5,
+            current_cashout=700,
+            next_reward=1400,
+            daily_coins=19800,
+            mod_mega_sprint=True,
+        )
+        self.assertEqual(dec_fail, "challenge")
+        self.assertEqual(reason_fail, "mod_mega_sprint_fail")
+        self.assertTrue(reason_fail.endswith("_fail"))
 
 
 if __name__ == "__main__":

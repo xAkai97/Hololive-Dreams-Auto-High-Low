@@ -13,8 +13,9 @@ try:
     # menus with dark backgrounds and text. Note: on Windows 10, the native
     # Win32 popup menu non-client border outline is still rendered white/light
     # by the OS DWM for TrackPopupMenu.
-    ctypes.windll.uxtheme[135](2)
-    ctypes.windll.uxtheme[136]()
+    uxtheme = getattr(ctypes.windll, "uxtheme")
+    uxtheme[135](2)
+    uxtheme[136]()
 except Exception:
     pass
 
@@ -23,13 +24,11 @@ from tkinter import ttk, messagebox, filedialog
 import threading
 import sys
 import os
-import csv
 from pathlib import Path
-import json
 import time
-import datetime
 import re
 import queue
+from typing import Optional
 from PIL import Image, ImageTk, ImageDraw
 import keyboard
 import webbrowser
@@ -74,6 +73,8 @@ from src.ui import (
     DummyFrame,
     CanvasHeaderLabel,
     CanvasCheckbutton,
+    CanvasSegmentedPill,
+    SegmentProxy,
     ToolTip,
     RedirectText,
     ModernMenu,
@@ -147,7 +148,7 @@ class HololiveBotUI(tk.Tk):
                         self.iconbitmap(str(candidate))
                     else:
                         self._app_icon = ImageTk.PhotoImage(file=str(candidate))
-                        self.iconphoto(True, self._app_icon)
+                        self.iconphoto(True, self._app_icon)  # type: ignore[arg-type]
                     break
         except Exception as e:
             print(f"[Warning] Failed to load application icon: {e}")
@@ -224,13 +225,13 @@ class HololiveBotUI(tk.Tk):
         self.bg_var = tk.IntVar(value=self._get_bg_var_value())
         self.lang_var = tk.StringVar(value=self.current_lang)
 
-        self.hotkey_label_id = self.canvas.create_text(0, 0, font=font_normal, fill="#111111", anchor="w")
+        self.hotkey_label_id = self.canvas.create_text(0, 0, font=(self.font_family, 8, "bold"), fill="#111111", anchor="center")
         saved_hotkey = saved_config.get("hotkey", "INSERT")
         self.current_hotkey = saved_hotkey if saved_hotkey else "INSERT"
         self.is_listening = False
 
         self.btn_hotkey = ttk.Button(self, text=f"[ {self.current_hotkey} ]", command=self.start_listen_hotkey, style="Hotkey.TButton")
-        self.hotkey_window = self.canvas.create_window(0, 0, window=self.btn_hotkey, anchor="e")
+        self.hotkey_window = self.canvas.create_window(0, 0, window=self.btn_hotkey, anchor="center")
         ToolTip(self.btn_hotkey, lambda: localization.tr("hotkey_prompt", self.current_lang))
 
         try:
@@ -243,6 +244,32 @@ class HololiveBotUI(tk.Tk):
             except Exception:
                 pass
 
+        self.companion_hotkey_label_id = self.canvas.create_text(0, 0, font=(self.font_family, 8, "bold"), fill="#111111", anchor="center")
+        saved_companion_hotkey = saved_config.get("hotkey_companion", "F9")
+        self.current_companion_hotkey = saved_companion_hotkey if saved_companion_hotkey else "F9"
+        self.is_listening_companion = False
+
+        self.btn_companion_hotkey = ttk.Button(
+            self,
+            text=f"[ {self.current_companion_hotkey} ]",
+            command=self.start_listen_companion_hotkey,
+            style="Hotkey.TButton",
+        )
+        self.companion_hotkey_window = self.canvas.create_window(0, 0, window=self.btn_companion_hotkey, anchor="center")
+        ToolTip(self.btn_companion_hotkey, lambda: localization.tr("hotkey_companion_prompt", self.current_lang))
+
+        try:
+            keyboard.add_hotkey(self.current_companion_hotkey, self._on_companion_hotkey_pressed)
+        except Exception as e:
+            print(f"[Warning] Failed to register saved companion hotkey '{self.current_companion_hotkey}': {e}. Falling back to F9.")
+            self.current_companion_hotkey = "F9"
+            try:
+                keyboard.add_hotkey(self.current_companion_hotkey, self._on_companion_hotkey_pressed)
+            except Exception:
+                pass
+
+        self.var_scan_mode = tk.BooleanVar(value=False)
+
         # Persistent user settings
         saved_target = auto_bot.cfg_get_int(saved_config, "target_limit", 20000, min_val=1000, max_val=50000)
         self.target_limit = 20000 if saved_target == 19800 else saved_target
@@ -252,6 +279,7 @@ class HololiveBotUI(tk.Tk):
         self.param_cushion_target = 19800 if saved_cushion == 20000 else saved_cushion
         self.param_sprint_target = auto_bot.cfg_get_int(saved_config, "param_sprint_target", 10000, min_val=1000, max_val=100000)
         self.param_max_doubles = auto_bot.cfg_get_int(saved_config, "param_max_doubles", 10, min_val=0, max_val=20)
+        self.hunt_14k_attempts = auto_bot.cfg_get_int(saved_config, "hunt_14k_attempts", 0, min_val=0, max_val=10000)
         self.param_drop_seven_eight = auto_bot.cfg_get_bool(saved_config, "param_drop_seven_eight", False)
         self.modifiers_expanded = auto_bot.cfg_get_bool(saved_config, "modifiers_expanded", True)
         self.cat_cards_expanded = auto_bot.cfg_get_bool(saved_config, "mod_cat_cards_expanded", True)
@@ -264,6 +292,8 @@ class HololiveBotUI(tk.Tk):
         self.mod_free_roll = auto_bot.cfg_get_bool(saved_config, "mod_free_roll", False)
         self.mod_sprint_floor = auto_bot.cfg_get_bool(saved_config, "mod_sprint_floor", False)
         self.mod_mega_sprint = auto_bot.cfg_get_bool(saved_config, "mod_mega_sprint", False)
+        self.mod_force_19900 = auto_bot.cfg_get_bool(saved_config, "mod_force_19900", False)
+        self.mod_hunt_14k = auto_bot.cfg_get_bool(saved_config, "mod_hunt_14k", False)
         self.var_mod_fast_build = tk.BooleanVar(value=self.mod_fast_build)
         self.var_mod_drop_78 = tk.BooleanVar(value=self.mod_drop_78)
         self.var_mod_drop_6789 = tk.BooleanVar(value=self.mod_drop_6789)
@@ -271,6 +301,8 @@ class HololiveBotUI(tk.Tk):
         self.var_mod_free_roll = tk.BooleanVar(value=self.mod_free_roll)
         self.var_mod_sprint_floor = tk.BooleanVar(value=self.mod_sprint_floor)
         self.var_mod_mega_sprint = tk.BooleanVar(value=self.mod_mega_sprint)
+        self.var_mod_force_19900 = tk.BooleanVar(value=self.mod_force_19900)
+        self.var_mod_hunt_14k = tk.BooleanVar(value=self.mod_hunt_14k)
         self.debug_logging = bool(saved_config.get("debug_logging", False))
         self.var_debug_logging = tk.BooleanVar(value=self.debug_logging)
         auto_bot._debug_logging_enabled = self.debug_logging
@@ -281,13 +313,20 @@ class HololiveBotUI(tk.Tk):
         default_610 = saved_config.get("opp_610", False)
         default_79 = saved_config.get("opp_79", False)
         default_8 = saved_config.get("opp_8", False)
-        self.var_opp_a2 = tk.BooleanVar(value=bool(default_a2))
-        self.var_opp_3k = tk.BooleanVar(value=bool(default_3k))
-        self.var_opp_4q = tk.BooleanVar(value=bool(default_4q))
-        self.var_opp_5j = tk.BooleanVar(value=bool(default_5j))
-        self.var_opp_610 = tk.BooleanVar(value=bool(default_610))
-        self.var_opp_79 = tk.BooleanVar(value=bool(default_79))
-        self.var_opp_8 = tk.BooleanVar(value=bool(default_8))
+        self.opp_a2 = bool(default_a2)
+        self.opp_3k = bool(default_3k)
+        self.opp_4q = bool(default_4q)
+        self.opp_5j = bool(default_5j)
+        self.opp_610 = bool(default_610)
+        self.opp_79 = bool(default_79)
+        self.opp_8 = bool(default_8)
+        self.var_opp_a2 = tk.BooleanVar(value=self.opp_a2)
+        self.var_opp_3k = tk.BooleanVar(value=self.opp_3k)
+        self.var_opp_4q = tk.BooleanVar(value=self.opp_4q)
+        self.var_opp_5j = tk.BooleanVar(value=self.opp_5j)
+        self.var_opp_610 = tk.BooleanVar(value=self.opp_610)
+        self.var_opp_79 = tk.BooleanVar(value=self.opp_79)
+        self.var_opp_8 = tk.BooleanVar(value=self.opp_8)
 
         self.last_benchmark_results: list[dict] = []
         self.is_simulating = False
@@ -344,13 +383,28 @@ class HololiveBotUI(tk.Tk):
             lbl.bind("<Leave>", lambda e, k=key: self._on_menu_button_leave(k))
             self.menu_buttons[key] = lbl
 
-        # --- Tab Switcher Buttons (Auto Bot & Simulation) ---
+        # --- Tab Switcher (Auto Bot & Simulation segmented pill) ---
         self.current_tab = "bot"
-        self.tab_btn_bot = ttk.Button(self, command=lambda: self.switch_tab("bot"))
-        self.tab_btn_sim = ttk.Button(self, command=lambda: self.switch_tab("sim"))
+        self.pill_main_tabs = CanvasSegmentedPill(
+            self.canvas,
+            segments=[
+                ("bot", localization.tr("tab_bot", self.current_lang)),
+                ("sim", localization.tr("tab_simulation", self.current_lang)),
+            ],
+            initial_key=self.current_tab,
+            command=self.switch_tab,
+            font=(self.font_family, 10, "bold"),
+            theme_mode=self.theme_mode,
+        )
+        self.tab_btn_bot = SegmentProxy(
+            self.pill_main_tabs, "bot", localization.tr("tab_bot", self.current_lang)
+        )
+        self.tab_btn_sim = SegmentProxy(
+            self.pill_main_tabs, "sim", localization.tr("tab_simulation", self.current_lang)
+        )
         self.tab_btn_settings = ttk.Button(self, command=lambda: self.switch_tab("settings"))
-        self.tab_win_bot = self.canvas.create_window(0, 0, window=self.tab_btn_bot)
-        self.tab_win_sim = self.canvas.create_window(0, 0, window=self.tab_btn_sim)
+        self.tab_win_bot = self.canvas.create_window(0, 0, window=tk.Frame(self), state="hidden")
+        self.tab_win_sim = self.canvas.create_window(0, 0, window=tk.Frame(self), state="hidden")
         self.tab_win_settings = self.canvas.create_window(0, 0, window=self.tab_btn_settings, state="hidden")
 
         # --- Bot Tab Widgets ---
@@ -379,12 +433,34 @@ class HololiveBotUI(tk.Tk):
         self.btn_start = tk.Button(
             self,
             command=self.toggle_bot,
-            font=(self.font_family, 11, "bold"),
+            font=(self.font_family, 10, "bold"),
             relief="flat",
             bd=0,
             highlightthickness=0,
             cursor="hand2",
-            padx=14,
+            padx=10,
+            pady=8,
+        )
+        self.btn_companion = tk.Button(
+            self,
+            command=self.toggle_companion_bot,
+            font=(self.font_family, 10, "bold"),
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            cursor="hand2",
+            padx=10,
+            pady=8,
+        )
+        self.btn_intercept = tk.Button(
+            self,
+            command=self.trigger_adaptive_intercept,
+            font=(self.font_family, 9, "bold"),
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            cursor="hand2",
+            padx=8,
             pady=8,
         )
         self._update_start_stop_button_state()
@@ -393,6 +469,8 @@ class HololiveBotUI(tk.Tk):
         self.btn_exit = ttk.Button(self, command=self.destroy)
 
         self.btn_start_win = self.canvas.create_window(0, 0, window=self.btn_start)
+        self.btn_companion_win = self.canvas.create_window(0, 0, window=self.btn_companion)
+        self.btn_intercept_win = self.canvas.create_window(0, 0, window=self.btn_intercept, state="hidden")
         self.btn_stop_win = self.canvas.create_window(0, 0, window=tk.Frame(self), state="hidden")
         self.btn_bg_win = self.canvas.create_window(0, 0, window=self.btn_bg, state="hidden")
         self.btn_exit_win = self.canvas.create_window(0, 0, window=self.btn_exit, state="hidden")
@@ -415,13 +493,40 @@ class HololiveBotUI(tk.Tk):
             else:
                 self.btn_start.configure(bg="#16A34A")
 
+        def _on_btn_companion_enter(e):
+            if self.is_running:
+                if not getattr(auto_bot, "bot_running", False):
+                    return
+                is_comp = bool(self.var_scan_mode.get())
+                self.btn_companion.configure(bg="#15803D" if is_comp else "#0E7490")
+            else:
+                self.btn_companion.configure(bg="#0E7490")
+
+        def _on_btn_companion_leave(e):
+            if self.is_running:
+                if not getattr(auto_bot, "bot_running", False):
+                    return
+                is_comp = bool(self.var_scan_mode.get())
+                self.btn_companion.configure(bg="#16A34A" if is_comp else "#0891B2")
+            else:
+                self.btn_companion.configure(bg="#0891B2")
+
         self.btn_start.bind("<Enter>", _on_btn_start_enter)
         self.btn_start.bind("<Leave>", _on_btn_start_leave)
+        self.btn_companion.bind("<Enter>", _on_btn_companion_enter)
+        self.btn_companion.bind("<Leave>", _on_btn_companion_leave)
 
         self.combo_strategy = ttk.Combobox(self, state='readonly',
                                            values=localization.get_strategy_labels(self.current_lang))
         saved_strat = saved_config.get("strategy_index", 0)
         saved_key = saved_config.get("strategy_key")
+        default_play_style = "default"
+        if saved_key in ("true_max_profit", "true_max_coins_possible"):
+            saved_key = "true_max_coins"
+        elif saved_key in ("aggressive_balanced", "aggressivebalanced"):
+            saved_key = "balanced"
+            if "play_style" not in saved_config:
+                default_play_style = "aggressive"
         if saved_key in STRATEGY_KEYS:
             initial_strat = STRATEGY_KEYS.index(saved_key)
         else:
@@ -434,11 +539,65 @@ class HololiveBotUI(tk.Tk):
         self.strategy_window = self.canvas.create_window(0, 0, window=self.combo_strategy, anchor='nw')
         self.active_mode = STRATEGY_KEYS[initial_strat]
 
+        raw_play_style = str(saved_config.get("play_style", default_play_style)).strip().lower()
+        self.play_style = raw_play_style if raw_play_style in ("aggressive", "default", "conservative") else "default"
+        self.var_style_aggressive = tk.BooleanVar(value=(self.play_style == "aggressive"))
+        self.var_style_default = tk.BooleanVar(value=(self.play_style == "default"))
+        self.var_style_conservative = tk.BooleanVar(value=(self.play_style == "conservative"))
+
         self.btn_config_strat = ttk.Button(self, command=self.open_custom_parametric_dialog, style="Config.TButton")
         self.btn_config_strat_win = self.canvas.create_window(0, 0, window=self.btn_config_strat, anchor='nw')
 
         font_desc = (self.font_family, 9)
         self.strategy_desc_id = self.canvas.create_text(0, 0, font=font_desc, fill="#222222", anchor="nw")
+
+        # --- Strategy Play Style Section (Always visible above Strategy Modifiers) ---
+        self.lbl_sec_play_style = CanvasHeaderLabel(
+            self.canvas,
+            text=localization.tr("sec_play_style", self.current_lang),
+        )
+        self.pill_play_style = CanvasSegmentedPill(
+            self.canvas,
+            segments=[
+                ("aggressive", localization.tr("chk_style_aggressive", self.current_lang)),
+                ("default", localization.tr("chk_style_default", self.current_lang)),
+                ("conservative", localization.tr("chk_style_conservative", self.current_lang)),
+            ],
+            initial_key=self.play_style,
+            command=self.on_play_style_toggle,
+            font=(self.font_family, 9),
+            theme_mode=self.theme_mode,
+        )
+        self.chk_style_aggressive = SegmentProxy(
+            self.pill_play_style, "aggressive", localization.tr("chk_style_aggressive", self.current_lang)
+        )
+        self.chk_style_default = SegmentProxy(
+            self.pill_play_style, "default", localization.tr("chk_style_default", self.current_lang)
+        )
+        self.chk_style_conservative = SegmentProxy(
+            self.pill_play_style, "conservative", localization.tr("chk_style_conservative", self.current_lang)
+        )
+        self._style_canvas_widgets = [
+            self.lbl_sec_play_style,
+            self.pill_play_style,
+            self.chk_style_aggressive,
+            self.chk_style_default,
+            self.chk_style_conservative,
+        ]
+
+        # Trace BooleanVars so programmatic updates sync to the segmented pill
+        for _sn, _v in (
+            ("aggressive", self.var_style_aggressive),
+            ("default", self.var_style_default),
+            ("conservative", self.var_style_conservative),
+        ):
+            def _make_tracer(sn, v):
+                return lambda *_: (
+                    self.pill_play_style.set_selected(sn)
+                    if (v.get() and hasattr(self, "pill_play_style"))
+                    else None
+                )
+            _v.trace_add("write", _make_tracer(_sn, _v))
 
         # Strategy Modifiers Drawer on Auto Bot Tab
         self.btn_toggle_modifiers = ttk.Button(
@@ -449,6 +608,15 @@ class HololiveBotUI(tk.Tk):
             takefocus=False,
         )
         self.btn_toggle_modifiers_win = self.canvas.create_window(0, 0, window=self.btn_toggle_modifiers, anchor="nw")
+
+        self.btn_reset_modifiers = ttk.Button(
+            self,
+            text=localization.tr("btn_reset_modifiers", self.current_lang),
+            command=self.reset_strategy_modifiers,
+            style="Config.TButton",
+            takefocus=False,
+        )
+        self.btn_reset_modifiers_win = self.canvas.create_window(0, 0, window=self.btn_reset_modifiers, anchor="nw")
 
         self.opp_frame = ttk.Frame(self)
         self.sec_cards_frame = DummyFrame()
@@ -494,6 +662,8 @@ class HololiveBotUI(tk.Tk):
         self.chk_mod_free_roll = CanvasCheckbutton(self.canvas, variable=self.var_mod_free_roll, command=self.on_modifier_toggle)
         self.chk_mod_sprint_floor = CanvasCheckbutton(self.canvas, variable=self.var_mod_sprint_floor, command=self.on_modifier_toggle)
         self.chk_mod_mega_sprint = CanvasCheckbutton(self.canvas, variable=self.var_mod_mega_sprint, command=self.on_modifier_toggle)
+        self.chk_mod_force_19900 = CanvasCheckbutton(self.canvas, variable=self.var_mod_force_19900, command=self.on_modifier_toggle)
+        self.chk_mod_hunt_14k = CanvasCheckbutton(self.canvas, variable=self.var_mod_hunt_14k, command=self.on_modifier_toggle)
 
         self._mod_canvas_widgets = [
             self.lbl_sec_cards,
@@ -504,6 +674,7 @@ class HololiveBotUI(tk.Tk):
             self.lbl_sec_prog,
             self.chk_mod_fast_build, self.chk_mod_free_roll,
             self.chk_mod_sprint_floor, self.chk_mod_mega_sprint,
+            self.chk_mod_force_19900, self.chk_mod_hunt_14k,
         ]
 
         self.opp_frame_win = self.canvas.create_window(0, 0, window=self.opp_frame, anchor="nw")
@@ -531,6 +702,23 @@ class HololiveBotUI(tk.Tk):
         # --- Settings Tab Specific Widgets (Global Settings Only) ---
         font_setting = (self.font_family, 9, "bold")
         self.lbl_setting_title_id = self.canvas.create_text(0, 0, font=font_normal, fill="#111111", anchor="w")
+
+        # Section Headers (CanvasHeaderLabel)
+        self.lbl_sec_appearance = CanvasHeaderLabel(
+            self.canvas,
+            text=localization.tr("sec_setting_appearance", self.current_lang),
+            cursor="arrow",
+        )
+        self.lbl_sec_gameplay = CanvasHeaderLabel(
+            self.canvas,
+            text=localization.tr("sec_setting_gameplay", self.current_lang),
+            cursor="arrow",
+        )
+        self.lbl_sec_diagnostics = CanvasHeaderLabel(
+            self.canvas,
+            text=localization.tr("sec_setting_diagnostics", self.current_lang),
+            cursor="arrow",
+        )
 
         self.lbl_setting_target_id = self.canvas.create_text(0, 0, font=font_setting, fill="#222222", anchor="w")
         self.entry_setting_target = ttk.Entry(self, width=12, justify="center")
@@ -586,22 +774,44 @@ class HololiveBotUI(tk.Tk):
         self.lbl_setting_font_scale_val.pack(side="right")
         self.scale_setting_font_win = self.canvas.create_window(0, 0, window=self.frame_setting_font_scale, anchor="e")
 
+        self.lbl_setting_companion_hotkey_id = self.canvas.create_text(0, 0, font=font_setting, fill="#222222", anchor="w")
+        self.btn_setting_companion_hotkey = ttk.Button(
+            self,
+            text=f"[ {self.current_companion_hotkey} ]",
+            command=self.start_listen_companion_hotkey,
+            style="Hotkey.TButton",
+        )
+        self.btn_setting_companion_hotkey_win = self.canvas.create_window(0, 0, window=self.btn_setting_companion_hotkey, anchor="e", state="hidden")
+        ToolTip(self.btn_setting_companion_hotkey, lambda: localization.tr("hotkey_companion_prompt", self.current_lang))
+
         self.btn_open_custom_dialog = ttk.Button(self, command=self.open_custom_parametric_dialog)
         self.btn_open_custom_dialog_win = self.canvas.create_window(0, 0, window=self.btn_open_custom_dialog, state="hidden")
 
-        self.chk_setting_show_log = ttk.Checkbutton(
-            self,
+        self.chk_setting_show_log = CanvasCheckbutton(
+            self.canvas,
             variable=self.var_show_log,
             command=self.toggle_log_console,
+            font=(self.font_family, 9),
+            style_tag="setting_log",
         )
-        self.chk_setting_show_log_win = self.canvas.create_window(0, 0, window=self.chk_setting_show_log, anchor="w")
+        self.chk_setting_show_log_win = self.canvas.create_window(0, 0, window=tk.Frame(self), state="hidden")
 
-        self.chk_setting_debug_log = ttk.Checkbutton(
-            self,
+        self.chk_setting_debug_log = CanvasCheckbutton(
+            self.canvas,
             variable=self.var_debug_logging,
             command=self.on_debug_logging_toggle,
+            font=(self.font_family, 9),
+            style_tag="setting_debug",
         )
-        self.chk_setting_debug_log_win = self.canvas.create_window(0, 0, window=self.chk_setting_debug_log, anchor="w")
+        self.chk_setting_debug_log_win = self.canvas.create_window(0, 0, window=tk.Frame(self), state="hidden")
+
+        self._settings_canvas_widgets = [
+            self.lbl_sec_appearance,
+            self.lbl_sec_gameplay,
+            self.lbl_sec_diagnostics,
+            self.chk_setting_show_log,
+            self.chk_setting_debug_log,
+        ]
 
         self.btn_save_settings = ttk.Button(self, command=self.save_user_settings)
         self.btn_save_settings_win = self.canvas.create_window(0, 0, window=self.btn_save_settings)
@@ -692,6 +902,8 @@ class HololiveBotUI(tk.Tk):
         self._bot_items = [
             self.hotkey_label_id,
             self.hotkey_window,
+            self.companion_hotkey_label_id,
+            self.companion_hotkey_window,
             self.stats_card_id,
             self.status_pill_id,
             self.status_dot_id,
@@ -703,14 +915,18 @@ class HololiveBotUI(tk.Tk):
             self.entry_fails_win,
             self.profit_id,
             self.btn_start_win,
+            self.btn_companion_win,
+            self.btn_intercept_win,
             self.btn_stop_win,
             self.btn_config_strat_win,
             self.btn_toggle_modifiers_win,
+            self.btn_reset_modifiers_win,
             self.opp_frame_win,
         ]
 
         self._sim_items = [
             self.btn_toggle_modifiers_win,
+            self.btn_reset_modifiers_win,
             self.opp_frame_win,
             self.sim_days_label_id,
             self.spin_sim_days_win,
@@ -737,6 +953,8 @@ class HololiveBotUI(tk.Tk):
             self.scale_setting_opacity_win,
             self.chk_setting_show_log_win,
             self.chk_setting_debug_log_win,
+            self.lbl_setting_companion_hotkey_id,
+            self.btn_setting_companion_hotkey_win,
             self.btn_save_settings_win,
             self.btn_restore_defaults_win,
             self.btn_back_to_bot_win,
@@ -765,6 +983,9 @@ class HololiveBotUI(tk.Tk):
         self.resize_after_id = None
 
         # Register widget hover tooltips
+        self.tooltips["style_aggressive"] = ToolTip(self.chk_style_aggressive)
+        self.tooltips["style_default"] = ToolTip(self.chk_style_default)
+        self.tooltips["style_conservative"] = ToolTip(self.chk_style_conservative)
         self.tooltips["opp_a2"] = ToolTip(self.chk_opp_a2)
         self.tooltips["opp_3k"] = ToolTip(self.chk_opp_3k)
         self.tooltips["opp_4q"] = ToolTip(self.chk_opp_4q)
@@ -779,7 +1000,13 @@ class HololiveBotUI(tk.Tk):
         self.tooltips["mod_free_roll"] = ToolTip(self.chk_mod_free_roll)
         self.tooltips["mod_sprint_floor"] = ToolTip(self.chk_mod_sprint_floor)
         self.tooltips["mod_mega_sprint"] = ToolTip(self.chk_mod_mega_sprint)
+        self.tooltips["mod_force_19900"] = ToolTip(self.chk_mod_force_19900)
+        self.tooltips["mod_hunt_14k"] = ToolTip(self.chk_mod_hunt_14k)
+        self.tooltips["btn_start"] = ToolTip(self.btn_start)
+        self.tooltips["btn_companion"] = ToolTip(self.btn_companion)
+        self.tooltips["btn_intercept"] = ToolTip(self.btn_intercept)
         self.tooltips["btn_toggle_modifiers"] = ToolTip(self.btn_toggle_modifiers)
+        self.tooltips["btn_reset_modifiers"] = ToolTip(self.btn_reset_modifiers)
         self.tooltips["btn_config_strat"] = ToolTip(self.btn_config_strat)
         self.tooltips["field_box_opacity"] = ToolTip(self.scale_setting_opacity)
         self.tooltips["show_log"] = ToolTip(self.chk_setting_show_log)
@@ -830,7 +1057,7 @@ class HololiveBotUI(tk.Tk):
             finally:
                 self.ui_queue.task_done()
         if not getattr(self, "_is_destroyed", False):
-            self.after(30, self._process_ui_queue)
+            self._queue_timer_id = self.after(30, self._process_ui_queue)
 
     def _on_hotkey_pressed(self):
         auto_bot.bot_running = False
@@ -842,6 +1069,8 @@ class HololiveBotUI(tk.Tk):
     def start_listen_hotkey(self):
         if self.is_running:
             return
+        if getattr(self, "is_listening_companion", False):
+            self._cancel_listen_companion_hotkey()
         if self.is_listening:
             self._cancel_listen_hotkey()
             return
@@ -908,10 +1137,108 @@ class HololiveBotUI(tk.Tk):
             self.btn_hotkey.configure(text=f"[ {self.current_hotkey} ]")
         self.save_settings()
 
+    def _on_companion_hotkey_pressed(self):
+        if self.is_running:
+            new_mode = auto_bot.toggle_scan_mode()
+            self.ui_queue.put(("callback", lambda: self._on_scan_mode_changed(new_mode)))
+        else:
+            self.ui_queue.put(("callback", self.toggle_companion_bot))
+
+    def _on_scan_mode_changed(self, active_scan: bool):
+        if hasattr(self, "var_scan_mode"):
+            self.var_scan_mode.set(active_scan)
+        if self.is_running:
+            self._update_status_chip("scanning" if active_scan else "running")
+        self._update_start_stop_button_state()
+
+    def start_listen_companion_hotkey(self):
+        if self.is_running:
+            return
+        if getattr(self, "is_listening", False):
+            self._cancel_listen_hotkey()
+        if getattr(self, "is_listening_companion", False):
+            self._cancel_listen_companion_hotkey()
+            return
+
+        self.is_listening_companion = True
+        listening_txt = localization.tr("hotkey_listening", self.current_lang)
+        if hasattr(self, "btn_companion_hotkey"):
+            self.btn_companion_hotkey.configure(text=listening_txt)
+        if hasattr(self, "btn_setting_companion_hotkey"):
+            self.btn_setting_companion_hotkey.configure(text=listening_txt)
+        print(localization.tr("hotkey_companion_prompt", self.current_lang))
+
+        threading.Thread(target=self._listen_companion_worker, daemon=True).start()
+
+    def _listen_companion_worker(self):
+        time.sleep(0.1)
+        q = queue.Queue()
+        hooked = keyboard.hook(q.put)
+        key = None
+        start_time = time.time()
+        timeout = 10.0
+        try:
+            while getattr(self, "is_listening_companion", False) and (time.time() - start_time < timeout):
+                try:
+                    event = q.get(timeout=0.2)
+                    if event.event_type == keyboard.KEY_DOWN:
+                        key = event.name.upper()
+                        break
+                except queue.Empty:
+                    continue
+        finally:
+            try:
+                keyboard.unhook(hooked)
+            except Exception:
+                pass
+
+        if key:
+            self.ui_queue.put(("callback", lambda: self._apply_new_companion_hotkey(key)))
+        else:
+            self.ui_queue.put(("callback", self._cancel_listen_companion_hotkey))
+
+    def _cancel_listen_companion_hotkey(self):
+        self.is_listening_companion = False
+        try:
+            if hasattr(self, "btn_companion_hotkey"):
+                self.btn_companion_hotkey.configure(text=f"[ {self.current_companion_hotkey} ]")
+            if hasattr(self, "btn_setting_companion_hotkey"):
+                self.btn_setting_companion_hotkey.configure(text=f"[ {self.current_companion_hotkey} ]")
+        except Exception:
+            pass
+
+    def _apply_new_companion_hotkey(self, new_key):
+        self.is_listening_companion = False
+        try:
+            keyboard.remove_hotkey(self.current_companion_hotkey)
+        except Exception:
+            pass
+
+        self.current_companion_hotkey = new_key
+        try:
+            keyboard.add_hotkey(self.current_companion_hotkey, self._on_companion_hotkey_pressed)
+            if hasattr(self, "btn_companion_hotkey"):
+                self.btn_companion_hotkey.configure(text=f"[ {self.current_companion_hotkey} ]")
+            if hasattr(self, "btn_setting_companion_hotkey"):
+                self.btn_setting_companion_hotkey.configure(text=f"[ {self.current_companion_hotkey} ]")
+            print(localization.tr("hotkey_companion_success", self.current_lang, key=self.current_companion_hotkey))
+        except Exception:
+            print(localization.tr("hotkey_companion_fallback", self.current_lang, key=new_key))
+            self.current_companion_hotkey = "F9"
+            try:
+                keyboard.add_hotkey(self.current_companion_hotkey, self._on_companion_hotkey_pressed)
+            except Exception:
+                pass
+            if hasattr(self, "btn_companion_hotkey"):
+                self.btn_companion_hotkey.configure(text=f"[ {self.current_companion_hotkey} ]")
+            if hasattr(self, "btn_setting_companion_hotkey"):
+                self.btn_setting_companion_hotkey.configure(text=f"[ {self.current_companion_hotkey} ]")
+        self.save_settings()
+
     def _is_canvas_log_active(self) -> bool:
         return bool(self.show_bg and self.original_bg and 0 <= self.bg_index < len(self.bg_candidates) and self.field_box_opacity < 100)
 
-    def _update_canvas_log_display(self, log_h: int = None):
+    def _update_canvas_log_display(self, log_h: Optional[int] = None):
         if not hasattr(self, "log_canvas_text_id"):
             return
         if not hasattr(self, "canvas_log_lines") or not self.canvas_log_lines:
@@ -1088,9 +1415,10 @@ class HololiveBotUI(tk.Tk):
         if w == self.last_w and h == self.last_h:
             return
         self.last_w, self.last_h = w, h
-        if getattr(self, "resize_after_id", None):
+        resize_job = getattr(self, "resize_after_id", None)
+        if resize_job:
             try:
-                self.after_cancel(self.resize_after_id)
+                self.after_cancel(resize_job)
             except Exception:
                 pass
         self.resize_after_id = self.after(50, lambda: self._debounced_resize(w, h))
@@ -1098,6 +1426,38 @@ class HololiveBotUI(tk.Tk):
     def _debounced_resize(self, w, h):
         self.resize_after_id = None
         self.draw_ui(w, h)
+
+    def _hide_style_widgets(self):
+        for w in getattr(self, "_style_canvas_widgets", []):
+            try:
+                w.hide()
+            except Exception:
+                pass
+
+    def _hide_settings_canvas_widgets(self):
+        for w in getattr(self, "_settings_canvas_widgets", []):
+            try:
+                w.hide()
+            except Exception:
+                pass
+
+    def _draw_play_style_section(self, pad_x, content_w, style_top, w, img, card_fill, card_border):
+        style_y1 = style_top
+        curr_y = style_y1 + 10
+        inner_pad_x = pad_x + 8
+        inner_w = content_w - 16
+        pill_h = 28
+
+        self.lbl_sec_play_style.place(inner_pad_x, curr_y)
+        curr_y += 18
+        self.pill_play_style.place(inner_pad_x, curr_y, width=inner_w, height=pill_h)
+        curr_y += pill_h + 8
+
+        style_x1 = pad_x - 4
+        style_x2 = w - pad_x + 4
+        style_y2 = curr_y + 2
+        img = draw_glass_card(img, (style_x1, style_y1, style_x2, style_y2), fill=card_fill, outline=card_border, radius=8)
+        return (style_y2 + 6), img
 
     def _hide_mod_widgets(self):
         for w in getattr(self, "_mod_canvas_widgets", []):
@@ -1158,10 +1518,20 @@ class HololiveBotUI(tk.Tk):
                 curr_y += row_h + 2
                 self.chk_mod_sprint_floor.place(inner_pad_x, curr_y, width=col2_w, height=row_h)
                 self.chk_mod_mega_sprint.place(inner_pad_x + col2_w, curr_y, width=col2_w, height=row_h)
+                curr_y += row_h + 2
+                self.chk_mod_force_19900.place(inner_pad_x, curr_y, width=col2_w, height=row_h)
+                self.chk_mod_hunt_14k.place(inner_pad_x + col2_w, curr_y, width=col2_w, height=row_h)
                 curr_y += row_h + 10
             else:
                 curr_y += 10
-                for c in (self.chk_mod_fast_build, self.chk_mod_free_roll, self.chk_mod_sprint_floor, self.chk_mod_mega_sprint):
+                for c in (
+                    self.chk_mod_fast_build,
+                    self.chk_mod_free_roll,
+                    self.chk_mod_sprint_floor,
+                    self.chk_mod_mega_sprint,
+                    self.chk_mod_force_19900,
+                    self.chk_mod_hunt_14k,
+                ):
                     c.hide()
 
             opp_x1 = pad_x - 4
@@ -1232,16 +1602,15 @@ class HololiveBotUI(tk.Tk):
         pad_x = max(16, int(w * 0.06))
         content_w = w - 2 * pad_x
 
-        # Top 2-Tab Bar (Auto Bot & Simulation only)
+        # Top 2-Tab Bar (Auto Bot & Simulation segmented pill)
         tab_btn_h = max(34, min(40, int(h * 0.046)))
         tab_y = max(24, int(h * 0.038))
-        tab_gap = 8
-        tab_btn_w = (content_w - tab_gap) / 2
+        tab_top = int(tab_y - tab_btn_h / 2)
+        if hasattr(self, "pill_main_tabs"):
+            self.pill_main_tabs.place(pad_x, tab_top, width=content_w, height=tab_btn_h)
 
-        self.canvas.coords(self.tab_win_bot, pad_x + tab_btn_w / 2, tab_y)
-        self.canvas.coords(self.tab_win_sim, pad_x + tab_btn_w + tab_gap + tab_btn_w / 2, tab_y)
-        self.canvas.itemconfig(self.tab_win_bot, width=tab_btn_w, height=tab_btn_h, state="normal")
-        self.canvas.itemconfig(self.tab_win_sim, width=tab_btn_w, height=tab_btn_h, state="normal")
+        self.canvas.itemconfig(self.tab_win_bot, state="hidden")
+        self.canvas.itemconfig(self.tab_win_sim, state="hidden")
         self.canvas.itemconfig(self.tab_win_settings, state="hidden")
 
         scrollbar_w = 16
@@ -1251,6 +1620,7 @@ class HololiveBotUI(tk.Tk):
             self._set_items_visible(self._bot_items, True)
             self._set_items_visible(self._sim_items, False)
             self._set_items_visible(self._settings_items, False)
+            self._hide_settings_canvas_widgets()
 
             # Ensure widgets moved to File menu remain hidden on canvas
             self.canvas.itemconfig(self.lang_label_id, state="hidden")
@@ -1261,21 +1631,33 @@ class HololiveBotUI(tk.Tk):
             self.canvas.itemconfig(self.btn_clear_logs_win, state="hidden")
             self.canvas.itemconfig(self.btn_open_custom_dialog_win, state="hidden")
 
-            # Combined Top Stats Card Header (Status Chip on Left, Hotkey Keycap on Right)
+            # Combined Top Stats Card Header (Status Chip on Left, Stop & Observer Hotkeys on Right with Labels above)
             tab_bottom = tab_y + tab_btn_h / 2
             stats_card_top = tab_bottom + 10
             card_inner_x = pad_x + 8
             scale = getattr(self, "font_scale", 100) / 100.0
-            hotkey_btn_h = max(32, int(round(32 * scale)))
-            hotkey_btn_w = max(96, min(140, int(content_w * 0.30)))
+            hotkey_btn_h = max(30, int(round(30 * scale)))
+            hotkey_btn_w = max(84, min(115, int(content_w * 0.25)))
+            hk_gap = 8
 
-            row1_y = stats_card_top + max(24, int(round(24 * scale)))
+            lbl_hk_y = stats_card_top + max(13, int(round(13 * scale)))
+            row1_y = lbl_hk_y + max(10, int(round(10 * scale))) + hotkey_btn_h / 2
+
             self._status_coords = (card_inner_x, row1_y)
             self._update_status_chip()
 
-            self.canvas.coords(self.hotkey_window, w - pad_x - 8, row1_y)
-            self.canvas.itemconfig(self.hotkey_window, width=hotkey_btn_w, height=hotkey_btn_h, state="normal")
-            self.canvas.itemconfig(self.hotkey_label_id, state="hidden")
+            hk2_cx = w - pad_x - 8 - hotkey_btn_w / 2
+            hk1_cx = hk2_cx - hotkey_btn_w - hk_gap
+
+            self.canvas.coords(self.hotkey_label_id, hk1_cx, lbl_hk_y)
+            self.canvas.itemconfig(self.hotkey_label_id, anchor="center", state="normal")
+            self.canvas.coords(self.hotkey_window, hk1_cx, row1_y)
+            self.canvas.itemconfig(self.hotkey_window, width=hotkey_btn_w, height=hotkey_btn_h, anchor="center", state="normal")
+
+            self.canvas.coords(self.companion_hotkey_label_id, hk2_cx, lbl_hk_y)
+            self.canvas.itemconfig(self.companion_hotkey_label_id, anchor="center", state="normal")
+            self.canvas.coords(self.companion_hotkey_window, hk2_cx, row1_y)
+            self.canvas.itemconfig(self.companion_hotkey_window, width=hotkey_btn_w, height=hotkey_btn_h, anchor="center", state="normal")
 
             # Calculate unified label column width so Coins and Fails inputs are perfectly left-aligned
             coins_lbl_box = self.canvas.bbox(self.coins_label_id)
@@ -1289,7 +1671,7 @@ class HololiveBotUI(tk.Tk):
             entry_x = card_inner_x + lbl_col_w + 14
 
             # Row 2: Coins Row
-            coins_y = row1_y + max(36, int(round(36 * scale)))
+            coins_y = row1_y + max(34, int(round(34 * scale)))
             self.canvas.coords(self.coins_label_id, card_inner_x, coins_y)
             self.canvas.coords(self.entry_coins_win, entry_x, coins_y)
             self.canvas.itemconfig(self.entry_coins_win, width=entry_w, height=entry_h)
@@ -1322,21 +1704,39 @@ class HololiveBotUI(tk.Tk):
                 )
                 img = Image.alpha_composite(img, overlay)
 
-            # 1-Row Action Button: Unified Start / Stop Bot (Full width, height 40)
+            # 2-Column Action Row: Start Bot (left) & Observer Mode (right)
             btn_h = 40
             btn_row_top = stats_card_bottom + 12
             btn_row_y = btn_row_top + btn_h / 2
-            btn_w = content_w
+            btn_gap = 8
+            col_btn_w = (content_w - btn_gap) / 2
 
-            self.canvas.coords(self.btn_start_win, pad_x + btn_w / 2, btn_row_y)
-            self.canvas.itemconfig(self.btn_start_win, width=btn_w, height=btn_h, state="normal")
+            self.canvas.coords(self.btn_start_win, pad_x + col_btn_w / 2, btn_row_y)
+            self.canvas.itemconfig(self.btn_start_win, width=col_btn_w, height=btn_h, state="normal")
+            self.canvas.coords(self.btn_companion_win, pad_x + col_btn_w + btn_gap + col_btn_w / 2, btn_row_y)
+            self.canvas.itemconfig(self.btn_companion_win, width=col_btn_w, height=btn_h, state="normal")
+
+            show_intercept = (
+                self.active_mode in ("true_max_coins", "true_max_profit")
+                or bool(self.var_mod_hunt_14k.get())
+                or bool(self.var_mod_force_19900.get())
+            )
+            if show_intercept:
+                intercept_h = 32
+                intercept_top = btn_row_top + btn_h + 6
+                intercept_y = intercept_top + intercept_h / 2
+                self.canvas.coords(self.btn_intercept_win, pad_x + content_w / 2, intercept_y)
+                self.canvas.itemconfig(self.btn_intercept_win, width=content_w, height=intercept_h, state="normal")
+                strat_top = intercept_top + intercept_h + 8
+            else:
+                self.canvas.itemconfig(self.btn_intercept_win, state="hidden")
+                strat_top = btn_row_top + btn_h + 10
             self.canvas.itemconfig(self.btn_stop_win, state="hidden")
             self.canvas.itemconfig(self.btn_exit_win, state="hidden")
 
-            # Strategy Row (full width dropdown or with config button if custom parametric)
-            strat_top = btn_row_top + btn_h + 10
+            # Strategy Row (full width dropdown or with config button if custom parametric / true max coins / hunt 14k active)
             strat_field_h = 30
-            is_custom = (self.active_mode == "custom_parametric")
+            is_custom = (self.active_mode in ("custom_parametric", "true_max_coins", "true_max_profit")) or bool(self.var_mod_hunt_14k.get())
             if is_custom:
                 config_btn_w = max(100, min(120, int(content_w * 0.28)))
                 combo_strat_w = content_w - config_btn_w - 8
@@ -1373,11 +1773,16 @@ class HololiveBotUI(tk.Tk):
                 )
                 img = Image.alpha_composite(img, overlay_desc)
 
-            # Strategy Modifiers Drawer on Auto Bot Tab
-            mod_btn_y = desc_bottom + 8
+            # Strategy Play Style Section & Strategy Modifiers Drawer on Auto Bot Tab
+            mod_btn_y, img = self._draw_play_style_section(pad_x, content_w, desc_bottom + 8, w, img, card_fill, card_border)
             mod_btn_h = 30
+            reset_btn_w = max(68, min(80, int(content_w * 0.18)))
+            btn_gap = 6
+            toggle_w = content_w - reset_btn_w - btn_gap
             self.canvas.coords(self.btn_toggle_modifiers_win, pad_x, mod_btn_y)
-            self.canvas.itemconfig(self.btn_toggle_modifiers_win, width=content_w, height=mod_btn_h, state="normal")
+            self.canvas.itemconfig(self.btn_toggle_modifiers_win, width=toggle_w, height=mod_btn_h, state="normal")
+            self.canvas.coords(self.btn_reset_modifiers_win, pad_x + toggle_w + btn_gap, mod_btn_y)
+            self.canvas.itemconfig(self.btn_reset_modifiers_win, width=reset_btn_w, height=mod_btn_h, state="normal")
 
             log_y, img = self._draw_modifiers_drawer(pad_x, content_w, mod_btn_y, mod_btn_h, w, img, card_fill, card_border)
             img = self._draw_log_box(pad_x, content_w, log_y, h, w, img, card_fill, card_border)
@@ -1386,6 +1791,7 @@ class HololiveBotUI(tk.Tk):
             self._set_items_visible(self._bot_items, False)
             self._set_items_visible(self._sim_items, True)
             self._set_items_visible(self._settings_items, False)
+            self._hide_settings_canvas_widgets()
 
             self.canvas.itemconfig(self.lang_label_id, state="hidden")
             self.canvas.itemconfig(self.combo_window, state="hidden")
@@ -1395,10 +1801,10 @@ class HololiveBotUI(tk.Tk):
             self.canvas.itemconfig(self.btn_clear_logs_win, state="hidden")
             self.canvas.itemconfig(self.btn_open_custom_dialog_win, state="hidden")
 
-            # Strategy Row (full width or with config button if custom parametric)
+            # Strategy Row (full width or with config button if custom parametric / true max coins / hunt 14k active)
             strat_top = tab_y + tab_btn_h / 2 + 10
             strat_field_h = 30
-            is_custom = (self.active_mode == "custom_parametric")
+            is_custom = (self.active_mode in ("custom_parametric", "true_max_coins", "true_max_profit")) or bool(self.var_mod_hunt_14k.get())
             if is_custom:
                 config_btn_w = max(100, min(120, int(content_w * 0.28)))
                 combo_strat_w = content_w - config_btn_w - 8
@@ -1420,11 +1826,16 @@ class HololiveBotUI(tk.Tk):
             desc_bbox = self.canvas.bbox(self.strategy_desc_id)
             desc_bottom = desc_bbox[3] if (desc_bbox and desc_bbox[3] > desc_y) else (desc_y + 30)
 
-            # Strategy Modifiers Drawer on Simulation Tab
-            mod_btn_y = desc_bottom + 8
+            # Strategy Play Style Section & Strategy Modifiers Drawer on Simulation Tab
+            mod_btn_y, img = self._draw_play_style_section(pad_x, content_w, desc_bottom + 8, w, img, card_fill, card_border)
             mod_btn_h = 30
+            reset_btn_w = max(68, min(80, int(content_w * 0.18)))
+            btn_gap = 6
+            toggle_w = content_w - reset_btn_w - btn_gap
             self.canvas.coords(self.btn_toggle_modifiers_win, pad_x, mod_btn_y)
-            self.canvas.itemconfig(self.btn_toggle_modifiers_win, width=content_w, height=mod_btn_h, state="normal")
+            self.canvas.itemconfig(self.btn_toggle_modifiers_win, width=toggle_w, height=mod_btn_h, state="normal")
+            self.canvas.coords(self.btn_reset_modifiers_win, pad_x + toggle_w + btn_gap, mod_btn_y)
+            self.canvas.itemconfig(self.btn_reset_modifiers_win, width=reset_btn_w, height=mod_btn_h, state="normal")
 
             days_row_top, img = self._draw_modifiers_drawer(pad_x, content_w, mod_btn_y, mod_btn_h, w, img, card_fill, card_border)
 
@@ -1461,6 +1872,7 @@ class HololiveBotUI(tk.Tk):
             self._set_items_visible(self._bot_items, False)
             self._set_items_visible(self._sim_items, False)
             self._set_items_visible(self._settings_items, True)
+            self._hide_style_widgets()
             self._hide_mod_widgets()
 
             self.canvas.itemconfig(self.log_text_win, state="hidden")
@@ -1471,87 +1883,125 @@ class HololiveBotUI(tk.Tk):
             self.canvas.itemconfig(self.btn_config_strat_win, state="hidden")
             self.canvas.itemconfig(self.btn_open_custom_dialog_win, state="hidden")
 
-            sett_start_y = tab_y + tab_btn_h / 2 + 18
+            sett_start_y = tab_y + tab_btn_h / 2 + 14
             self.canvas.coords(self.lbl_setting_title_id, pad_x, sett_start_y)
+            self.canvas.itemconfig(self.settings_card_id, state="hidden")
 
-            row_gap = 36
+            card_x1 = pad_x - 6
+            card_x2 = w - pad_x + 6
+            inner_pad_x = pad_x + 8
+            inner_w = content_w - 16
             input_w = max(130, min(160, int(content_w * 0.44)))
+            row_gap = 32
+            field_h = max(26, min(28, int(h * 0.036)))
+
+            curr_y = sett_start_y + 16
+
+            # --- Card 1: Appearance & Display ---
+            c1_top = curr_y
+            self.lbl_sec_appearance.place(inner_pad_x, curr_y + 4)
+            curr_y += 24
 
             # Row 1: Language
-            r1_y = sett_start_y + row_gap
-            self.canvas.coords(self.lang_label_id, pad_x, r1_y)
-            self.canvas.coords(self.combo_window, w - pad_x, r1_y)
+            r1_y = curr_y + field_h // 2
+            self.canvas.coords(self.lang_label_id, inner_pad_x, r1_y)
+            self.canvas.coords(self.combo_window, card_x2 - 12, r1_y)
             self.canvas.itemconfig(self.combo_window, width=input_w, height=field_h, state="normal")
+            curr_y += row_gap
 
             # Row 2: Background
-            r2_y = r1_y + row_gap
-            self.canvas.coords(self.lbl_setting_bg_id, pad_x, r2_y)
-            self.canvas.coords(self.combo_bg_win, w - pad_x, r2_y)
+            r2_y = curr_y + field_h // 2
+            self.canvas.coords(self.lbl_setting_bg_id, inner_pad_x, r2_y)
+            self.canvas.coords(self.combo_bg_win, card_x2 - 12, r2_y)
             self.canvas.itemconfig(self.combo_bg_win, width=input_w, height=field_h, state="normal")
+            curr_y += row_gap
 
             # Row 3: Font Family
-            r3_y = r2_y + row_gap
-            self.canvas.coords(self.lbl_setting_font_id, pad_x, r3_y)
-            self.canvas.coords(self.combo_setting_font_win, w - pad_x, r3_y)
+            r3_y = curr_y + field_h // 2
+            self.canvas.coords(self.lbl_setting_font_id, inner_pad_x, r3_y)
+            self.canvas.coords(self.combo_setting_font_win, card_x2 - 12, r3_y)
             self.canvas.itemconfig(self.combo_setting_font_win, width=input_w, height=field_h, state="normal")
+            curr_y += row_gap
 
             # Row 4: Font Scale
-            r4_y = r3_y + row_gap
-            self.canvas.coords(self.lbl_setting_font_scale_id, pad_x, r4_y)
-            self.canvas.coords(self.scale_setting_font_win, w - pad_x, r4_y)
+            r4_y = curr_y + field_h // 2
+            self.canvas.coords(self.lbl_setting_font_scale_id, inner_pad_x, r4_y)
+            self.canvas.coords(self.scale_setting_font_win, card_x2 - 12, r4_y)
             self.canvas.itemconfig(self.scale_setting_font_win, width=input_w, height=field_h, state="normal")
+            curr_y += row_gap
 
             # Row 5: Field Box Opacity
-            r5_y = r4_y + row_gap
-            self.canvas.coords(self.lbl_setting_opacity_id, pad_x, r5_y)
-            self.canvas.coords(self.scale_setting_opacity_win, w - pad_x, r5_y)
+            r5_y = curr_y + field_h // 2
+            self.canvas.coords(self.lbl_setting_opacity_id, inner_pad_x, r5_y)
+            self.canvas.coords(self.scale_setting_opacity_win, card_x2 - 12, r5_y)
             self.canvas.itemconfig(self.scale_setting_opacity_win, width=input_w, height=field_h, state="normal")
+            curr_y += row_gap + 4
 
-            # Row 6: Target limit
-            r6_y = r5_y + row_gap
-            self.canvas.coords(self.lbl_setting_target_id, pad_x, r6_y)
-            self.canvas.coords(self.entry_setting_target_win, w - pad_x, r6_y)
+            c1_bottom = curr_y
+            img = draw_glass_card(img, (card_x1, c1_top, card_x2, c1_bottom), fill=card_fill, outline=card_border, radius=8)
+            curr_y += 10
+
+            # --- Card 2: Gameplay & Automation ---
+            c2_top = curr_y
+            self.lbl_sec_gameplay.place(inner_pad_x, curr_y + 4)
+            curr_y += 24
+
+            # Row 1: Target limit
+            r6_y = curr_y + field_h // 2
+            self.canvas.coords(self.lbl_setting_target_id, inner_pad_x, r6_y)
+            self.canvas.coords(self.entry_setting_target_win, card_x2 - 12, r6_y)
             self.canvas.itemconfig(self.entry_setting_target_win, width=input_w, height=field_h, state="normal")
+            curr_y += row_gap
 
-            # Row 7: Ticket Cost
-            r7_y = r6_y + row_gap
-            self.canvas.coords(self.lbl_setting_ticket_id, pad_x, r7_y)
-            self.canvas.coords(self.entry_setting_ticket_win, w - pad_x, r7_y)
+            # Row 2: Ticket Cost
+            r7_y = curr_y + field_h // 2
+            self.canvas.coords(self.lbl_setting_ticket_id, inner_pad_x, r7_y)
+            self.canvas.coords(self.entry_setting_ticket_win, card_x2 - 12, r7_y)
             self.canvas.itemconfig(self.entry_setting_ticket_win, width=input_w, height=field_h, state="normal")
+            curr_y += row_gap
 
-            # Row 8: Log Console & Debug Logging Toggles
-            r8_y = r7_y + row_gap
-            chk_col_w = (content_w - 8) / 2
-            self.canvas.coords(self.chk_setting_show_log_win, pad_x, r8_y)
-            self.canvas.itemconfig(self.chk_setting_show_log_win, width=chk_col_w, height=field_h, state="normal")
-            self.canvas.coords(self.chk_setting_debug_log_win, pad_x + chk_col_w + 8, r8_y)
-            self.canvas.itemconfig(self.chk_setting_debug_log_win, width=chk_col_w, height=field_h, state="normal")
+            # Row 3: Companion Hotkey
+            r8_y = curr_y + field_h // 2
+            self.canvas.coords(self.lbl_setting_companion_hotkey_id, inner_pad_x, r8_y)
+            self.canvas.coords(self.btn_setting_companion_hotkey_win, card_x2 - 12, r8_y)
+            self.canvas.itemconfig(self.btn_setting_companion_hotkey_win, width=input_w, height=field_h, state="normal")
+            curr_y += row_gap + 4
 
-            # Row 9: Buttons: Save & Restore
-            btn_sett_y = r8_y + row_gap + 10
+            c2_bottom = curr_y
+            img = draw_glass_card(img, (card_x1, c2_top, card_x2, c2_bottom), fill=card_fill, outline=card_border, radius=8)
+            curr_y += 10
+
+            # --- Card 3: Diagnostics & Logging ---
+            c3_top = curr_y
+            self.lbl_sec_diagnostics.place(inner_pad_x, curr_y + 4)
+            curr_y += 24
+
+            tog_w = int((inner_w - 8) / 2)
+            self.chk_setting_show_log.place(inner_pad_x, curr_y, width=tog_w, height=22)
+            self.chk_setting_debug_log.place(inner_pad_x + tog_w + 8, curr_y, width=tog_w, height=22)
+            curr_y += 30
+
+            c3_bottom = curr_y
+            img = draw_glass_card(img, (card_x1, c3_top, card_x2, c3_bottom), fill=card_fill, outline=card_border, radius=8)
+            curr_y += 14
+
+            # --- Action Buttons ---
             btn_sett_w = (content_w - 8) / 2
-            btn_sett_h = 36
+            btn_sett_h = 34
+            btn_sett_y = curr_y + btn_sett_h // 2
             self.canvas.coords(self.btn_save_settings_win, pad_x + btn_sett_w / 2, btn_sett_y)
             self.canvas.coords(self.btn_restore_defaults_win, pad_x + btn_sett_w + 8 + btn_sett_w / 2, btn_sett_y)
             self.canvas.itemconfig(self.btn_save_settings_win, width=btn_sett_w, height=btn_sett_h, state="normal")
             self.canvas.itemconfig(self.btn_restore_defaults_win, width=btn_sett_w, height=btn_sett_h, state="normal")
+            curr_y += btn_sett_h + 8
 
-            # Row 10: Return to Auto Bot
-            btn_back_y = btn_sett_y + btn_sett_h + 12
+            btn_back_h = 34
+            btn_back_y = curr_y + btn_back_h // 2
             self.canvas.coords(self.btn_back_to_bot_win, pad_x + content_w / 2, btn_back_y)
-            self.canvas.itemconfig(self.btn_back_to_bot_win, width=content_w, height=36, state="normal")
-
-            # Position card behind settings rows
-            sett_x1 = pad_x - 8
-            sett_y1 = sett_start_y - 12
-            sett_x2 = w - pad_x + 8
-            sett_y2 = btn_back_y + btn_sett_h / 2 + 12
-
-            self.canvas.itemconfig(self.settings_card_id, state="hidden")
-            img = draw_glass_card(img, (sett_x1, sett_y1, sett_x2, sett_y2), fill=card_fill, outline=card_border, radius=8)
+            self.canvas.itemconfig(self.btn_back_to_bot_win, width=content_w, height=btn_back_h, state="normal")
 
             # Feedback label
-            self.canvas.coords(self.settings_feedback_id, w / 2, btn_back_y + btn_sett_h / 2 + 20)
+            self.canvas.coords(self.settings_feedback_id, w / 2, btn_back_y + btn_back_h // 2 + 16)
 
         # 3. Final background PhotoImage update (including any composited cards)
         self.bg_photo = ImageTk.PhotoImage(img)
@@ -1565,7 +2015,7 @@ class HololiveBotUI(tk.Tk):
             return self.custom_font_family
         return get_locale_font_family(getattr(self, "current_lang", "en"))
 
-    def apply_font_settings(self, font_family: str = None, font_scale: int = None):
+    def apply_font_settings(self, font_family: Optional[str] = None, font_scale: Optional[int] = None):
         if font_family is not None:
             self.custom_font_family = font_family
         if font_scale is not None:
@@ -1598,7 +2048,7 @@ class HololiveBotUI(tk.Tk):
     def theme_palette(self) -> dict:
         return THEME_PALETTES.get(self.get_active_theme(), THEME_PALETTES["light"])
 
-    def apply_theme(self, theme_mode: str = None):
+    def apply_theme(self, theme_mode: Optional[str] = None):
         if theme_mode is not None and theme_mode in ("system", "light", "dark"):
             self.theme_mode = theme_mode
             if hasattr(self, "theme_var"):
@@ -1810,7 +2260,6 @@ class HololiveBotUI(tk.Tk):
             pass
 
         text_primary_items = [
-            getattr(self, "hotkey_label_id", None),
             getattr(self, "coins_label_id", None),
             getattr(self, "coins_max_id", None),
             getattr(self, "fails_label_id", None),
@@ -1826,9 +2275,12 @@ class HololiveBotUI(tk.Tk):
                     pass
 
         text_sec_items = [
+            getattr(self, "hotkey_label_id", None),
+            getattr(self, "companion_hotkey_label_id", None),
             getattr(self, "strategy_desc_id", None),
             getattr(self, "lbl_setting_target_id", None),
             getattr(self, "lbl_setting_ticket_id", None),
+            getattr(self, "lbl_setting_companion_hotkey_id", None),
             getattr(self, "lbl_setting_opacity_id", None),
         ]
         for it in text_sec_items:
@@ -1856,11 +2308,11 @@ class HololiveBotUI(tk.Tk):
             except Exception:
                 pass
 
-        for w in getattr(self, "_mod_canvas_widgets", []):
+        for w in list(getattr(self, "_style_canvas_widgets", [])) + list(getattr(self, "_mod_canvas_widgets", [])) + list(getattr(self, "_settings_canvas_widgets", [])) + [getattr(self, "pill_main_tabs", None)]:
             if hasattr(w, "set_theme"):
                 if isinstance(w, CanvasHeaderLabel):
                     w.set_theme(palette["header_fill"])
-                elif isinstance(w, CanvasCheckbutton):
+                elif isinstance(w, (CanvasCheckbutton, CanvasSegmentedPill, SegmentProxy)):
                     w.set_theme(palette["name"])
 
         if not self.show_bg:
@@ -2061,6 +2513,8 @@ class HololiveBotUI(tk.Tk):
         if tab not in ("bot", "sim", "settings"):
             return
         self.current_tab = tab
+        if hasattr(self, "pill_main_tabs"):
+            self.pill_main_tabs.set_selected(tab)
         self.refresh_texts()
         w = self.last_w if self.last_w else 480
         h = self.last_h if self.last_h else 850
@@ -2410,9 +2864,12 @@ class HololiveBotUI(tk.Tk):
             user_settings = dict(
                 language=self.current_lang,
                 hotkey=self.current_hotkey,
+                hotkey_companion=self.current_companion_hotkey,
+                scan_mode=bool(self.var_scan_mode.get()),
                 background_index=self.bg_index,
                 strategy_key=self.active_mode,
                 strategy_index=strat_idx,
+                play_style=getattr(self, "play_style", "default"),
                 target_limit=self.target_limit,
                 ticket_cost=self.ticket_cost,
                 log_retention_days=self.log_retention_days,
@@ -2435,6 +2892,9 @@ class HololiveBotUI(tk.Tk):
                 mod_free_roll=bool(self.var_mod_free_roll.get()),
                 mod_sprint_floor=bool(self.var_mod_sprint_floor.get()),
                 mod_mega_sprint=bool(self.var_mod_mega_sprint.get()),
+                mod_force_19900=bool(self.var_mod_force_19900.get()),
+                mod_hunt_14k=bool(self.var_mod_hunt_14k.get()),
+                hunt_14k_attempts=getattr(self, "hunt_14k_attempts", 0),
                 debug_logging=bool(self.var_debug_logging.get()),
                 param_min_win_rate=self.param_min_win_rate,
                 param_cushion_target=self.param_cushion_target,
@@ -2455,6 +2915,7 @@ class HololiveBotUI(tk.Tk):
                 auto_bot.save_daily_data(
                     self.current_coins,
                     self.current_fails,
+                    None,
                     **user_settings
                 )
             auto_bot.TARGET_LIMIT = self.target_limit
@@ -2465,7 +2926,17 @@ class HololiveBotUI(tk.Tk):
             if count > 0 and hasattr(self, "append_log_text"):
                 self.append_log_text(f"{localization.tr('log_cleanup_done', self.current_lang, count=count, size_mb=freed_mb)}\n")
             self.canvas.itemconfig(self.settings_feedback_id, text=localization.tr("settings_saved_msg", self.current_lang))
-            self.after(3000, lambda: self.canvas.itemconfig(self.settings_feedback_id, text=""))
+            if hasattr(self, "_feedback_timer_id") and self._feedback_timer_id:
+                try:
+                    self.after_cancel(self._feedback_timer_id)
+                except Exception:
+                    pass
+            self._feedback_timer_id = self.after(
+                3000,
+                lambda: self.canvas.itemconfig(self.settings_feedback_id, text="")
+                if not getattr(self, "_is_destroyed", False)
+                else None,
+            )
             print(f"[Settings] {localization.tr('settings_saved_msg', self.current_lang)}")
         except Exception as e:
             messagebox.showerror(localization.tr("settings_error_title", self.current_lang), localization.tr("settings_invalid_val", self.current_lang, error=e))
@@ -2493,6 +2964,15 @@ class HololiveBotUI(tk.Tk):
             self.lbl_setting_font_scale_val.configure(text="100%")
         self.font_family = self.get_effective_font_family()
         self._apply_locale_fonts()
+        self.active_mode = "balanced"
+        if "balanced" in STRATEGY_KEYS:
+            self.combo_strategy.current(STRATEGY_KEYS.index("balanced"))
+        self.play_style = "default"
+        if hasattr(self, "var_style_aggressive"):
+            self.var_style_aggressive.set(False)
+            self.var_style_default.set(True)
+            self.var_style_conservative.set(False)
+        self.update_strategy_description()
         self.var_opp_a2.set(True)
         self.var_opp_3k.set(False)
         self.var_opp_4q.set(False)
@@ -2507,6 +2987,11 @@ class HololiveBotUI(tk.Tk):
         self.var_mod_free_roll.set(False)
         self.var_mod_sprint_floor.set(False)
         self.var_mod_mega_sprint.set(False)
+        self.var_mod_force_19900.set(False)
+        self.var_mod_hunt_14k.set(False)
+        self.mod_force_19900 = False
+        self.mod_hunt_14k = False
+        self.hunt_14k_attempts = 0
         self.var_debug_logging.set(False)
         self.debug_logging = False
         auto_bot._debug_logging_enabled = False
@@ -2561,7 +3046,11 @@ class HololiveBotUI(tk.Tk):
             "mod_free_roll": bool(self.var_mod_free_roll.get()),
             "mod_sprint_floor": bool(self.var_mod_sprint_floor.get()),
             "mod_mega_sprint": bool(self.var_mod_mega_sprint.get()),
+            "mod_force_19900": bool(self.var_mod_force_19900.get()),
+            "mod_hunt_14k": bool(self.var_mod_hunt_14k.get()),
+            "hunt_14k_attempts": int(getattr(self, "hunt_14k_attempts", 0)),
             "cushion_target": int(self.param_cushion_target),
+            "play_style": getattr(self, "play_style", "default"),
         }
         self.is_simulating = True
         self._set_sim_buttons_state("disabled")
@@ -2587,13 +3076,18 @@ class HololiveBotUI(tk.Tk):
                 mod_free_roll=params["mod_free_roll"],
                 mod_sprint_floor=params["mod_sprint_floor"],
                 mod_mega_sprint=params["mod_mega_sprint"],
+                mod_force_19900=params["mod_force_19900"],
+                mod_hunt_14k=params["mod_hunt_14k"],
+                hunt_14k_attempts=params["hunt_14k_attempts"],
                 cushion_target=params["cushion_target"],
             )
             days = params["days"]
             target_limit = params["target_limit"]
+            play_style = params.get("play_style", "default")
+            strat_kwargs = {"play_style": play_style} if play_style != "default" else None
 
             print(f"\n[Benchmark] Comparing all {len(STRATEGY_KEYS)} strategies ({days} days each)...")
-            results = sim.run_comparison(days=days, target_limit=target_limit)
+            results = sim.run_comparison(days=days, target_limit=target_limit, strategy_kwargs=strat_kwargs)
             self.last_benchmark_results = [
                 {
                     "Strategy": r.strategy_name,
@@ -2663,6 +3157,32 @@ class HololiveBotUI(tk.Tk):
     def _update_preset_styles(self):
         pass
 
+    def on_play_style_toggle(self, style: str):
+        if style not in ("aggressive", "default", "conservative"):
+            style = "default"
+        var_map = {
+            "aggressive": self.var_style_aggressive,
+            "default": self.var_style_default,
+            "conservative": self.var_style_conservative,
+        }
+        # If untoggling the currently active style, fall back to default
+        if self.play_style == style and not bool(var_map[style].get()):
+            self.play_style = "default"
+        else:
+            self.play_style = style
+
+        self.var_style_aggressive.set(self.play_style == "aggressive")
+        self.var_style_default.set(self.play_style == "default")
+        self.var_style_conservative.set(self.play_style == "conservative")
+        if hasattr(self, "pill_play_style"):
+            self.pill_play_style.set_selected(self.play_style)
+
+        self.update_strategy_description()
+        self.save_settings()
+        if self.is_running:
+            style_display = localization.tr(f"chk_style_{self.play_style}", self.current_lang)
+            print(f"\n{localization.tr('log_play_style_changed', self.current_lang, style=style_display)}\n")
+
     def _sync_modifier_states(self):
         fast_build = bool(self.var_mod_fast_build.get())
         drop_6789 = bool(self.var_mod_drop_6789.get())
@@ -2675,6 +3195,7 @@ class HololiveBotUI(tk.Tk):
 
         sprint_floor = bool(self.var_mod_sprint_floor.get())
         mega_sprint = bool(self.var_mod_mega_sprint.get())
+        hunt_14k = bool(self.var_mod_hunt_14k.get())
 
         if fast_build:
             # Fast Build forces doubling on all cards under cushion,
@@ -2727,8 +3248,9 @@ class HololiveBotUI(tk.Tk):
                 elif opp_610:
                     state_drop_6789 = "disabled"
 
-        state_sprint_floor = "disabled" if mega_sprint else "normal"
-        state_mega_sprint = "disabled" if sprint_floor else "normal"
+        state_sprint_floor = "disabled" if (mega_sprint or hunt_14k) else "normal"
+        state_mega_sprint = "disabled" if (sprint_floor or hunt_14k) else "normal"
+        state_hunt_14k = "disabled" if (sprint_floor or mega_sprint) else "normal"
 
         for widget, state in (
             (getattr(self, "chk_opp_a2", None), state_opp_a2),
@@ -2743,6 +3265,8 @@ class HololiveBotUI(tk.Tk):
             (getattr(self, "chk_mod_drop_8", None), state_drop_8),
             (getattr(self, "chk_mod_sprint_floor", None), state_sprint_floor),
             (getattr(self, "chk_mod_mega_sprint", None), state_mega_sprint),
+            (getattr(self, "chk_mod_force_19900", None), "normal"),
+            (getattr(self, "chk_mod_hunt_14k", None), state_hunt_14k),
         ):
             if widget:
                 try:
@@ -2750,7 +3274,81 @@ class HololiveBotUI(tk.Tk):
                 except Exception:
                     pass
 
+    def _get_cached_modifier_states(self) -> dict[str, bool]:
+        return {
+            "opp_a2": getattr(self, "opp_a2", True),
+            "opp_3k": getattr(self, "opp_3k", False),
+            "opp_4q": getattr(self, "opp_4q", False),
+            "opp_5j": getattr(self, "opp_5j", False),
+            "opp_610": getattr(self, "opp_610", False),
+            "opp_79": getattr(self, "opp_79", False),
+            "opp_8": getattr(self, "opp_8", False),
+            "mod_fast_build": getattr(self, "mod_fast_build", False),
+            "mod_free_roll": getattr(self, "mod_free_roll", False),
+            "mod_force_19900": getattr(self, "mod_force_19900", False),
+            "mod_sprint_floor": getattr(self, "mod_sprint_floor", False),
+            "mod_mega_sprint": getattr(self, "mod_mega_sprint", False),
+            "mod_hunt_14k": getattr(self, "mod_hunt_14k", False),
+            "mod_drop_6789": getattr(self, "mod_drop_6789", False),
+            "mod_drop_78": getattr(self, "mod_drop_78", False),
+            "mod_drop_8": getattr(self, "mod_drop_8", False),
+        }
+
+    def _get_current_modifier_states(self) -> dict[str, bool]:
+        return {
+            "opp_a2": bool(self.var_opp_a2.get()),
+            "opp_3k": bool(self.var_opp_3k.get()),
+            "opp_4q": bool(self.var_opp_4q.get()),
+            "opp_5j": bool(self.var_opp_5j.get()),
+            "opp_610": bool(self.var_opp_610.get()),
+            "opp_79": bool(self.var_opp_79.get()),
+            "opp_8": bool(self.var_opp_8.get()),
+            "mod_fast_build": bool(self.var_mod_fast_build.get()),
+            "mod_free_roll": bool(self.var_mod_free_roll.get()),
+            "mod_force_19900": bool(self.var_mod_force_19900.get()),
+            "mod_sprint_floor": bool(self.var_mod_sprint_floor.get()),
+            "mod_mega_sprint": bool(self.var_mod_mega_sprint.get()),
+            "mod_hunt_14k": bool(self.var_mod_hunt_14k.get()),
+            "mod_drop_6789": bool(self.var_mod_drop_6789.get()),
+            "mod_drop_78": bool(self.var_mod_drop_78.get()),
+            "mod_drop_8": bool(self.var_mod_drop_8.get()),
+        }
+
+    def _sync_cached_modifier_states(self):
+        self.opp_a2 = bool(self.var_opp_a2.get())
+        self.opp_3k = bool(self.var_opp_3k.get())
+        self.opp_4q = bool(self.var_opp_4q.get())
+        self.opp_5j = bool(self.var_opp_5j.get())
+        self.opp_610 = bool(self.var_opp_610.get())
+        self.opp_79 = bool(self.var_opp_79.get())
+        self.opp_8 = bool(self.var_opp_8.get())
+        self.mod_fast_build = bool(self.var_mod_fast_build.get())
+        self.mod_drop_78 = bool(self.var_mod_drop_78.get())
+        self.mod_drop_6789 = bool(self.var_mod_drop_6789.get())
+        self.mod_drop_8 = bool(self.var_mod_drop_8.get())
+        self.mod_free_roll = bool(self.var_mod_free_roll.get())
+        self.mod_sprint_floor = bool(self.var_mod_sprint_floor.get())
+        self.mod_mega_sprint = bool(self.var_mod_mega_sprint.get())
+        self.mod_force_19900 = bool(self.var_mod_force_19900.get())
+        self.mod_hunt_14k = bool(self.var_mod_hunt_14k.get())
+        self.param_drop_seven_eight = self.mod_drop_78
+
+    def _log_modifier_changes(self, prev_states: dict[str, bool]):
+        if not self.is_running:
+            return
+        curr_states = self._get_current_modifier_states()
+        for key, was_on in prev_states.items():
+            now_on = curr_states.get(key, False)
+            if was_on != now_on:
+                state_str = localization.tr("state_on" if now_on else "state_off", self.current_lang)
+                is_override = key.startswith("opp_")
+                name_key = f"chk_{key}" if is_override else f"lbl_{key}"
+                name = localization.tr(name_key, self.current_lang)
+                tmpl = "log_override_toggled" if is_override else "log_modifier_toggled"
+                print(localization.tr(tmpl, self.current_lang, name=name, state=state_str))
+
     def on_opp_toggle(self):
+        prev_states = self._get_cached_modifier_states() if self.is_running else None
         if bool(self.var_opp_8.get()):
             self.var_mod_drop_8.set(False)
             self.var_mod_drop_78.set(False)
@@ -2770,13 +3368,56 @@ class HololiveBotUI(tk.Tk):
             self.mod_drop_6789 = False
 
         self._sync_modifier_states()
+        self._sync_cached_modifier_states()
         self.save_settings()
         self.refresh_modifiers_ui()
+        if prev_states:
+            self._log_modifier_changes(prev_states)
 
     def toggle_modifiers_drawer(self):
         self.modifiers_expanded = not self.modifiers_expanded
         self.save_settings()
         self.refresh_modifiers_ui()
+        w = self.last_w if self.last_w else 480
+        h = self.last_h if self.last_h else 850
+        self.draw_ui(w, h)
+
+    def reset_strategy_modifiers(self):
+        # 1. Progression & Sprint
+        self.var_mod_fast_build.set(False)
+        self.var_mod_free_roll.set(False)
+        self.var_mod_force_19900.set(False)
+        self.var_mod_sprint_floor.set(False)
+        self.var_mod_mega_sprint.set(False)
+        self.var_mod_hunt_14k.set(False)
+        self.mod_force_19900 = False
+        self.mod_hunt_14k = False
+        self.hunt_14k_attempts = 0
+
+        # 2. Defensive Bailouts
+        self.var_mod_drop_6789.set(False)
+        self.var_mod_drop_78.set(False)
+        self.var_mod_drop_8.set(False)
+        self.mod_drop_6789 = False
+        self.mod_drop_78 = False
+        self.mod_drop_8 = False
+        self.param_drop_seven_eight = False
+
+        # 3. Card Overrides (Default: A & 2 is ON, rest OFF)
+        self.var_opp_a2.set(True)
+        self.var_opp_3k.set(False)
+        self.var_opp_4q.set(False)
+        self.var_opp_5j.set(False)
+        self.var_opp_610.set(False)
+        self.var_opp_79.set(False)
+        self.var_opp_8.set(False)
+
+        self._sync_modifier_states()
+        self._sync_cached_modifier_states()
+        self.refresh_modifiers_ui()
+        self.save_settings()
+        if self.is_running:
+            print(f"\n{localization.tr('log_modifiers_reset', self.current_lang)}\n")
         w = self.last_w if self.last_w else 480
         h = self.last_h if self.last_h else 850
         self.draw_ui(w, h)
@@ -2807,6 +3448,7 @@ class HololiveBotUI(tk.Tk):
             self.lbl_sec_prog.configure(text=f"{arrow_prog} {localization.tr('sec_progression_sprint', self.current_lang)}")
 
     def on_modifier_toggle(self):
+        prev_states = self._get_cached_modifier_states() if self.is_running else None
         curr_6789 = bool(self.var_mod_drop_6789.get())
         curr_78 = bool(self.var_mod_drop_78.get())
         curr_8 = bool(self.var_mod_drop_8.get())
@@ -2827,26 +3469,28 @@ class HololiveBotUI(tk.Tk):
             self.var_mod_drop_78.set(False)
             self.var_opp_8.set(False)
 
+        curr_hunt14k = bool(self.var_mod_hunt_14k.get())
         curr_mega = bool(self.var_mod_mega_sprint.get())
         curr_sprint = bool(self.var_mod_sprint_floor.get())
-        if curr_mega and curr_sprint:
-            if not self.mod_mega_sprint:
-                self.var_mod_sprint_floor.set(False)
-            else:
-                self.var_mod_mega_sprint.set(False)
+        if curr_hunt14k and (not self.mod_hunt_14k or curr_mega or curr_sprint):
+            self.var_mod_mega_sprint.set(False)
+            self.var_mod_sprint_floor.set(False)
+        elif curr_mega and (not self.mod_mega_sprint or curr_sprint or curr_hunt14k):
+            self.var_mod_sprint_floor.set(False)
+            self.var_mod_hunt_14k.set(False)
+        elif curr_sprint and (not self.mod_sprint_floor or curr_mega or curr_hunt14k):
+            self.var_mod_mega_sprint.set(False)
+            self.var_mod_hunt_14k.set(False)
 
         self._sync_modifier_states()
-
-        self.mod_fast_build = bool(self.var_mod_fast_build.get())
-        self.mod_drop_78 = bool(self.var_mod_drop_78.get())
-        self.mod_drop_6789 = bool(self.var_mod_drop_6789.get())
-        self.mod_drop_8 = bool(self.var_mod_drop_8.get())
-        self.mod_free_roll = bool(self.var_mod_free_roll.get())
-        self.mod_sprint_floor = bool(self.var_mod_sprint_floor.get())
-        self.mod_mega_sprint = bool(self.var_mod_mega_sprint.get())
-        self.param_drop_seven_eight = self.mod_drop_78
+        self._sync_cached_modifier_states()
         self.save_settings()
         self.refresh_modifiers_ui()
+        if prev_states:
+            self._log_modifier_changes(prev_states)
+        w = self.last_w if self.last_w else 480
+        h = self.last_h if self.last_h else 850
+        self.draw_ui(w, h)
 
     def on_debug_logging_toggle(self):
         self.debug_logging = bool(self.var_debug_logging.get())
@@ -2868,6 +3512,8 @@ class HololiveBotUI(tk.Tk):
                 bool(self.var_mod_free_roll.get()),
                 bool(self.var_mod_sprint_floor.get()),
                 bool(self.var_mod_mega_sprint.get()),
+                bool(self.var_mod_force_19900.get()),
+                bool(self.var_mod_hunt_14k.get()),
             ]
         else:
             active_list = [
@@ -2884,6 +3530,8 @@ class HololiveBotUI(tk.Tk):
                 bool(self.var_mod_free_roll.get()),
                 bool(self.var_mod_sprint_floor.get()),
                 bool(self.var_mod_mega_sprint.get()),
+                bool(self.var_mod_force_19900.get()),
+                bool(self.var_mod_hunt_14k.get()),
             ]
         active = sum(active_list)
         arrow = "▼" if getattr(self, "modifiers_expanded", True) else "▶"
@@ -2898,9 +3546,12 @@ class HololiveBotUI(tk.Tk):
         settings_kwargs = dict(
             language=self.current_lang,
             hotkey=self.current_hotkey,
+            hotkey_companion=self.current_companion_hotkey,
+            scan_mode=bool(self.var_scan_mode.get()),
             background_index=self.bg_index,
             strategy_key=self.active_mode,
             strategy_index=strat_idx,
+            play_style=getattr(self, "play_style", "default"),
             target_limit=self.target_limit,
             ticket_cost=self.ticket_cost,
             opp_a2=bool(self.var_opp_a2.get()),
@@ -2921,6 +3572,9 @@ class HololiveBotUI(tk.Tk):
             mod_free_roll=bool(self.var_mod_free_roll.get()),
             mod_sprint_floor=bool(self.var_mod_sprint_floor.get()),
             mod_mega_sprint=bool(self.var_mod_mega_sprint.get()),
+            mod_force_19900=bool(self.var_mod_force_19900.get()),
+            mod_hunt_14k=bool(self.var_mod_hunt_14k.get()),
+            hunt_14k_attempts=getattr(self, "hunt_14k_attempts", 0),
             debug_logging=bool(self.var_debug_logging.get()),
             param_min_win_rate=self.param_min_win_rate,
             param_cushion_target=self.param_cushion_target,
@@ -3028,13 +3682,13 @@ class HololiveBotUI(tk.Tk):
         self.style.configure("ActiveTab.TButton", font=font_button)
         self.style.configure("Config.TButton", font=font_button)
         self.style.configure("ModifierDrawer.TButton", font=font_button, padding=(8, 4))
-        if getattr(self, "btn_start", None):
-            self.btn_start.configure(font=(family, sc(11), "bold"))
+        if getattr(self, "pill_main_tabs", None):
+            self.pill_main_tabs.font = (family, sc(10), "bold")
+            self.pill_main_tabs.redraw()
         if getattr(self, "status_id", None):
             self.canvas.itemconfig(self.status_id, font=font_status)
 
         for item_id in (
-            getattr(self, "hotkey_label_id", None),
             getattr(self, "coins_label_id", None),
             getattr(self, "coins_max_id", None),
             getattr(self, "fails_label_id", None),
@@ -3044,6 +3698,17 @@ class HololiveBotUI(tk.Tk):
             if item_id:
                 try:
                     self.canvas.itemconfig(item_id, font=font_normal)
+                except Exception:
+                    pass
+
+        font_hk_lbl = (family, sc(8), "bold")
+        for hk_lbl_id in (
+            getattr(self, "hotkey_label_id", None),
+            getattr(self, "companion_hotkey_label_id", None),
+        ):
+            if hk_lbl_id:
+                try:
+                    self.canvas.itemconfig(hk_lbl_id, font=font_hk_lbl)
                 except Exception:
                     pass
 
@@ -3075,13 +3740,19 @@ class HololiveBotUI(tk.Tk):
             self.canvas.itemconfig(self.lbl_setting_target_id, font=font_small_bold)
         if getattr(self, "lbl_setting_ticket_id", None):
             self.canvas.itemconfig(self.lbl_setting_ticket_id, font=font_small_bold)
+        if getattr(self, "lbl_setting_companion_hotkey_id", None):
+            self.canvas.itemconfig(self.lbl_setting_companion_hotkey_id, font=font_small_bold)
         if getattr(self, "settings_feedback_id", None):
             self.canvas.itemconfig(self.settings_feedback_id, font=font_small_bold)
         font_section = (family, sc(8), "bold")
         for lbl in (
+            getattr(self, "lbl_sec_play_style", None),
             getattr(self, "lbl_sec_cards", None),
             getattr(self, "lbl_sec_bail", None),
             getattr(self, "lbl_sec_prog", None),
+            getattr(self, "lbl_sec_appearance", None),
+            getattr(self, "lbl_sec_gameplay", None),
+            getattr(self, "lbl_sec_diagnostics", None),
         ):
             if lbl:
                 try:
@@ -3089,6 +3760,9 @@ class HololiveBotUI(tk.Tk):
                 except Exception:
                     pass
         for chk in (
+            getattr(self, "chk_style_aggressive", None),
+            getattr(self, "chk_style_default", None),
+            getattr(self, "chk_style_conservative", None),
             getattr(self, "chk_opp_a2", None),
             getattr(self, "chk_opp_3k", None),
             getattr(self, "chk_opp_4q", None),
@@ -3103,6 +3777,10 @@ class HololiveBotUI(tk.Tk):
             getattr(self, "chk_mod_free_roll", None),
             getattr(self, "chk_mod_sprint_floor", None),
             getattr(self, "chk_mod_mega_sprint", None),
+            getattr(self, "chk_mod_force_19900", None),
+            getattr(self, "chk_mod_hunt_14k", None),
+            getattr(self, "chk_setting_show_log", None),
+            getattr(self, "chk_setting_debug_log", None),
         ):
             if chk:
                 try:
@@ -3111,6 +3789,10 @@ class HololiveBotUI(tk.Tk):
                     pass
         if getattr(self, "btn_start", None):
             self.btn_start.configure(font=(self.font_family, sc(10), "bold"))
+        if getattr(self, "btn_companion", None):
+            self.btn_companion.configure(font=(self.font_family, sc(10), "bold"))
+        if getattr(self, "btn_intercept", None):
+            self.btn_intercept.configure(font=(self.font_family, sc(9), "bold"))
         if getattr(self, "log_text", None):
             self.log_text.configure(font=(self.font_family, sc(11), "bold"), spacing1=3, spacing2=2, spacing3=3)
 
@@ -3139,7 +3821,7 @@ class HololiveBotUI(tk.Tk):
             else:
                 selected_strategy = self.combo_strategy.current()
                 valid_idx = min(max(0, selected_strategy), len(labels) - 1)
-                self.active_mode = STRATEGY_KEYS[valid_idx] if valid_idx < len(STRATEGY_KEYS) else 'max_profit'
+                self.active_mode = STRATEGY_KEYS[valid_idx] if valid_idx < len(STRATEGY_KEYS) else 'balanced'
             self.combo_strategy.current(valid_idx)
         title = localization.tr("title", self.current_lang)
         self.title(title)
@@ -3147,6 +3829,8 @@ class HololiveBotUI(tk.Tk):
         self.canvas.itemconfig(self.lang_label_id, text=localization.tr("lang_label", self.current_lang))
         self.canvas.itemconfig(self.lbl_setting_bg_id, text=localization.tr("menu_background", self.current_lang))
         self.canvas.itemconfig(self.hotkey_label_id, text=localization.tr("hotkey_label", self.current_lang))
+        if getattr(self, "companion_hotkey_label_id", None):
+            self.canvas.itemconfig(self.companion_hotkey_label_id, text=localization.tr("hotkey_companion_label", self.current_lang))
         self.canvas.itemconfig(self.coins_label_id, text=localization.tr("coins_label", self.current_lang))
         self.canvas.itemconfig(self.fails_label_id, text=localization.tr("fails_label", self.current_lang))
         self.canvas.itemconfig(self.coins_max_id, text=f"/ {self.target_limit}")
@@ -3154,7 +3838,11 @@ class HololiveBotUI(tk.Tk):
         self.lang_var.set(self.current_lang)
         self._update_combo_bg_values()
 
-        # Tab button titles & styles
+        # Tab titles & styles
+        if hasattr(self, "pill_main_tabs"):
+            self.pill_main_tabs.update_segment_text("bot", localization.tr('tab_bot', self.current_lang))
+            self.pill_main_tabs.update_segment_text("sim", localization.tr('tab_simulation', self.current_lang))
+            self.pill_main_tabs.set_selected(self.current_tab)
         bot_prefix = "● " if self.current_tab == "bot" else ""
         sim_prefix = "● " if self.current_tab == "sim" else ""
         self.tab_btn_bot.configure(
@@ -3170,6 +3858,16 @@ class HololiveBotUI(tk.Tk):
         self.btn_bg.configure(text=localization.tr("btn_bg", self.current_lang))
         self.btn_exit.configure(text=localization.tr("btn_exit", self.current_lang))
         self.btn_config_strat.configure(text=localization.tr("btn_config_params", self.current_lang))
+        if hasattr(self, "btn_reset_modifiers"):
+            self.btn_reset_modifiers.configure(text=localization.tr("btn_reset_modifiers", self.current_lang))
+        if hasattr(self, "lbl_sec_play_style"):
+            self.lbl_sec_play_style.configure(text=localization.tr("sec_play_style", self.current_lang))
+        if hasattr(self, "chk_style_aggressive"):
+            self.chk_style_aggressive.configure(text=localization.tr("chk_style_aggressive", self.current_lang))
+        if hasattr(self, "chk_style_default"):
+            self.chk_style_default.configure(text=localization.tr("chk_style_default", self.current_lang))
+        if hasattr(self, "chk_style_conservative"):
+            self.chk_style_conservative.configure(text=localization.tr("chk_style_conservative", self.current_lang))
         self._update_mod_category_headers()
         self.chk_opp_a2.configure(text=localization.tr("chk_opp_a2", self.current_lang))
         self.chk_opp_3k.configure(text=localization.tr("chk_opp_3k", self.current_lang))
@@ -3185,13 +3883,20 @@ class HololiveBotUI(tk.Tk):
         self.chk_mod_free_roll.configure(text=localization.tr("lbl_mod_free_roll", self.current_lang))
         self.chk_mod_sprint_floor.configure(text=localization.tr("lbl_mod_sprint_floor", self.current_lang))
         self.chk_mod_mega_sprint.configure(text=localization.tr("lbl_mod_mega_sprint", self.current_lang))
+        self.chk_mod_force_19900.configure(text=localization.tr("lbl_mod_force_19900", self.current_lang))
+        self.chk_mod_hunt_14k.configure(text=localization.tr("lbl_mod_hunt_14k", self.current_lang))
         self.refresh_modifiers_ui()
         self.update_strategy_description()
         self._update_preset_styles()
 
         # Update localized hover tooltips
         for key, tip in getattr(self, "tooltips", {}).items():
-            tip.update_text(localization.tr(f"tip_{key}", self.current_lang))
+            if key == "btn_start":
+                tip.update_text(localization.tr("tip_btn_start", self.current_lang, key=self.current_hotkey))
+            elif key == "btn_companion":
+                tip.update_text(localization.tr("tip_btn_companion", self.current_lang, key=self.current_companion_hotkey))
+            else:
+                tip.update_text(localization.tr(f"tip_{key}", self.current_lang))
 
         # Simulation tab widgets
         self.canvas.itemconfig(self.sim_days_label_id, text=localization.tr("sim_days_label", self.current_lang))
@@ -3205,8 +3910,16 @@ class HololiveBotUI(tk.Tk):
 
         # Settings tab widgets (Global Settings & Custom Params Launcher)
         self.canvas.itemconfig(self.lbl_setting_title_id, text=localization.tr("settings_title", self.current_lang))
+        if hasattr(self, "lbl_sec_appearance"):
+            self.lbl_sec_appearance.configure(text=localization.tr("sec_setting_appearance", self.current_lang))
+        if hasattr(self, "lbl_sec_gameplay"):
+            self.lbl_sec_gameplay.configure(text=localization.tr("sec_setting_gameplay", self.current_lang))
+        if hasattr(self, "lbl_sec_diagnostics"):
+            self.lbl_sec_diagnostics.configure(text=localization.tr("sec_setting_diagnostics", self.current_lang))
         self.canvas.itemconfig(self.lbl_setting_target_id, text=localization.tr("target_limit_label", self.current_lang))
         self.canvas.itemconfig(self.lbl_setting_ticket_id, text=localization.tr("ticket_cost_label", self.current_lang))
+        if getattr(self, "lbl_setting_companion_hotkey_id", None):
+            self.canvas.itemconfig(self.lbl_setting_companion_hotkey_id, text=localization.tr("hotkey_companion_label", self.current_lang))
         self.canvas.itemconfig(self.lbl_setting_opacity_id, text=localization.tr("field_box_opacity_label", self.current_lang))
         if getattr(self, "lbl_setting_font_id", None):
             self.canvas.itemconfig(self.lbl_setting_font_id, text=localization.tr("font_family_label", self.current_lang))
@@ -3234,16 +3947,27 @@ class HololiveBotUI(tk.Tk):
             self.entry_fails.configure(state="normal")
             self._update_status_chip("idle")
             self.btn_hotkey.configure(state="normal")
+            if hasattr(self, "btn_companion_hotkey"):
+                self.btn_companion_hotkey.configure(state="normal")
         else:
             self.entry_coins.configure(state="disabled")
             self.entry_fails.configure(state="disabled")
-            self._update_status_chip("running")
+            is_scan = bool(getattr(self, "var_scan_mode", None) and self.var_scan_mode.get())
+            self._update_status_chip("scanning" if is_scan else "running")
             self.btn_hotkey.configure(state="disabled")
+            if hasattr(self, "btn_companion_hotkey"):
+                self.btn_companion_hotkey.configure(state="disabled")
 
         self._update_start_stop_button_state()
 
     def update_strategy_description(self):
-        desc_key = f"desc_{self.active_mode}"
+        style = getattr(self, "play_style", "default")
+        if self.active_mode == "balanced" and style == "aggressive":
+            desc_key = "desc_aggressive_balanced"
+        elif self.active_mode == "balanced" and style == "conservative":
+            desc_key = "desc_balanced_conservative"
+        else:
+            desc_key = f"desc_{self.active_mode}"
         desc_text = localization.tr(desc_key, self.current_lang)
         self.canvas.itemconfig(self.strategy_desc_id, text=desc_text)
 
@@ -3251,7 +3975,7 @@ class HololiveBotUI(tk.Tk):
         if self.is_running or self.is_simulating:
             return
         idx = self.combo_strategy.current()
-        key = STRATEGY_KEYS[idx] if (isinstance(idx, int) and 0 <= idx < len(STRATEGY_KEYS)) else 'max_profit'
+        key = STRATEGY_KEYS[idx] if (isinstance(idx, int) and 0 <= idx < len(STRATEGY_KEYS)) else 'balanced'
         labels = localization.get_strategy_labels(self.current_lang)
         strat_name = labels[idx] if (0 <= idx < len(labels)) else key
         try:
@@ -3265,6 +3989,7 @@ class HololiveBotUI(tk.Tk):
             "days": days,
             "target_limit": int(self.target_limit),
             "current_lang": self.current_lang,
+            "play_style": getattr(self, "play_style", "default"),
             "opp_a2": bool(self.var_opp_a2.get()),
             "opp_3k": bool(self.var_opp_3k.get()),
             "opp_4q": bool(self.var_opp_4q.get()),
@@ -3279,6 +4004,9 @@ class HololiveBotUI(tk.Tk):
             "mod_free_roll": bool(self.var_mod_free_roll.get()),
             "mod_sprint_floor": bool(self.var_mod_sprint_floor.get()),
             "mod_mega_sprint": bool(self.var_mod_mega_sprint.get()),
+            "mod_force_19900": bool(self.var_mod_force_19900.get()),
+            "mod_hunt_14k": bool(self.var_mod_hunt_14k.get()),
+            "hunt_14k_attempts": int(getattr(self, "hunt_14k_attempts", 0)),
             "cushion_target": int(self.param_cushion_target),
             "param_min_win_rate": int(self.param_min_win_rate),
             "param_sprint_target": int(self.param_sprint_target),
@@ -3317,15 +4045,20 @@ class HololiveBotUI(tk.Tk):
                 mod_free_roll=params["mod_free_roll"],
                 mod_sprint_floor=params["mod_sprint_floor"],
                 mod_mega_sprint=params["mod_mega_sprint"],
+                mod_force_19900=params["mod_force_19900"],
+                mod_hunt_14k=params["mod_hunt_14k"],
+                hunt_14k_attempts=params["hunt_14k_attempts"],
                 cushion_target=params["cushion_target"],
             )
             strat = STRATEGY_REGISTRY[key]
             strat_kwargs = strategy_kwargs_from_config(key, {
+                "play_style": params.get("play_style", "default"),
                 "param_min_win_rate": params["param_min_win_rate"],
                 "param_cushion_target": params["cushion_target"],
                 "param_sprint_target": params["param_sprint_target"],
                 "param_max_doubles": params["param_max_doubles"],
                 "param_drop_seven_eight": params["param_drop_seven_eight"],
+                "hunt_14k_attempts": params["hunt_14k_attempts"],
             }) or None
             res = sim.run_monte_carlo(strat, strategy_kwargs=strat_kwargs, days=days, target_limit=target_limit)
 
@@ -3366,9 +4099,23 @@ class HololiveBotUI(tk.Tk):
                 return
             self.stop_bot()
         else:
+            if hasattr(self, "var_scan_mode"):
+                self.var_scan_mode.set(False)
             self.start_bot()
 
-    def _make_pill_points(self, x1, y1, x2, y2, radius=12):
+    def toggle_companion_bot(self):
+        if self.is_running:
+            if not getattr(auto_bot, "bot_running", False):
+                return
+            new_mode = auto_bot.toggle_scan_mode()
+            self._on_scan_mode_changed(new_mode)
+            self.save_settings()
+        else:
+            if hasattr(self, "var_scan_mode"):
+                self.var_scan_mode.set(True)
+            self.start_bot()
+
+    def _make_pill_points(self, x1, y1, x2, y2, radius: float = 12):
         r = min(radius, (y2 - y1) / 2, (x2 - x1) / 2)
         return [
             x1 + r, y1,
@@ -3385,7 +4132,7 @@ class HololiveBotUI(tk.Tk):
             x1, y1,
         ]
 
-    def _update_status_chip(self, state: str = None):
+    def _update_status_chip(self, state: Optional[str] = None):
         if not hasattr(self, "status_pill_id"):
             return
         if state is not None:
@@ -3399,6 +4146,12 @@ class HololiveBotUI(tk.Tk):
             border = palette.get("badge_running_border", "#059669")
             dot = palette.get("badge_running_dot", "#22C55E")
             fg = palette.get("badge_running_fg", "#4ADE80")
+        elif cur_state == "scanning":
+            txt_key = "status_scanning"
+            bg = palette.get("badge_scanning_bg", "#083344")
+            border = palette.get("badge_scanning_border", "#0891B2")
+            dot = palette.get("badge_scanning_dot", "#06B6D4")
+            fg = palette.get("badge_scanning_fg", "#67E8F9")
         elif cur_state == "stopping":
             txt_key = "status_stopping"
             bg = palette.get("badge_stopping_bg", "#451A03")
@@ -3442,8 +4195,12 @@ class HololiveBotUI(tk.Tk):
     def _update_start_stop_button_state(self):
         if not hasattr(self, "btn_start"):
             return
+        start_txt = localization.tr("btn_start", self.current_lang)
+        comp_txt = localization.tr("btn_start_companion", self.current_lang)
+        auto_txt = localization.tr("btn_auto_mode", self.current_lang, default="Auto Mode")
+        stop_txt = localization.tr("btn_stop", self.current_lang)
+
         if not self.is_running:
-            start_txt = localization.tr("btn_start", self.current_lang)
             self.btn_start.configure(
                 text=f"▶   {start_txt.upper()}",
                 bg="#16A34A",
@@ -3453,11 +4210,22 @@ class HololiveBotUI(tk.Tk):
                 cursor="hand2",
                 state="normal",
             )
+            if hasattr(self, "btn_companion"):
+                self.btn_companion.configure(
+                    text=f"👁   {comp_txt.upper()}",
+                    bg="#0891B2",
+                    fg="#FFFFFF",
+                    activebackground="#0E7490",
+                    activeforeground="#FFFFFF",
+                    cursor="hand2",
+                    state="normal",
+                )
         else:
+            is_comp = bool(getattr(self, "var_scan_mode", None) and self.var_scan_mode.get())
             if not getattr(auto_bot, "bot_running", False):
-                stop_txt = localization.tr("btn_stopping", self.current_lang, default="Stopping...")
+                stopping_txt = localization.tr("btn_stopping", self.current_lang, default="Stopping...")
                 self.btn_start.configure(
-                    text=f"⏳   {stop_txt.upper()}",
+                    text=f"⏳   {stopping_txt.upper()}",
                     bg="#991B1B",
                     fg="#FFFFFF",
                     activebackground="#991B1B",
@@ -3465,8 +4233,19 @@ class HololiveBotUI(tk.Tk):
                     cursor="wait",
                     state="normal",
                 )
+                if hasattr(self, "btn_companion"):
+                    mode_txt = auto_txt if is_comp else comp_txt
+                    icon = "🤖" if is_comp else "👁"
+                    self.btn_companion.configure(
+                        text=f"{icon}   {mode_txt.upper()}",
+                        bg="#475569",
+                        fg="#CBD5E1",
+                        activebackground="#475569",
+                        activeforeground="#CBD5E1",
+                        cursor="arrow",
+                        state="disabled",
+                    )
             else:
-                stop_txt = localization.tr("btn_stop", self.current_lang)
                 self.btn_start.configure(
                     text=f"⏹   {stop_txt.upper()}",
                     bg="#DC2626",
@@ -3476,17 +4255,84 @@ class HololiveBotUI(tk.Tk):
                     cursor="hand2",
                     state="normal",
                 )
+                if hasattr(self, "btn_companion"):
+                    if is_comp:
+                        self.btn_companion.configure(
+                            text=f"🤖   {auto_txt.upper()}",
+                            bg="#16A34A",
+                            fg="#FFFFFF",
+                            activebackground="#15803D",
+                            activeforeground="#FFFFFF",
+                            cursor="hand2",
+                            state="normal",
+                        )
+                    else:
+                        self.btn_companion.configure(
+                            text=f"👁   {comp_txt.upper()}",
+                            bg="#0891B2",
+                            fg="#FFFFFF",
+                            activebackground="#0E7490",
+                            activeforeground="#FFFFFF",
+                            cursor="hand2",
+                            state="normal",
+                        )
+
+        if hasattr(self, "btn_intercept"):
+            intercepted = bool(getattr(auto_bot, "force_adaptive_sprint", False))
+            if not self.is_running:
+                lbl = localization.tr("btn_intercept_adaptive", self.current_lang)
+                self.btn_intercept.configure(
+                    text=lbl,
+                    bg="#475569",
+                    fg="#CBD5E1",
+                    activebackground="#475569",
+                    activeforeground="#CBD5E1",
+                    cursor="arrow",
+                    state="disabled",
+                )
+            elif intercepted:
+                lbl = localization.tr("btn_intercept_active", self.current_lang)
+                self.btn_intercept.configure(
+                    text=lbl,
+                    bg="#0284C7",
+                    fg="#FFFFFF",
+                    activebackground="#0284C7",
+                    activeforeground="#FFFFFF",
+                    cursor="arrow",
+                    state="disabled",
+                )
+            else:
+                lbl = localization.tr("btn_intercept_adaptive", self.current_lang)
+                self.btn_intercept.configure(
+                    text=lbl,
+                    bg="#D97706",
+                    fg="#FFFFFF",
+                    activebackground="#B45309",
+                    activeforeground="#FFFFFF",
+                    cursor="hand2",
+                    state="normal",
+                )
+
+    def trigger_adaptive_intercept(self):
+        if not self.is_running:
+            return
+        auto_bot.force_adaptive_sprint = True
+        self._update_start_stop_button_state()
+        print(localization.tr("intercept_activated_msg", self.current_lang))
 
     def start_bot(self):
         if self.is_running or self.is_simulating:
             return
         idx = self.combo_strategy.current()
-        self.active_mode = STRATEGY_KEYS[idx] if (isinstance(idx, int) and 0 <= idx < len(STRATEGY_KEYS)) else 'max_profit'
+        self.active_mode = STRATEGY_KEYS[idx] if (isinstance(idx, int) and 0 <= idx < len(STRATEGY_KEYS)) else 'balanced'
         self.save_settings()
+        auto_bot.force_adaptive_sprint = False
+        auto_bot.bot_running = True
         self.is_running = True
         self._set_sim_buttons_state("disabled")
         self.refresh_texts()
-        self._update_status_chip("running")
+        is_companion = bool(getattr(self, "var_scan_mode", None) and self.var_scan_mode.get())
+        self._update_status_chip("scanning" if is_companion else "running")
         self._update_start_stop_button_state()
 
         self.sys_redirector.clear()
@@ -3497,7 +4343,6 @@ class HololiveBotUI(tk.Tk):
         except Exception:
             pass
 
-        auto_bot.bot_running = True
         self.bot_thread = threading.Thread(target=self.run_bot, daemon=True)
         self.bot_thread.start()
 
@@ -3515,6 +4360,7 @@ class HololiveBotUI(tk.Tk):
 
     def _on_bot_finished(self):
         self.is_running = False
+        auto_bot.force_adaptive_sprint = False
         self._set_sim_buttons_state("normal")
         self._update_status_chip("idle")
         self._update_start_stop_button_state()
@@ -3544,11 +4390,14 @@ class HololiveBotUI(tk.Tk):
 
     def run_bot(self):
         try:
+            is_scan = bool(getattr(self, "var_scan_mode", None) and self.var_scan_mode.get())
             auto_bot.auto_play_loop(
                 self.active_mode,
                 on_stats_update=lambda c, f, p: self.ui_queue.put(("stats", (c, f, p))),
                 lang=self.current_lang,
                 on_prompt_settlement=self.prompt_settlement_dialog,
+                scan_mode_init=is_scan,
+                on_mode_change=lambda active_scan: self.ui_queue.put(("callback", lambda s=active_scan: self._on_scan_mode_changed(s))),
             )
         except auto_bot.SafeStop as e:
             err_msg = str(e)
@@ -3565,6 +4414,24 @@ class HololiveBotUI(tk.Tk):
 
     def destroy(self):
         self._is_destroyed = True
+        if hasattr(self, "_queue_timer_id") and self._queue_timer_id:
+            try:
+                self.after_cancel(self._queue_timer_id)
+            except Exception:
+                pass
+            self._queue_timer_id = None
+        if hasattr(self, "_feedback_timer_id") and self._feedback_timer_id:
+            try:
+                self.after_cancel(self._feedback_timer_id)
+            except Exception:
+                pass
+            self._feedback_timer_id = None
+        if hasattr(self, "resize_after_id") and self.resize_after_id:
+            try:
+                self.after_cancel(self.resize_after_id)
+            except Exception:
+                pass
+            self.resize_after_id = None
         try:
             self.save_settings()
         except Exception:
@@ -3576,6 +4443,7 @@ class HololiveBotUI(tk.Tk):
         except Exception:
             pass
         self.is_listening = False
+        self.is_listening_companion = False
         self.is_running = False
         self.is_simulating = False
         auto_bot.bot_running = False

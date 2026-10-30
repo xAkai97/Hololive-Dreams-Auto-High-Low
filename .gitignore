@@ -3,49 +3,37 @@
 venv/
 env/
 .env
-*.env
 
 # Python cache & artifacts
 __pycache__/
 *.py[cod]
-*.class
 .pytest_cache/
 numba_cache/
 
 # Build & packaging outputs
 build/
 dist/
-dist_release/
-Release/
-_internal/
 *.exe
 *.dll
 *.pyd
-*.onnx
-*.spec.bak
 
-# Runtime state & debug data
+# Runtime state & logs
 config.json
-config_*.tmp
-.write_test_*
-config.corrupt_*.json
-config.corrupt-*.json
+config.json.bak
 debug/
 log.txt
 log_*.txt
 debug_log.txt
 *.log
 logs/
-scratch/
 todo.md
 completed.md
 private/
 
 # IDE & OS configurations
-.idea/
 .vscode/
+.idea/
 *.swp
-*.swo
 .DS_Store
 Thumbs.db
 desktop.ini

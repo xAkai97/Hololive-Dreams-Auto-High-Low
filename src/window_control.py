@@ -1,6 +1,7 @@
 """Window detection, frame capture, DPI scaling, and input projection utilities."""
 from __future__ import annotations
 
+import atexit
 import ctypes
 from ctypes import wintypes
 import random
@@ -32,6 +33,27 @@ init_dpi_awareness()
 _user32 = ctypes.windll.user32
 _gdi32 = ctypes.windll.gdi32
 _capture_context: Optional[dict] = None
+_sct_instance: Optional[mss.MSS] = None
+
+
+def _get_mss_instance() -> mss.MSS:
+    global _sct_instance
+    if _sct_instance is None:
+        _sct_instance = mss.MSS()
+    return _sct_instance
+
+
+def _reset_mss_instance() -> None:
+    global _sct_instance
+    if _sct_instance is not None:
+        try:
+            _sct_instance.close()
+        except Exception:
+            pass
+        _sct_instance = None
+
+
+atexit.register(_reset_mss_instance)
 
 # Configure Win32 signatures
 _user32.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
@@ -167,9 +189,9 @@ def capture_game_window(
         if _user32.GetForegroundWindow() == hwnd:
             try:
                 monitor = {"top": top, "left": left, "width": width, "height": height}
-                with mss.MSS() as sct:
-                    img = cv2.cvtColor(np.array(sct.grab(monitor)), cv2.COLOR_BGRA2BGR)
+                img = cv2.cvtColor(np.array(_get_mss_instance().grab(monitor)), cv2.COLOR_BGRA2BGR)
             except Exception:
+                _reset_mss_instance()
                 img = None
 
         if img is None:
@@ -183,9 +205,9 @@ def capture_game_window(
             if width < 640 or height < 360:
                 raise RuntimeError(f"Unexpected game client area size: {width}x{height}")
             monitor = {"top": top, "left": left, "width": width, "height": height}
-            with mss.MSS() as sct:
-                img = cv2.cvtColor(np.array(sct.grab(monitor)), cv2.COLOR_BGRA2BGR)
+            img = cv2.cvtColor(np.array(_get_mss_instance().grab(monitor)), cv2.COLOR_BGRA2BGR)
         except Exception:
+            _reset_mss_instance()
             _capture_context = None
             return None, 0, 0
 

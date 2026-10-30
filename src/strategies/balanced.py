@@ -7,32 +7,37 @@ Three phases based on daily coin total:
 """
 from typing import Optional
 
-from strategies.base import BaseStrategy
+from strategies.base import BaseStrategy, normalize_play_style
 
 
 class BalancedStrategy(BaseStrategy):
-    """Reliable ~25,000 coins with moderate risk.
+    """Reliable ~25,000-30,000 coins with staged progression and tunable Play Style.
 
-    Build phase (daily < 15,000):
-        - Cashout at 6,400+
-        - Cashout if win_rate < 55%
-    Push phase (15k <= daily < 19,800):
-        - More aggressive, threshold at 10,000
-        - Cashout if win_rate < 50%
-        - Guard: cashout if next double overshoots 19,800
+    Play Styles:
+    - Default (~25k-30k):
+        Build (< 15k): cashout >= 6,400 or win_rate < 55%
+        Push (15k-19.8k): cashout >= 10,000 or win_rate < 50%
+    - Aggressive (~28k-30k, former Aggressive Balanced):
+        Build (< 12k): cashout >= 6,400 or win_rate < 50%
+        Push (12k-19.8k): ride to cap, cashout only if win_rate < 45%
+    - Conservative (~23k-27k):
+        Build (< 16k): cashout >= 3,200 or win_rate < 60%
+        Push (16k-19.8k): cashout >= 6,400 or win_rate < 55%
     Sprint phase (daily >= 19,800):
         - Max double-up for 10k+ cashout
     """
 
-    name: str = "Balanced (~25k)"
+    name: str = "Balanced (~25-30k)"
     cushion_target: int = 19800
 
-    def __init__(self):
+    def __init__(self, play_style: str = "default"):
+        self.play_style = normalize_play_style(play_style)
         self.reset_round()
 
     def reset_round(self) -> None:
         self.base_cash: Optional[int] = None
         self.last_cashout: Optional[int] = None
+        self.intent_to_fail: bool = False
 
     def start_round(self, base_cash: int, coins: int) -> None:
         self.base_cash = base_cash
@@ -53,34 +58,38 @@ class BalancedStrategy(BaseStrategy):
         win_rate = win_rate if win_rate is not None else 1.0
         daily_coins = daily_coins or 0
         cushion = getattr(self, "cushion_target", 19800)
+        self.intent_to_fail = False
 
         # Sprint: daily >= cushion
         if daily_coins >= cushion:
             action = 'cashout' if current_cashout >= 10000 else 'challenge'
-
-        # Push: 15,000 <= daily < cushion
-        elif daily_coins >= 15000:
-            if daily_coins + current_cashout <= cushion and daily_coins + next_reward > cushion:
-                action = 'cashout'
-            elif daily_coins + current_cashout > cushion:
-                action = 'cashout' if current_cashout >= 10000 else 'challenge'
-            elif current_cashout >= 10000:
-                action = 'cashout'
-            elif win_rate < 0.50:
-                action = 'cashout'
-            else:
-                action = 'challenge'
-
-        # Build: daily < 15,000
         else:
-            if daily_coins + current_cashout <= cushion and daily_coins + next_reward > cushion:
-                action = 'cashout'
-            elif current_cashout >= 6400:
-                action = 'cashout'
-            elif win_rate < 0.55:
-                action = 'cashout'
+            guard = self.evaluate_cushion_guard(
+                current_cashout=current_cashout,
+                next_reward=next_reward,
+                daily_coins=daily_coins,
+                cushion=cushion,
+                sprint_floor=10000,
+            )
+            if guard is not None:
+                action = guard
             else:
-                action = 'challenge'
+                style = normalize_play_style(getattr(self, "play_style", "default"))
+                if style == "aggressive":
+                    if daily_coins >= 12000:
+                        action = 'cashout' if win_rate < 0.45 else 'challenge'
+                    else:
+                        action = 'cashout' if (current_cashout >= 6400 or win_rate < 0.50) else 'challenge'
+                elif style == "conservative":
+                    if daily_coins >= 16000:
+                        action = 'cashout' if (current_cashout >= 6400 or win_rate < 0.55) else 'challenge'
+                    else:
+                        action = 'cashout' if (current_cashout >= 3200 or win_rate < 0.60) else 'challenge'
+                else:
+                    if daily_coins >= 15000:
+                        action = 'cashout' if (current_cashout >= 10000 or win_rate < 0.50) else 'challenge'
+                    else:
+                        action = 'cashout' if (current_cashout >= 6400 or win_rate < 0.55) else 'challenge'
 
         self.last_cashout = current_cashout if action == 'cashout' else None
         return action

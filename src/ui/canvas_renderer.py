@@ -35,7 +35,8 @@ def load_background_image(bg_path: Optional[Path], fallback_hex: str = "#0F172A"
     """
     if bg_path and bg_path.exists():
         try:
-            return Image.open(bg_path), True
+            with Image.open(bg_path) as im:
+                return im.copy(), True
         except Exception as e:
             print(f"[Warning] Failed to open background image {bg_path}: {e}")
     return Image.new("RGB", (480, 850), color=fallback_hex), False
@@ -43,7 +44,7 @@ def load_background_image(bg_path: Optional[Path], fallback_hex: str = "#0F172A"
 
 def draw_glass_card(
     img: Image.Image,
-    bbox: Tuple[int, int, int, int],
+    bbox: Tuple[float, float, float, float],
     fill: Tuple[int, int, int, int],
     outline: Optional[Tuple[int, int, int, int]] = None,
     radius: int = 8,

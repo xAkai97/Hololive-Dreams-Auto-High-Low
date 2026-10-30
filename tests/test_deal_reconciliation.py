@@ -53,6 +53,37 @@ class TestDealReconciliation(unittest.TestCase):
         cat_overflow = _evaluate_category5(99, 0, 1, 2, 3)
         self.assertEqual(cat_overflow, 0)
 
+    def test_is_card_score_accepted_standard_and_joker(self):
+        from src.auto_bot import is_card_score_accepted
+        from src.poker_core import JOKER_ID
+
+        # Standard card: strict requires >= 0.58, relaxed requires >= 0.40
+        c_std_high = DummyCard(0, "2", "S")
+        c_std_high.rank_score = 0.75
+        self.assertTrue(is_card_score_accepted(c_std_high, relaxed=False))
+        self.assertTrue(is_card_score_accepted(c_std_high, relaxed=True))
+
+        c_std_mid = DummyCard(0, "2", "S")
+        c_std_mid.rank_score = 0.50
+        self.assertFalse(is_card_score_accepted(c_std_mid, relaxed=False))
+        self.assertTrue(is_card_score_accepted(c_std_mid, relaxed=True))
+
+        c_std_low = DummyCard(0, "2", "S")
+        c_std_low.rank_score = 0.30
+        self.assertFalse(is_card_score_accepted(c_std_low, relaxed=False))
+        self.assertFalse(is_card_score_accepted(c_std_low, relaxed=True))
+
+        # Joker card: strict requires >= 0.42, relaxed requires >= 0.35
+        c_joker = DummyCard(JOKER_ID, "JOKER", "")
+        c_joker.rank_score = 0.48
+        self.assertTrue(is_card_score_accepted(c_joker, relaxed=False))
+        self.assertTrue(is_card_score_accepted(c_joker, relaxed=True))
+
+        c_joker_low = DummyCard(JOKER_ID, "JOKER", "")
+        c_joker_low.rank_score = 0.38
+        self.assertFalse(is_card_score_accepted(c_joker_low, relaxed=False))
+        self.assertTrue(is_card_score_accepted(c_joker_low, relaxed=True))
+
 
 if __name__ == "__main__":
     unittest.main()

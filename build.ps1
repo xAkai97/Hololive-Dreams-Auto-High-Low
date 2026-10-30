@@ -15,19 +15,34 @@ Stop-Process -Name "Hololive-Dreams-Auto" -Force -ErrorAction SilentlyContinue
 
 # 2. Detect Python interpreter (prefer active virtualenv or project venv)
 $py = "python"
-if ($PythonPath -and (Test-Path $PythonPath)) {
+if ($PythonPath -and (Test-Path $PythonPath -ErrorAction SilentlyContinue)) {
     $py = $PythonPath
-} elseif ($env:PYTHON_EXE -and (Test-Path $env:PYTHON_EXE)) {
+} elseif ($env:PYTHON_EXE -and (Test-Path $env:PYTHON_EXE -ErrorAction SilentlyContinue)) {
     $py = $env:PYTHON_EXE
-} elseif ($env:VIRTUAL_ENV -and (Test-Path "$env:VIRTUAL_ENV\Scripts\python.exe")) {
+} elseif ($env:VIRTUAL_ENV -and (Test-Path "$env:VIRTUAL_ENV\Scripts\python.exe" -ErrorAction SilentlyContinue)) {
     $py = "$env:VIRTUAL_ENV\Scripts\python.exe"
-} elseif ($env:CONDA_PREFIX -and (Test-Path "$env:CONDA_PREFIX\python.exe")) {
+} elseif ($env:CONDA_PREFIX -and (Test-Path "$env:CONDA_PREFIX\python.exe" -ErrorAction SilentlyContinue)) {
     $py = "$env:CONDA_PREFIX\python.exe"
-} elseif (Test-Path ".venv\Scripts\python.exe") {
+} elseif (Test-Path ".venv\Scripts\python.exe" -ErrorAction SilentlyContinue) {
     $py = ".venv\Scripts\python.exe"
-} elseif (Test-Path "venv\Scripts\python.exe") {
+} elseif (Test-Path "venv\Scripts\python.exe" -ErrorAction SilentlyContinue) {
     $py = "venv\Scripts\python.exe"
 }
+
+# Verify chosen python has PyInstaller; otherwise probe py launcher for an environment with PyInstaller
+$oldEap = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+& $py -c "import PyInstaller" >$null 2>&1
+if ($LASTEXITCODE -ne 0 -and (Get-Command py -ErrorAction SilentlyContinue)) {
+    foreach ($ver in @("-3.14", "-3.13", "-3.12", "-3.11", "-3.10")) {
+        $candidate = & py $ver -c "import sys, PyInstaller; print(sys.executable)" 2>$null
+        if ($LASTEXITCODE -eq 0 -and $candidate) {
+            $py = "$candidate".Trim()
+            break
+        }
+    }
+}
+$ErrorActionPreference = $oldEap
 
 # 3. Compile via PyInstaller using local temp drive
 Write-Host "[2/3] Compiling executable on local temp drive (using $py)..." -ForegroundColor Yellow

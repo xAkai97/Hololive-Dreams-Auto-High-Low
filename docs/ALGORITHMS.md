@@ -78,7 +78,7 @@ For rank 8 (the exact midpoint of cards 2 through 14):
 
 In a fresh remaining deck:
 $$P(\text{HIGH}) = P(\text{LOW}) = \frac{24}{48} = \mathbf{50.00\%}$$
-Because rank 8 is an exact 50/50 coin flip, doubling on 8 carries high variance with zero edge. The **Bailout on 8** modifier cashes out whenever rank 8 appears during bankroll construction.
+Under the game's tie-push rule (where drawing another 8 re-rolls rather than forfeiting), rank 8 is an exact **50/50 coin flip** rather than the legacy 47.1% (which assumed ties lose). However, because an exact 50.0% probability offers zero mathematical edge, doubling on 8 introduces high variance. The **Bailout on 8** modifier cashes out whenever rank 8 appears during bankroll construction to eliminate this coin-flip risk.
 
 ---
 
@@ -92,20 +92,60 @@ Daily Coin Bankroll: 0 ───────────────────
                             [CUSHION PHASE]    [SPRINT PHASE]
 ```
 
-### 1. Cushion Phase ($< 19,800$ coins)
-- **Objective**: Reach the cushion target without crossing 20,000 prematurely.
-- **Decision Boundary**:
-  - The bot verifies that the next doubling payout $R_{\text{next}}$ will not overshoot the cap:
-    $$\text{Daily Coins} + R_{\text{next}} \le \text{Cushion Target (19,800)}$$
-  - If a double would breach the cushion, the bot cashes out immediately to bank the safe coins.
+### 3.1 Cushion Phase ($< 19,800$ coins, Banking Ceiling $\le 19,900$)
+- **Objective**: Reach the `19,800–19,900` cushion target without crossing 20,000 prematurely.
+- **Even & Odd Parity Cushion Ceiling (`cushion + 100 = 19,900`)**:
+  - Since the minimum qualifying poker hand is **200 coins** and hands like Flush (**700**) and Four of a Kind (**1,500**) produce odd-hundred totals, both **19,800** and **19,900** are the highest possible pre-cap totals strictly $< 20,000$.
+  - The bot safely banks payouts up to $\text{Cushion Cap} = \text{Cushion Target} + 100 = 19,900$ whenever the next double would overshoot $19,900$ (e.g., `19,700 + 200 = 19,900`, `19,200 + 700 = 19,900`, `14,300 + 5,600 = 19,900`, `18,400 + 1,500 = 19,900`).
+- **Early Overshoot & Intentional Double-Up Fail**:
+  - In-game High-Low automatically terminates and forces settlement as soon as a payout reaches $\ge 10,000$ (*"Ended due to reaching the max payout"*), yielding fixed per-hand ceilings:
+    - `200 / 400 / 800` $\rightarrow$ **`12,800`**
+    - `700` (Flush) $\rightarrow$ **`11,200`**
+    - `1,500 / 3,000` $\rightarrow$ **`12,000`**
+    - `7,000` (Five of a Kind) $\rightarrow$ **`14,000`**
+    - `10,000` (Royal Flush) $\rightarrow$ **`20,000`**
+  - If a hand would overshoot $19,900$ before reaching the $19,800$ cushion ($\text{Daily Coins} < 19,800$ and $\text{Daily Coins} + \text{Cashout} \ge 20,000$):
+    - If $\text{Daily Coins} + \text{Max Round Payout} \ge 32,600$ (e.g., `19,600 + 14,000 = 33,600` or `19,700 + 14,000 = 33,700` on Five of a Kind), the bot attempts the max payout early.
+    - Otherwise ($\text{Daily Coins} + \text{Max Round Payout} < 32,600$), the bot enters Double Up and **intentionally selects the lower-probability High/Low choice** (`intent_to_fail`) to cancel the hand and preserve room for a full $32,600\text{–}32,700$ sprint.
 
-### 2. Sprint Phase ($\ge 19,800$ coins)
+### 3.2 Sprint Phase ($\ge 19,800$ coins: `19,800` or `19,900`)
 - **Objective**: Maximize the payout of the final allowed round.
 - **Decision Boundary**:
-  - Once banked coins $\ge 19,800$, the bot initiates the final qualifying round.
-  - The bot shifts into sprint mode, refusing early cashouts ($< 10,240$) and doubling aggressively to capture a massive final payout ($10,240$, $12,800$, or $20,480$).
+  - Once banked coins reach `19,800` or `19,900`, the bot initiates the final qualifying round.
+  - The bot shifts into sprint mode, refusing early cashouts ($< 10,000$) and doubling to the hand's $\ge 10,000$ auto-settle cap ($11,200$, $12,000$, $12,800$, or $14,000$; or intentionally failing sub-threshold ceilings when Sprint Floor / Mega Sprint is active).
   - **Resulting Daily Yield**:
-    $$\text{Final Bankroll} = 19,800 + \text{Sprint Win} \approx 30,000 \text{ to } 32,600+ \text{ coins}$$
+    $$\text{Final Bankroll} = (19,800\text{–}19,900) + \text{Sprint Win} \approx 31,000 \text{ to } 33,900 \text{ coins}$$
+
+### 3.3 Gross Coins vs. Net Wallet Profit & The "True Max Coins" Paradox
+
+Every round of poker requires a mandatory ticket entry fee of **50 coins**. Therefore, daily economic yield cannot be measured solely by the final gross balance displayed on screen:
+
+$$\text{Net Profit} = \text{Gross Coins Settled} - (50 \times \text{Rounds Played})$$
+
+The bot's strategies are divided into three distinct categories based on how they optimize this trade-off:
+
+#### Category A: Maximum Net Profit (Recommended for Daily Farming)
+- **Strategies**: `Balanced` (`balanced`, Default or Aggressive play style; `aggressive_balanced` supported as backward-compatible alias), `Adaptive Max Profit` (`max_profit`).
+- **Mechanics**: Accepts the first sprint payout that reaches $\ge 11,200\text{–}12,800$ (e.g. Flush, Full House, Two Pair) without holding out exclusively for Five of a Kind.
+- **Economics**: Completes the entire day in **12–15 minutes** with only **30–45 failed attempts** (ticket burn: $1,500\text{–}2,250$ coins).
+- **Net Return**: Delivers **$+30,000$ to $+30,350$ actual net profit** added to the player's wallet.
+
+#### Category B: Speed & Safe Grind (Fast or Conservative)
+- **Strategies**: `Fastest Clear` (`fastest_clear`), `Adaptive Rush` (`adaptive_rush`), `Grinder` (`grinder`).
+- **Mechanics**: Prioritizes speed or near-zero variance. `Fastest Clear` crosses the 20k threshold on the first high hand without staging a sprint; `Grinder` banks frequent small doubles.
+- **Economics**: Completes in **3–7 minutes** with negligible ticket fees ($200\text{–}500$ coins).
+- **Net Return**: Delivers **$+20,000$ to $+25,000$ net profit**.
+
+#### Category C: Custom & Trophy (The 33.9k Screenshot Hunt)
+- **Strategies**: `True Max Coins` (`true_max_coins`), `Custom Parametric` (`custom_parametric`).
+- **The "True Max Coins" Paradox**:
+  - `True Max Coins` strictly hunts the mathematical maximum gross score achievable in the game: $19,900 + 14,000 = \mathbf{33,900 \text{ coins}}$.
+  - Achieving a 14,000 sprint payout requires starting from Five of a Kind ($7,000 \times 2 = 14,000$).
+  - In a 53-card deck with 1 Joker, the probability of obtaining Five of a Kind is approximately **1 in 1,300 to 2,700 rounds**.
+  - During the Sprint Phase, `True Max Coins` intentionally forfeits every non-Five-of-a-Kind hand to keep the round slot open.
+  - At 50 coins per ticket, burning 1,300 to 2,700 hands incurs **$65,000$ to $135,000+$ coins in entry fees**.
+  - **Net Economic Result**: The game end-screen displays **33,900 coins**, but the player's wallet suffers a **net loss of $-\$31,000$ to $-\$100,000+$ coins**.
+  - `True Max Coins` is therefore designated as a **Trophy / Achievement mode**, while `Balanced` (Default or Aggressive style) is the optimal strategy for actual wallet wealth.
 
 ---
 

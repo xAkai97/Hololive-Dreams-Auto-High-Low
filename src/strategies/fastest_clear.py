@@ -6,25 +6,27 @@ the daily cap. Highest variance, fastest completion.
 """
 from typing import Optional
 
-from strategies.base import BaseStrategy
+from strategies.base import BaseStrategy, normalize_play_style
 
 
 class FastestClearStrategy(BaseStrategy):
     """Reach 20,000+ coins as fast as possible.
 
     Always max double-up (game auto-settles at ~10k cap).
-    Only cashout if daily + cashout >= 20,000.
+    Only cashout if daily + cashout >= 20,000 (or >= 6,400 on <55% odds in conservative mode).
     Stop when daily >= 20,000.
     """
 
     name: str = "Fastest Clear (~20k)"
 
-    def __init__(self):
+    def __init__(self, play_style: str = "default"):
+        self.play_style = normalize_play_style(play_style)
         self.reset_round()
 
     def reset_round(self) -> None:
-        self.base_cash: Optional[int] = None
-        self.last_cashout: Optional[int] = None
+        super().reset_round()
+        self.base_cash = None
+        self.last_cashout = None
 
     def start_round(self, base_cash: int, coins: int) -> None:
         self.base_cash = base_cash
@@ -44,7 +46,13 @@ class FastestClearStrategy(BaseStrategy):
         daily_coins = daily_coins or 0
 
         # Only cashout if it completes the daily cap
-        if daily_coins + current_cashout >= 20000:
+        target = getattr(self, "target_limit", 20000)
+        if daily_coins + current_cashout >= target:
+            self.last_cashout = current_cashout
+            return 'cashout'
+
+        style = normalize_play_style(getattr(self, "play_style", "default"))
+        if style == "conservative" and current_cashout >= 6400 and (win_rate is not None and win_rate < 0.55):
             self.last_cashout = current_cashout
             return 'cashout'
 

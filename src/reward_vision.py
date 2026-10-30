@@ -32,19 +32,43 @@ def challenge_number_image(img, zone):
     return cv2.resize(clean, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
 
 
-_DIGIT_TRANSLATE_TABLE = str.maketrans({'O': '0', 'Q': '0', 'I': '1', 'L': '1', 'S': '5', 'B': '8'})
+_DIGIT_TRANSLATE_TABLE = str.maketrans({
+    'O': '0', 'o': '0',
+    'Q': '0', 'q': '0',
+    'I': '1', 'i': '1',
+    'L': '1', 'l': '1',
+    'S': '5', 's': '5',
+    'B': '8', 'b': '8',
+})
+
+_PNG_FAST_PARAMS = [int(cv2.IMWRITE_PNG_COMPRESSION), 1]
+_CHALLENGE_OCR_CACHE: dict[tuple[tuple[int, ...], bytes], int] = {}
+_RESULT_OCR_CACHE: dict[tuple[tuple[int, ...], bytes], int] = {}
+
+
+def _is_mock_ocr(ocr) -> bool:
+    return hasattr(ocr, "_mock_name") or hasattr(getattr(ocr, "classification", None), "_mock_name")
 
 
 def read_challenge_number(img, zone, ocr):
     prepared = challenge_number_image(img, zone)
     if prepared is None:
         return 0
-    ok, encoded = cv2.imencode('.png', prepared)
+    use_cache = not _is_mock_ocr(ocr)
+    cache_key = (prepared.shape, prepared.tobytes()) if use_cache else None
+    if cache_key is not None and cache_key in _CHALLENGE_OCR_CACHE:
+        return _CHALLENGE_OCR_CACHE[cache_key]
+    ok, encoded = cv2.imencode('.png', prepared, _PNG_FAST_PARAMS)
     if not ok or encoded is None:
         return 0
     text = ocr.classification(encoded.tobytes()).strip().upper()
     text = text.translate(_DIGIT_TRANSLATE_TABLE)
-    return int(text) if text.isdigit() else 0
+    val = int(text) if text.isdigit() else 0
+    if cache_key is not None:
+        if len(_CHALLENGE_OCR_CACHE) >= 16:
+            _CHALLENGE_OCR_CACHE.clear()
+        _CHALLENGE_OCR_CACHE[cache_key] = val
+    return val
 
 
 def result_number_image(img, zone):
@@ -74,9 +98,19 @@ def read_result_number(img, zone, ocr):
     prepared = result_number_image(img, zone)
     if prepared is None:
         return 0
-    ok, encoded = cv2.imencode('.png', prepared)
+    use_cache = not _is_mock_ocr(ocr)
+    cache_key = (prepared.shape, prepared.tobytes()) if use_cache else None
+    if cache_key is not None and cache_key in _RESULT_OCR_CACHE:
+        return _RESULT_OCR_CACHE[cache_key]
+    ok, encoded = cv2.imencode('.png', prepared, _PNG_FAST_PARAMS)
     if not ok or encoded is None:
         return 0
-    text = ocr.classification(encoded.tobytes()).strip()
-    return int(text) if text.isascii() and text.isdigit() else 0
+    text = ocr.classification(encoded.tobytes()).strip().upper()
+    text = text.translate(_DIGIT_TRANSLATE_TABLE)
+    val = int(text) if text.isdigit() else 0
+    if cache_key is not None:
+        if len(_RESULT_OCR_CACHE) >= 16:
+            _RESULT_OCR_CACHE.clear()
+        _RESULT_OCR_CACHE[cache_key] = val
+    return val
 

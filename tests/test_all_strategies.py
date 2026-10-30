@@ -10,6 +10,8 @@ from strategies import (
     STRATEGY_REGISTRY,
     get_strategy,
     MaxProfitStrategy,
+    TrueMaxProfitStrategy,
+    TrueMaxCoinsStrategy,
     FastestClearStrategy,
     BalancedStrategy,
     AggressiveBalancedStrategy,
@@ -22,21 +24,28 @@ from strategies import (
 class TestStrategyRegistry(unittest.TestCase):
     def test_registry_completeness(self):
         expected_keys = {
+            "balanced",
             "max_profit",
             "fastest_clear",
-            "balanced",
-            "aggressive_balanced",
             "adaptive_rush",
             "grinder",
             "custom_parametric",
+            "true_max_coins",
         }
         self.assertEqual(set(STRATEGY_REGISTRY.keys()), expected_keys)
+        self.assertEqual(list(STRATEGY_REGISTRY.keys())[0], "balanced")
 
     def test_factory_instantiation(self):
         for key in STRATEGY_REGISTRY:
             strat = get_strategy(key)
             self.assertIsNotNone(strat)
             self.assertTrue(hasattr(strat, "decide"))
+        # Test backward-compatibility aliases
+        strat_alias = get_strategy("true_max_profit")
+        self.assertIsInstance(strat_alias, TrueMaxCoinsStrategy)
+        strat_agg = get_strategy("aggressive_balanced")
+        self.assertIsInstance(strat_agg, BalancedStrategy)
+        self.assertEqual(strat_agg.play_style, "aggressive")
 
 
 class TestMaxProfitStrategy(unittest.TestCase):
@@ -61,6 +70,90 @@ class TestMaxProfitStrategy(unittest.TestCase):
         # daily >= 19800, cashout >= 10000 -> cashout
         self.assertEqual(self.strat.decide(10000, 20000, 0.50, 19800), "cashout")
 
+    def test_dynamic_cushion_19900_even_and_odd_payouts(self):
+        # 19,700 + 200 = 19,900 (<= 19,900, next 400 -> 20,100 > 19,900) -> cashout to reach 19,900
+        self.assertEqual(self.strat.decide(200, 400, 0.85, 19700), "cashout")
+        self.assertFalse(self.strat.intent_to_fail)
+        # Once at 19,900, next round enters sprint phase
+        self.assertEqual(self.strat.decide(200, 400, 0.85, 19900), "challenge")
+        self.assertFalse(self.strat.intent_to_fail)
+
+        # 19,200 + 700 (Flush) = 19,900 -> cashout
+        self.assertEqual(self.strat.decide(700, 1400, 0.80, 19200), "cashout")
+        # 14,300 + 5,600 (Flush x8) = 19,900 -> cashout
+        self.assertEqual(self.strat.decide(5600, 11200, 0.80, 14300), "cashout")
+        # 18,400 + 1,500 (Four of a Kind) = 19,900 -> cashout
+        self.assertEqual(self.strat.decide(1500, 3000, 0.80, 18400), "cashout")
+        # 19,600 + 200 = 19,800 (next 400 -> 20,000 > 19,900) -> cashout to reach 19,800
+        self.assertEqual(self.strat.decide(200, 400, 0.80, 19600), "cashout")
+
+    def test_early_overshoot_intentional_fail_vs_high_payout_sprint(self):
+        # At 19,700 or 19,600 with Five of a Kind (7,000 -> 14,000 max):
+        # 19,600 + 14,000 = 33,600 >= 32,600 -> challenge to WIN (intent_to_fail = False)
+        self.assertEqual(self.strat.decide(7000, 14000, 0.75, 19600), "challenge")
+        self.assertFalse(self.strat.intent_to_fail)
+        self.assertEqual(self.strat.decide(7000, 14000, 0.75, 19700), "challenge")
+        self.assertFalse(self.strat.intent_to_fail)
+
+        # At 19,500 with Flush (700 -> 11,200 max): 19,500 + 11,200 = 30,700 < 32,600 -> purposely fail
+        self.assertEqual(self.strat.decide(700, 1400, 0.75, 19500), "challenge")
+        self.assertTrue(self.strat.intent_to_fail)
+
+        # At 19,700 with Straight (400 -> 12,800 max): 19,700 + 12,800 = 32,500 < 32,600 -> purposely fail
+        self.assertEqual(self.strat.decide(400, 800, 0.75, 19700), "challenge")
+        self.assertTrue(self.strat.intent_to_fail)
+
+        # At 18,400 with Five of a Kind (7,000 -> 14,000 max): 18,400 + 14,000 = 32,400 < 32,600 -> purposely fail
+        self.assertEqual(self.strat.decide(7000, 14000, 0.75, 18400), "challenge")
+        self.assertTrue(self.strat.intent_to_fail)
+
+        # At 13,600 with Royal Flush (10,000 -> 20,000 max): 13,600 + 20,000 = 33,600 >= 32,600 -> challenge to WIN
+        self.assertEqual(self.strat.decide(10000, 20000, 0.75, 13600), "challenge")
+        self.assertFalse(self.strat.intent_to_fail)
+
+
+class TestTrueMaxProfitStrategy(unittest.TestCase):
+    def setUp(self):
+        self.strat = TrueMaxProfitStrategy(hunt_14k_attempts=3)
+
+    def test_parity_aware_19900_cushion(self):
+        # Even daily coins (e.g. 10,000) + Flush (700) flips parity to odd (10,700) -> lock in immediately!
+        self.assertEqual(self.strat.decide(700, 1400, 0.85, 10000), "cashout")
+        self.assertFalse(self.strat.intent_to_fail)
+
+        # Even daily coins at 19,200 + 200 = 19,400 (> 19,200 even ceiling) -> must double or fail, not cash out at 19,800
+        self.assertEqual(self.strat.decide(400, 800, 0.85, 19400), "challenge")
+        self.assertTrue(self.strat.intent_to_fail)
+
+        # Odd daily coins (19,700) + 200 = 19,900 -> cashout to hit 19,900
+        self.assertEqual(self.strat.decide(200, 400, 0.85, 19700), "cashout")
+        self.assertFalse(self.strat.intent_to_fail)
+
+    def test_sprint_hunts_five_of_a_kind_and_respects_attempt_limit(self):
+        # At 19,900, non-Five-of-a-Kind hand (200 -> max 12,800 < 14,000) is purposely failed for first 3 attempts
+        for attempt in range(3):
+            self.strat.start_round(base_cash=200, coins=19900)
+            self.assertEqual(self.strat.decide(200, 400, 0.85, 19900), "challenge")
+            self.assertTrue(self.strat.intent_to_fail)
+            self.strat.notify_fail()
+
+        # On 4th attempt (after 3 failed hunt attempts), falls back to Adaptive Max Profit (challenges normally)
+        self.strat.start_round(base_cash=200, coins=19900)
+        self.assertEqual(self.strat.decide(200, 400, 0.85, 19900), "challenge")
+        self.assertFalse(self.strat.intent_to_fail)
+
+    def test_sprint_five_of_a_kind_doubles_to_14000(self):
+        self.strat.start_round(base_cash=7000, coins=19900)
+        self.assertEqual(self.strat.decide(7000, 14000, 0.70, 19900), "challenge")
+        self.assertFalse(self.strat.intent_to_fail)
+        self.assertEqual(self.strat.decide(14000, 28000, 0.70, 19900), "cashout")
+
+    def test_live_intercept_switches_to_adaptive(self):
+        self.strat.force_adaptive_sprint = True
+        self.strat.start_round(base_cash=200, coins=19900)
+        self.assertEqual(self.strat.decide(200, 400, 0.85, 19900), "challenge")
+        self.assertFalse(self.strat.intent_to_fail)
+
 
 class TestFastestClearStrategy(unittest.TestCase):
     def setUp(self):
@@ -73,6 +166,22 @@ class TestFastestClearStrategy(unittest.TestCase):
     def test_cashout_when_daily_plus_current_hits_20k(self):
         # 14000 + 6400 = 20400 >= 20000 -> cashout
         self.assertEqual(self.strat.decide(6400, 12800, 0.70, 14000), "cashout")
+
+    def test_custom_target_limit(self):
+        self.strat.target_limit = 25000
+        # 14000 + 6400 = 20400 < 25000 -> challenge
+        self.assertEqual(self.strat.decide(6400, 12800, 0.70, 14000), "challenge")
+        # 14000 + 12800 = 26800 >= 25000 -> cashout
+        self.assertEqual(self.strat.decide(12800, 25600, 0.70, 14000), "cashout")
+
+    def test_reset_round_clears_intent_to_fail(self):
+        self.strat.intent_to_fail = True
+        self.strat.last_cashout = 6400
+        self.strat.base_cash = 200
+        self.strat.reset_round()
+        self.assertFalse(self.strat.intent_to_fail)
+        self.assertIsNone(self.strat.last_cashout)
+        self.assertIsNone(self.strat.base_cash)
 
 
 class TestBalancedStrategy(unittest.TestCase):
@@ -97,6 +206,27 @@ class TestBalancedStrategy(unittest.TestCase):
         self.assertEqual(self.strat.decide(6400, 12800, 0.45, 19800), "challenge")
         # daily >= 19800, current >= 10000 -> cashout
         self.assertEqual(self.strat.decide(10000, 20000, 0.45, 19800), "cashout")
+
+    def test_play_styles_aggressive_default_conservative(self):
+        agg = BalancedStrategy(play_style="aggressive")
+        dflt = BalancedStrategy(play_style="default")
+        cons = BalancedStrategy(play_style="conservative")
+
+        # Build phase at win_rate=0.52 (daily=5000, cashout=1600):
+        # aggressive (>=0.50) challenges, default (<0.55) and conservative (<0.60) cashout
+        self.assertEqual(agg.decide(1600, 3200, 0.52, 5000), "challenge")
+        self.assertEqual(dflt.decide(1600, 3200, 0.52, 5000), "cashout")
+        self.assertEqual(cons.decide(1600, 3200, 0.52, 5000), "cashout")
+
+        # Build phase at win_rate=0.57 (daily=5000, cashout=1600):
+        # aggressive and default challenge, conservative (<0.60) cashes out
+        self.assertEqual(agg.decide(1600, 3200, 0.57, 5000), "challenge")
+        self.assertEqual(dflt.decide(1600, 3200, 0.57, 5000), "challenge")
+        self.assertEqual(cons.decide(1600, 3200, 0.57, 5000), "cashout")
+
+        # Build phase cashout target: conservative cashes out at 3200, default/aggressive continue
+        self.assertEqual(cons.decide(3200, 6400, 0.75, 5000), "cashout")
+        self.assertEqual(dflt.decide(3200, 6400, 0.75, 5000), "challenge")
 
 
 class TestAggressiveBalancedStrategy(unittest.TestCase):
@@ -132,6 +262,22 @@ class TestAdaptiveRushStrategy(unittest.TestCase):
         # Now in cushion mode: cashout at 6400
         self.assertEqual(self.strat.decide(6400, 12800, 0.70, 5000), "cashout")
 
+    def test_rush_mode_custom_target_limit(self):
+        self.strat.target_limit = 25000
+        # 14000 + 6400 = 20400 < 25000 -> challenge
+        self.assertEqual(self.strat.decide(6400, 12800, 0.70, 14000), "challenge")
+        # 14000 + 12800 = 26800 >= 25000 -> cashout
+        self.assertEqual(self.strat.decide(12800, 25600, 0.70, 14000), "cashout")
+
+    def test_reset_round_clears_intent_to_fail(self):
+        self.strat.intent_to_fail = True
+        self.strat.last_cashout = 6400
+        self.strat.base_cash = 200
+        self.strat.reset_round()
+        self.assertFalse(self.strat.intent_to_fail)
+        self.assertIsNone(self.strat.last_cashout)
+        self.assertIsNone(self.strat.base_cash)
+
 
 class TestGrinderStrategy(unittest.TestCase):
     def setUp(self):
@@ -149,6 +295,13 @@ class TestGrinderStrategy(unittest.TestCase):
             self.strat.guess_clicked()
         # 5th double attempt hits MAX_DOUBLES limit -> cashout
         self.assertEqual(self.strat.decide(800, 1600, 0.70, 1000), "cashout")
+
+    def test_grinder_notify_push_does_not_consume_doubles(self):
+        self.strat.start_round(base_cash=200, coins=1000)
+        self.strat.guess_clicked()
+        self.assertEqual(self.strat._doubles_this_round, 1)
+        self.strat.notify_push()
+        self.assertEqual(self.strat._doubles_this_round, 0)
 
 
 class TestCustomParametricStrategy(unittest.TestCase):
