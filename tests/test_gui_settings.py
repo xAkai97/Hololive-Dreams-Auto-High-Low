@@ -169,6 +169,39 @@ class TestGUISettingsAndMenus(unittest.TestCase):
             self.assertEqual(self.app.current_coins, 9000)
             mock_save.assert_not_called()
 
+    def test_start_bot_cap_override_prompt_cancelled(self):
+        orig_coins = self.app.current_coins
+        try:
+            self.app.current_coins = 24800
+            self.app.target_limit = 20000
+            self.app.var_scan_mode.set(False)
+            with patch("tkinter.messagebox.askyesno", return_value=False) as mock_prompt, \
+                 patch("threading.Thread") as mock_thread:
+                self.app.start_bot()
+                mock_prompt.assert_called_once()
+                self.assertFalse(self.app.is_running)
+                mock_thread.assert_not_called()
+        finally:
+            self.app.current_coins = orig_coins
+
+    def test_start_bot_cap_override_prompt_confirmed(self):
+        orig_coins = self.app.current_coins
+        try:
+            self.app.current_coins = 24800
+            self.app.target_limit = 20000
+            self.app.var_scan_mode.set(False)
+            with patch("tkinter.messagebox.askyesno", return_value=True) as mock_prompt, \
+                 patch.object(self.app, "save_settings"), \
+                 patch.object(self.app, "refresh_texts"), \
+                 patch("threading.Thread") as mock_thread:
+                mock_thread.return_value.start = MagicMock()
+                self.app.start_bot()
+                mock_prompt.assert_called_once()
+                self.assertTrue(self.app.is_running)
+                self.app.is_running = False
+        finally:
+            self.app.current_coins = orig_coins
+
     def test_export_benchmark_csv_and_json(self):
         sample_results = [
             {
@@ -985,6 +1018,52 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         # Restore default style
         self.app.pill_play_style._on_segment_click("default")
         self.assertEqual(self.app.play_style, "default")
+
+    def test_layout_modes_single_two_col_and_adaptive(self):
+        with patch.object(self.app, "save_settings"):
+            # Adaptive mode switches at width >= 760
+            self.app.set_layout_mode("adaptive", resize_window=False)
+            self.assertEqual(self.app.layout_mode, "adaptive")
+            self.assertFalse(self.app.is_two_col_active(480))
+            self.assertTrue(self.app.is_two_col_active(920))
+
+            # Single-column mode stays 1-col even at wide width
+            self.app.set_layout_mode("single", resize_window=False)
+            self.assertEqual(self.app.layout_mode, "single")
+            self.assertFalse(self.app.is_two_col_active(920))
+            self.app.switch_tab("bot")
+            self.app.draw_ui(480, 850)
+            strat_x_single = self.app.canvas.coords(self.app.strategy_window)[0]
+            mod_x_single = self.app.canvas.coords(self.app.btn_toggle_modifiers_win)[0]
+            self.assertEqual(strat_x_single, mod_x_single)
+
+            # Two-column mode places Modifiers (when show_log=False) or Log Console (when show_log=True) in Column 2
+            self.app.show_log = False
+            self.app.set_layout_mode("two_col", resize_window=False)
+            self.assertEqual(self.app.layout_mode, "two_col")
+            self.assertTrue(self.app.is_two_col_active(480))
+            self.app.draw_ui(920, 680)
+            strat_x_two = self.app.canvas.coords(self.app.strategy_window)[0]
+            mod_x_two = self.app.canvas.coords(self.app.btn_toggle_modifiers_win)[0]
+            self.assertGreater(mod_x_two, strat_x_two + 300)
+
+            # Two-column mode with show_log=True places Log Console in Column 2
+            self.app.show_log = True
+            self.app.draw_ui(920, 680)
+            log_x_two = self.app.canvas.coords(self.app.log_text_win)[0]
+            self.assertGreater(log_x_two, strat_x_two + 300)
+
+            # Settings tab in Two-column mode places Gameplay card in Column 2
+            self.app.switch_tab("settings")
+            self.app.draw_ui(920, 680)
+            lang_x = self.app.canvas.coords(self.app.lang_label_id)[0]
+            target_x = self.app.canvas.coords(self.app.lbl_setting_target_id)[0]
+            self.assertGreater(target_x, lang_x + 300)
+
+            # Restore defaults
+            self.app.show_log = False
+            self.app.set_layout_mode("adaptive", resize_window=False)
+            self.app.switch_tab("bot")
 
 
 @unittest.skipUnless(HAVE_GUI, 'GUI dependencies not installed')

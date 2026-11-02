@@ -13,7 +13,13 @@ import ddddocr
 
 from recognizer import CardRecognizer
 from poker_core import calculate_best, JOKER_ID, card_text, CATEGORY_NAMES, _evaluate_category5, RAW_PRIZES
-from settlement import SettlementReader, SettlementManager, is_valid_settlement_amount
+from settlement import (
+    SettlementReader,
+    SettlementManager,
+    is_valid_settlement_amount,
+    is_valid_hand_payout,
+    validate_and_correct_payout,
+)
 from reward_vision import read_challenge_number, read_result_number
 from challenge_reward import ChallengeRewardReader
 from strategies import get_strategy, apply_strategy_modifiers, strategy_kwargs_from_config, STRATEGY_REGISTRY, get_max_round_payout
@@ -666,7 +672,7 @@ _SETTLEMENT_GRAY_CACHE: dict[tuple[tuple[int, ...], bytes], str] = {}
 _PNG_FAST_PARAMS = [int(cv2.IMWRITE_PNG_COMPRESSION), 1]
 
 
-def read_settlement_payout(img, search_zone, expected=None):
+def read_settlement_payout(img, search_zone, expected=None, base_prize=None):
     sx, sy, sw, sh = search_zone
     if sw == 0 or sh == 0:
         return 0
@@ -681,7 +687,12 @@ def read_settlement_payout(img, search_zone, expected=None):
                 if cyan_amount == expected or (cyan_str.startswith(exp_str) and len(cyan_str) - len(exp_str) <= 1):
                     return expected
             if is_valid_settlement_amount(cyan_amount):
-                return cyan_amount
+                if base_prize and not is_valid_hand_payout(cyan_amount, base_prize):
+                    corr, valid, _ = validate_and_correct_payout(cyan_amount, base_prize, expected)
+                    if valid:
+                        return corr
+                else:
+                    return cyan_amount
     except Exception:
         pass
 
@@ -718,7 +729,12 @@ def read_settlement_payout(img, search_zone, expected=None):
     try:
         val = int(digits) if digits else 0
         if is_valid_settlement_amount(val):
-            return val
+            if base_prize and not is_valid_hand_payout(val, base_prize):
+                corr, valid, _ = validate_and_correct_payout(val, base_prize, expected)
+                if valid:
+                    return corr
+            else:
+                return val
         return 0
     except ValueError:
         return 0
@@ -735,7 +751,7 @@ CONFIG_CATEGORIES = {
     ],
     # UI Appearance & Layout
     "display": [
-        "theme_mode", "background_index", "field_box_opacity", "show_log",
+        "theme_mode", "layout_mode", "background_index", "field_box_opacity", "show_log",
         "modifiers_expanded", "mod_cat_cards_expanded", "mod_cat_bail_expanded", "mod_cat_prog_expanded",
     ],
     # Log Management
@@ -1073,6 +1089,7 @@ class BotSessionState:
         self.unknown_frames_count = 0
         self.sprint_attempts = 0
         self.force_adaptive_sprint = False
+        self.cap_override = False
         self.debug_mode: bool = False
         self.last_state: Optional[str] = None
         self.deal_wait_start: float = 0.0
@@ -1082,6 +1099,7 @@ class BotSessionState:
         self.current_hl_base_val: Optional[int] = None
         self.current_hl_step_outcome_logged: bool = False
         self.hl_awaiting_challenge: bool = False
+        self.hl_step_from_pre_removed: bool = False
         self.pre_removed_card_id: Optional[int] = None
         self.last_removed_card_x: Optional[int] = None
         self.hand_base_prize: int = 0
@@ -1168,6 +1186,8 @@ class BotSessionState:
             log_debug(f"[Poker Draw Final] Hand: {final_cat_name} | Cards: [{final_str}]")
             if 0 <= final_cat < len(RAW_PRIZES) and int(RAW_PRIZES[final_cat]) > 0:
                 self.hand_base_prize = int(RAW_PRIZES[final_cat])
+                if self.settlement_mgr:
+                    self.settlement_mgr.base_prize = self.hand_base_prize
                 if self.last_known_cashout is None:
                     self.last_known_cashout = self.hand_base_prize
                     self.last_known_next_reward = self.hand_base_prize * 2
@@ -1193,7 +1213,11 @@ class BotSessionState:
         if current_state == "RESULT":
             self.saw_result_screen = True
             if self.hl_awaiting_challenge:
-                if self.last_known_next_reward:
+                if self.last_known_next_reward and (
+                    self.last_known_next_reward >= 10000
+                    or self.current_hl_step_outcome_logged
+                    or not self.hl_step_from_pre_removed
+                ):
                     self.last_known_cashout = self.last_known_next_reward
                 self.hl_awaiting_challenge = False
             if self.scan_mode and self.last_known_cashout:
@@ -1216,18 +1240,28 @@ class BotSessionState:
                             or getattr(reader, "candidate", None)
                             or getattr(reader, "last_valid_observed", 0)
                         )
-                        if fallback_cash and is_valid_settlement_amount(int(fallback_cash)):
-                            log_debug(f"[Fast Click Recovery] User clicked through RESULT before stabilization; crediting {int(fallback_cash)} coins")
-                            self.daily_coins = self.settlement_mgr.credit_payout(
-                                earned=int(fallback_cash),
-                                daily_coins=self.daily_coins,
-                                daily_fails=self.daily_fails,
-                                strategy=self.strategy,
-                                on_stats_update=self.on_stats_update,
-                                ticket_cost=self.ticket_cost,
-                            )
-                            self.net_profit = self.daily_coins - (self.daily_fails * self.ticket_cost)
-                            self.in_round = False
+                        eff_base = self.hand_base_prize or (getattr(self.strategy, "base_cash", None) if self.strategy else None)
+                        if fallback_cash:
+                            fb_int = int(fallback_cash)
+                            if eff_base and not is_valid_hand_payout(fb_int, eff_base):
+                                corr, valid, _ = validate_and_correct_payout(
+                                    fb_int, eff_base, self.settlement_mgr.expected_cashout
+                                )
+                                if valid:
+                                    fb_int = corr
+                            if is_valid_settlement_amount(fb_int):
+                                log_debug(f"[Fast Click Recovery] User clicked through RESULT before stabilization; crediting {fb_int} coins")
+                                self.daily_coins = self.settlement_mgr.credit_payout(
+                                    earned=fb_int,
+                                    daily_coins=self.daily_coins,
+                                    daily_fails=self.daily_fails,
+                                    strategy=self.strategy,
+                                    on_stats_update=self.on_stats_update,
+                                    ticket_cost=self.ticket_cost,
+                                    base_prize=eff_base,
+                                )
+                                self.net_profit = self.daily_coins - (self.daily_fails * self.ticket_cost)
+                                self.in_round = False
                 self.settlement_mgr.reset_round(self.strategy)
             if current_state == "START_BET":
                 self.in_round = False
@@ -1239,6 +1273,7 @@ class BotSessionState:
             self.current_hl_base_val = None
             self.current_hl_step_outcome_logged = False
             self.hl_awaiting_challenge = False
+            self.hl_step_from_pre_removed = False
             self.pre_removed_card_id = None
             self.last_removed_card_x = None
             self.last_known_cashout = None
@@ -1422,6 +1457,8 @@ def handle_hold_cards(ctx: BotSessionState, img: np.ndarray, win_left: int, win_
             cat_idx = _evaluate_category5(*(c.card_id for c in recognized_cards))
             if 0 <= cat_idx < len(RAW_PRIZES) and int(RAW_PRIZES[cat_idx]) > 0:
                 ctx.hand_base_prize = int(RAW_PRIZES[cat_idx])
+                if ctx.settlement_mgr:
+                    ctx.settlement_mgr.base_prize = ctx.hand_base_prize
                 if ctx.last_known_cashout is None:
                     ctx.last_known_cashout = ctx.hand_base_prize
                     ctx.last_known_next_reward = ctx.hand_base_prize * 2
@@ -1547,6 +1584,10 @@ def handle_ask_challenge(ctx: BotSessionState, img: np.ndarray, win_left: int, w
                 return
             current_cashout = next_reward // 2
             ctx.strategy.start_round(current_cashout, ctx.daily_coins)
+            if ctx.step_count == 0 and current_cashout > 0:
+                ctx.hand_base_prize = current_cashout
+                if ctx.settlement_mgr:
+                    ctx.settlement_mgr.base_prize = current_cashout
             log_debug(f"[Challenge OCR] Initial payout confirmed: current_cashout={current_cashout}, next_reward={next_reward}")
         else:
             if not ctx.has_confirmed_success:
@@ -1716,6 +1757,13 @@ def handle_ask_challenge(ctx: BotSessionState, img: np.ndarray, win_left: int, w
         elif mod_reason in ('mod_force_19900', 'mod_force_19900_fail'):
             print(f"  " + tr('mod_force_19900_msg', cashout=current_cashout, total=ctx.daily_coins + current_cashout))
 
+    if getattr(ctx, "cap_override", False) and not ctx.scan_mode:
+        if action == 'cashout' and current_cashout < 10000:
+            action = 'challenge'
+            mod_reason = tr('reason_cap_override_sprint')
+            if hasattr(ctx.strategy, 'intent_to_fail'):
+                ctx.strategy.intent_to_fail = False
+
     if action == 'cashout' and hasattr(ctx.strategy, 'intent_to_fail'):
         ctx.strategy.intent_to_fail = False
 
@@ -1827,8 +1875,9 @@ def handle_high_low(ctx: BotSessionState, img: np.ndarray, win_left: int, win_to
                         if ctx.strategy is not None:
                             ctx.strategy.confirm_success()
 
+                was_pre_removed = (ctx.pre_removed_card_id == single_card.card_id)
                 if ctx.last_removed_card_x != current_rect[0]:
-                    if ctx.pre_removed_card_id == single_card.card_id:
+                    if was_pre_removed:
                         ctx.pre_removed_card_id = None
                         ctx.last_removed_card_x = current_rect[0]
                     else:
@@ -1849,6 +1898,10 @@ def handle_high_low(ctx: BotSessionState, img: np.ndarray, win_left: int, win_to
                     ctx.current_hl_base_val = current_card_val
                     ctx.current_hl_step_outcome_logged = False
                     ctx.hl_awaiting_challenge = True
+                    if was_pre_removed:
+                        ctx.hl_step_from_pre_removed = True
+                    elif ctx.last_advised_hl_key is None or ctx.last_advised_hl_key[0] != single_card.card_id:
+                        ctx.hl_step_from_pre_removed = False
                     ctx.upcoming_card_val = None
                     print(f"\n" + tr('hl_step_header', step=ctx.step_count, card=card_label, remaining=ctx.counter.total_cards))
                     if getattr(ctx.strategy, "intent_to_fail", False):
@@ -1995,7 +2048,15 @@ def handle_fail(ctx: BotSessionState, img: np.ndarray, win_left: int, win_top: i
 def handle_result(ctx: BotSessionState, img: np.ndarray, win_left: int, win_top: int):
     ctx.try_log_final_poker_hand(img)
     ctx.saw_result_screen = True
-    amount = read_settlement_payout(img, RESULT_REWARD_ZONE, expected=ctx.settlement_mgr.expected_cashout if ctx.settlement_mgr else None)
+    eff_base = ctx.hand_base_prize or (getattr(ctx.strategy, "base_cash", None) if ctx.strategy else None)
+    if ctx.settlement_mgr and eff_base:
+        ctx.settlement_mgr.base_prize = eff_base
+    amount = read_settlement_payout(
+        img,
+        RESULT_REWARD_ZONE,
+        expected=ctx.settlement_mgr.expected_cashout if ctx.settlement_mgr else None,
+        base_prize=eff_base,
+    )
     if ctx.settlement_mgr:
         ctx.daily_coins, can_proceed = ctx.settlement_mgr.process_result(
             amount=amount,
@@ -2007,6 +2068,7 @@ def handle_result(ctx: BotSessionState, img: np.ndarray, win_left: int, win_top:
             ticket_cost=ctx.ticket_cost,
             on_prompt_settlement=ctx.on_prompt_settlement,
             timeout=None if ctx.scan_mode else getattr(ctx, "ocr_timeout", 8.0),
+            base_prize=eff_base,
         )
         if not can_proceed:
             time.sleep(0.04 if ctx.scan_mode else 0.2)
@@ -2212,8 +2274,28 @@ def auto_play_loop(
         settlement_mgr.expected_cashout = pending_cash
     ctx.settlement_mgr = settlement_mgr
 
+    cap_override = (ctx.daily_coins >= ctx.target_limit)
+    ctx.cap_override = cap_override
+    cap_notice_logged = False
+    if cap_override and bot_running:
+        print(tr('state_full_override', coins=ctx.daily_coins, target=ctx.target_limit))
+        if not ctx.scan_mode:
+            print(tr('warn_cap_override_sprint', coins=ctx.daily_coins, target=ctx.target_limit))
+            print(tr('tip_cap_override', target=f"{ctx.target_limit:,}"))
+        log_debug(f"[System] Daily coin cap ({ctx.daily_coins}/{ctx.target_limit}) override active at session start; continuing.")
+        cap_notice_logged = True
+
     try:
-        while ctx.daily_coins < ctx.target_limit and bot_running:
+        while (ctx.daily_coins < ctx.target_limit or cap_override or ctx.scan_mode) and bot_running:
+            if ctx.daily_coins >= ctx.target_limit and not cap_notice_logged:
+                print(tr('state_full_override', coins=ctx.daily_coins, target=ctx.target_limit))
+                if not ctx.scan_mode:
+                    print(tr('warn_cap_override_sprint', coins=ctx.daily_coins, target=ctx.target_limit))
+                    print(tr('tip_cap_override', target=f"{ctx.target_limit:,}"))
+                log_debug(f"[System] Daily coin cap ({ctx.daily_coins}/{ctx.target_limit}) reached; override active, continuing.")
+                cap_notice_logged = True
+                cap_override = True
+                ctx.cap_override = True
             img, win_left, win_top = capture_game_window()
             if img is None:
                 print(tr('window_not_found'))
@@ -2244,7 +2326,7 @@ def auto_play_loop(
     finally:
         _active_session_ctx = None
 
-    if ctx.daily_coins >= ctx.target_limit:
+    if ctx.daily_coins >= ctx.target_limit and not cap_override and not ctx.scan_mode:
         print(tr('state_full'))
 
 

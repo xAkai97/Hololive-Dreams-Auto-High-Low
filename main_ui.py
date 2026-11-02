@@ -153,8 +153,16 @@ class HololiveBotUI(tk.Tk):
         except Exception as e:
             print(f"[Warning] Failed to load application icon: {e}")
 
-        self.geometry("480x850")
-        self.minsize(420, 680)
+        self.layout_mode = str(saved_config.get("layout_mode", "adaptive")).strip().lower()
+        if self.layout_mode not in ("adaptive", "single", "two_col"):
+            self.layout_mode = "adaptive"
+        self.layout_var = tk.StringVar(value=self.layout_mode)
+
+        if self.layout_mode == "two_col":
+            self.geometry("920x680")
+        else:
+            self.geometry("480x850")
+        self.minsize(420, 620)
         self.protocol("WM_DELETE_WINDOW", self.destroy)
 
         self.last_w = 0
@@ -221,6 +229,12 @@ class HololiveBotUI(tk.Tk):
         self.combo_bg = ttk.Combobox(self, state="readonly")
         self.combo_bg.bind("<<ComboboxSelected>>", self.on_bg_combo_change)
         self.combo_bg_win = self.canvas.create_window(0, 0, window=self.combo_bg, anchor="e", state="hidden")
+
+        self.lbl_setting_layout_id = self.canvas.create_text(0, 0, text="", state="hidden")
+        self._layout_keys = ["adaptive", "single", "two_col"]
+        self.combo_setting_layout = ttk.Combobox(self, state="readonly")
+        self.combo_setting_layout.bind("<<ComboboxSelected>>", self._on_setting_layout_change)
+        self.combo_setting_layout_win = self.canvas.create_window(0, 0, window=self.combo_setting_layout, anchor="e", state="hidden")
 
         self.bg_var = tk.IntVar(value=self._get_bg_var_value())
         self.lang_var = tk.StringVar(value=self.current_lang)
@@ -941,6 +955,8 @@ class HololiveBotUI(tk.Tk):
             self.combo_window,
             self.lbl_setting_bg_id,
             self.combo_bg_win,
+            self.lbl_setting_layout_id,
+            self.combo_setting_layout_win,
             self.lbl_setting_font_id,
             self.combo_setting_font_win,
             self.lbl_setting_font_scale_id,
@@ -1454,7 +1470,7 @@ class HololiveBotUI(tk.Tk):
         curr_y += pill_h + 8
 
         style_x1 = pad_x - 4
-        style_x2 = w - pad_x + 4
+        style_x2 = pad_x + content_w + 4
         style_y2 = curr_y + 2
         img = draw_glass_card(img, (style_x1, style_y1, style_x2, style_y2), fill=card_fill, outline=card_border, radius=8)
         return (style_y2 + 6), img
@@ -1535,7 +1551,7 @@ class HololiveBotUI(tk.Tk):
                     c.hide()
 
             opp_x1 = pad_x - 4
-            opp_x2 = w - pad_x + 4
+            opp_x2 = pad_x + content_w + 4
             opp_y2 = curr_y + 4
             img = draw_glass_card(img, (opp_x1, opp_y1, opp_x2, opp_y2), fill=card_fill, outline=card_border, radius=8)
             self.canvas.itemconfig(self.opp_frame_win, state="hidden")
@@ -1579,6 +1595,65 @@ class HololiveBotUI(tk.Tk):
             self.canvas.itemconfig(self.scrollbar_win, state="hidden")
         return img
 
+    def is_two_col_active(self, w: Optional[int] = None) -> bool:
+        mode = getattr(self, "layout_mode", "adaptive")
+        if mode == "two_col":
+            return True
+        if mode == "single":
+            return False
+        eff_w = w if (w is not None and w > 50) else (self.last_w if getattr(self, "last_w", 0) > 50 else 480)
+        return eff_w >= 760
+
+    def set_layout_mode(self, mode: str, resize_window: bool = True):
+        if mode not in ("adaptive", "single", "two_col"):
+            mode = "adaptive"
+        self.layout_mode = mode
+        if hasattr(self, "layout_var"):
+            self.layout_var.set(mode)
+        if hasattr(self, "combo_setting_layout") and hasattr(self, "_layout_keys"):
+            idx = self._layout_keys.index(mode) if mode in self._layout_keys else 0
+            self.combo_setting_layout.current(idx)
+
+        w = self.last_w if (getattr(self, "last_w", 0) > 50) else (self.winfo_width() if self.winfo_width() > 50 else 480)
+        h = self.last_h if (getattr(self, "last_h", 0) > 50) else (self.winfo_height() if self.winfo_height() > 50 else 850)
+        if resize_window:
+            if mode == "two_col" and w < 760:
+                w, h = 920, max(680, min(h, 760))
+                self.last_w, self.last_h = w, h
+                try:
+                    self.geometry(f"{w}x{h}")
+                except Exception:
+                    pass
+            elif mode == "single" and w >= 760:
+                w, h = 480, max(850, h)
+                self.last_w, self.last_h = w, h
+                try:
+                    self.geometry(f"{w}x{h}")
+                except Exception:
+                    pass
+        self.draw_ui(w, h)
+        self.save_settings()
+
+    def _on_setting_layout_change(self, event=None):
+        if not hasattr(self, "combo_setting_layout") or not hasattr(self, "_layout_keys"):
+            return
+        idx = self.combo_setting_layout.current()
+        if 0 <= idx < len(self._layout_keys):
+            self.set_layout_mode(self._layout_keys[idx])
+
+    def _update_combo_layout_values(self):
+        if not hasattr(self, "combo_setting_layout") or not hasattr(self, "_layout_keys"):
+            return
+        labels = [
+            localization.tr("layout_adaptive", self.current_lang),
+            localization.tr("layout_single", self.current_lang),
+            localization.tr("layout_two_col", self.current_lang),
+        ]
+        self.combo_setting_layout.configure(values=labels)
+        cur = getattr(self, "layout_mode", "adaptive")
+        idx = self._layout_keys.index(cur) if cur in self._layout_keys else 0
+        self.combo_setting_layout.current(idx)
+
     def draw_ui(self, w, h):
         if w <= 50 or h <= 50:
             return
@@ -1598,9 +1673,21 @@ class HololiveBotUI(tk.Tk):
         alpha = int(255 * op_ratio)
         card_fill = (*palette["card_fill_rgb"], alpha) if self.field_box_opacity > 0 else (*palette["card_fill_rgb"], 0)
 
-        # 2. Responsive layout dimensions
-        pad_x = max(16, int(w * 0.06))
+        # 2. Responsive layout dimensions (Single Column vs Two Columns / Adaptive)
+        two_col = self.is_two_col_active(w)
+        pad_x = max(16, int(w * (0.03 if two_col else 0.06)))
         content_w = w - 2 * pad_x
+        if two_col:
+            col_gap = max(18, int(w * 0.025))
+            left_w = max(320, int((content_w - col_gap) * 0.48))
+            right_w = max(280, content_w - col_gap - left_w)
+            left_x = pad_x
+            right_x = pad_x + left_w + col_gap
+        else:
+            left_w = content_w
+            right_w = content_w
+            left_x = pad_x
+            right_x = pad_x
 
         # Top 2-Tab Bar (Auto Bot & Simulation segmented pill)
         tab_btn_h = max(34, min(40, int(h * 0.046)))
@@ -1627,17 +1714,22 @@ class HololiveBotUI(tk.Tk):
             self.canvas.itemconfig(self.combo_window, state="hidden")
             self.canvas.itemconfig(self.lbl_setting_bg_id, state="hidden")
             self.canvas.itemconfig(self.combo_bg_win, state="hidden")
+            self.canvas.itemconfig(self.lbl_setting_layout_id, state="hidden")
+            self.canvas.itemconfig(self.combo_setting_layout_win, state="hidden")
             self.canvas.itemconfig(self.btn_bg_win, state="hidden")
             self.canvas.itemconfig(self.btn_clear_logs_win, state="hidden")
             self.canvas.itemconfig(self.btn_open_custom_dialog_win, state="hidden")
 
+            col_x = left_x
+            col_w = left_w
+
             # Combined Top Stats Card Header (Status Chip on Left, Stop & Observer Hotkeys on Right with Labels above)
             tab_bottom = tab_y + tab_btn_h / 2
             stats_card_top = tab_bottom + 10
-            card_inner_x = pad_x + 8
+            card_inner_x = col_x + 8
             scale = getattr(self, "font_scale", 100) / 100.0
             hotkey_btn_h = max(30, int(round(30 * scale)))
-            hotkey_btn_w = max(84, min(115, int(content_w * 0.25)))
+            hotkey_btn_w = max(84, min(115, int(col_w * 0.25)))
             hk_gap = 8
 
             lbl_hk_y = stats_card_top + max(13, int(round(13 * scale)))
@@ -1646,7 +1738,7 @@ class HololiveBotUI(tk.Tk):
             self._status_coords = (card_inner_x, row1_y)
             self._update_status_chip()
 
-            hk2_cx = w - pad_x - 8 - hotkey_btn_w / 2
+            hk2_cx = col_x + col_w - 8 - hotkey_btn_w / 2
             hk1_cx = hk2_cx - hotkey_btn_w - hk_gap
 
             self.canvas.coords(self.hotkey_label_id, hk1_cx, lbl_hk_y)
@@ -1686,9 +1778,9 @@ class HololiveBotUI(tk.Tk):
 
             stats_card_bottom = fails_y + max(20, int(round(20 * scale)))
 
-            sc_x1 = pad_x - 4
+            sc_x1 = col_x - 4
             sc_y1 = stats_card_top
-            sc_x2 = w - pad_x + 4
+            sc_x2 = col_x + col_w + 4
             sc_y2 = stats_card_bottom
 
             self.canvas.itemconfig(self.stats_card_id, state="hidden")
@@ -1709,11 +1801,11 @@ class HololiveBotUI(tk.Tk):
             btn_row_top = stats_card_bottom + 12
             btn_row_y = btn_row_top + btn_h / 2
             btn_gap = 8
-            col_btn_w = (content_w - btn_gap) / 2
+            col_btn_w = (col_w - btn_gap) / 2
 
-            self.canvas.coords(self.btn_start_win, pad_x + col_btn_w / 2, btn_row_y)
+            self.canvas.coords(self.btn_start_win, col_x + col_btn_w / 2, btn_row_y)
             self.canvas.itemconfig(self.btn_start_win, width=col_btn_w, height=btn_h, state="normal")
-            self.canvas.coords(self.btn_companion_win, pad_x + col_btn_w + btn_gap + col_btn_w / 2, btn_row_y)
+            self.canvas.coords(self.btn_companion_win, col_x + col_btn_w + btn_gap + col_btn_w / 2, btn_row_y)
             self.canvas.itemconfig(self.btn_companion_win, width=col_btn_w, height=btn_h, state="normal")
 
             show_intercept = (
@@ -1725,8 +1817,8 @@ class HololiveBotUI(tk.Tk):
                 intercept_h = 32
                 intercept_top = btn_row_top + btn_h + 6
                 intercept_y = intercept_top + intercept_h / 2
-                self.canvas.coords(self.btn_intercept_win, pad_x + content_w / 2, intercept_y)
-                self.canvas.itemconfig(self.btn_intercept_win, width=content_w, height=intercept_h, state="normal")
+                self.canvas.coords(self.btn_intercept_win, col_x + col_w / 2, intercept_y)
+                self.canvas.itemconfig(self.btn_intercept_win, width=col_w, height=intercept_h, state="normal")
                 strat_top = intercept_top + intercept_h + 8
             else:
                 self.canvas.itemconfig(self.btn_intercept_win, state="hidden")
@@ -1738,29 +1830,29 @@ class HololiveBotUI(tk.Tk):
             strat_field_h = 30
             is_custom = (self.active_mode in ("custom_parametric", "true_max_coins", "true_max_profit")) or bool(self.var_mod_hunt_14k.get())
             if is_custom:
-                config_btn_w = max(100, min(120, int(content_w * 0.28)))
-                combo_strat_w = content_w - config_btn_w - 8
-                self.canvas.coords(self.strategy_window, pad_x, strat_top)
+                config_btn_w = max(100, min(120, int(col_w * 0.28)))
+                combo_strat_w = col_w - config_btn_w - 8
+                self.canvas.coords(self.strategy_window, col_x, strat_top)
                 self.canvas.itemconfig(self.strategy_window, width=combo_strat_w, height=strat_field_h, state="normal")
-                self.canvas.coords(self.btn_config_strat_win, pad_x + combo_strat_w + 8, strat_top)
+                self.canvas.coords(self.btn_config_strat_win, col_x + combo_strat_w + 8, strat_top)
                 self.canvas.itemconfig(self.btn_config_strat_win, width=config_btn_w, height=strat_field_h, state="normal")
             else:
-                self.canvas.coords(self.strategy_window, pad_x, strat_top)
-                self.canvas.itemconfig(self.strategy_window, width=content_w, height=strat_field_h, state="normal")
+                self.canvas.coords(self.strategy_window, col_x, strat_top)
+                self.canvas.itemconfig(self.strategy_window, width=col_w, height=strat_field_h, state="normal")
                 self.canvas.itemconfig(self.btn_config_strat_win, state="hidden")
 
             # Strategy Description (with clear guidance)
             desc_y = strat_top + strat_field_h + 8
-            self.canvas.coords(self.strategy_desc_id, pad_x + 6, desc_y)
-            self.canvas.itemconfig(self.strategy_desc_id, width=content_w - 12, state="normal")
+            self.canvas.coords(self.strategy_desc_id, col_x + 6, desc_y)
+            self.canvas.itemconfig(self.strategy_desc_id, width=col_w - 12, state="normal")
 
             desc_bbox = self.canvas.bbox(self.strategy_desc_id)
             desc_bottom = desc_bbox[3] if (desc_bbox and desc_bbox[3] > desc_y) else (desc_y + 26)
 
             if desc_bbox and (desc_bottom + 4) > (strat_top + strat_field_h + 4):
-                d_x1 = pad_x - 4
+                d_x1 = col_x - 4
                 d_y1 = strat_top + strat_field_h + 4
-                d_x2 = w - pad_x + 4
+                d_x2 = col_x + col_w + 4
                 d_y2 = desc_bottom + 4
                 overlay_desc = Image.new("RGBA", img.size, (0, 0, 0, 0))
                 draw_desc = ImageDraw.Draw(overlay_desc)
@@ -1773,19 +1865,46 @@ class HololiveBotUI(tk.Tk):
                 )
                 img = Image.alpha_composite(img, overlay_desc)
 
-            # Strategy Play Style Section & Strategy Modifiers Drawer on Auto Bot Tab
-            mod_btn_y, img = self._draw_play_style_section(pad_x, content_w, desc_bottom + 8, w, img, card_fill, card_border)
+            # Strategy Play Style Section
+            mod_btn_y, img = self._draw_play_style_section(col_x, col_w, desc_bottom + 8, w, img, card_fill, card_border)
             mod_btn_h = 30
-            reset_btn_w = max(68, min(80, int(content_w * 0.18)))
-            btn_gap = 6
-            toggle_w = content_w - reset_btn_w - btn_gap
-            self.canvas.coords(self.btn_toggle_modifiers_win, pad_x, mod_btn_y)
-            self.canvas.itemconfig(self.btn_toggle_modifiers_win, width=toggle_w, height=mod_btn_h, state="normal")
-            self.canvas.coords(self.btn_reset_modifiers_win, pad_x + toggle_w + btn_gap, mod_btn_y)
-            self.canvas.itemconfig(self.btn_reset_modifiers_win, width=reset_btn_w, height=mod_btn_h, state="normal")
 
-            log_y, img = self._draw_modifiers_drawer(pad_x, content_w, mod_btn_y, mod_btn_h, w, img, card_fill, card_border)
-            img = self._draw_log_box(pad_x, content_w, log_y, h, w, img, card_fill, card_border)
+            if two_col and not self.show_log:
+                # 2-Column with Log Console hidden: place Strategy Modifiers in Column 2
+                mod_col_x = right_x
+                mod_col_w = right_w
+                mod_top_y = stats_card_top
+                reset_btn_w = max(68, min(80, int(mod_col_w * 0.18)))
+                btn_gap = 6
+                toggle_w = mod_col_w - reset_btn_w - btn_gap
+                self.canvas.coords(self.btn_toggle_modifiers_win, mod_col_x, mod_top_y)
+                self.canvas.itemconfig(self.btn_toggle_modifiers_win, width=toggle_w, height=mod_btn_h, state="normal")
+                self.canvas.coords(self.btn_reset_modifiers_win, mod_col_x + toggle_w + btn_gap, mod_top_y)
+                self.canvas.itemconfig(self.btn_reset_modifiers_win, width=reset_btn_w, height=mod_btn_h, state="normal")
+                _, img = self._draw_modifiers_drawer(mod_col_x, mod_col_w, mod_top_y, mod_btn_h, w, img, card_fill, card_border)
+                img = self._draw_log_box(right_x, right_w, stats_card_top + 4, h, w, img, card_fill, card_border)
+            elif two_col and self.show_log:
+                # 2-Column with Log Console visible: Modifiers in Column 1, Full-Height Log Console in Column 2
+                reset_btn_w = max(68, min(80, int(col_w * 0.18)))
+                btn_gap = 6
+                toggle_w = col_w - reset_btn_w - btn_gap
+                self.canvas.coords(self.btn_toggle_modifiers_win, col_x, mod_btn_y)
+                self.canvas.itemconfig(self.btn_toggle_modifiers_win, width=toggle_w, height=mod_btn_h, state="normal")
+                self.canvas.coords(self.btn_reset_modifiers_win, col_x + toggle_w + btn_gap, mod_btn_y)
+                self.canvas.itemconfig(self.btn_reset_modifiers_win, width=reset_btn_w, height=mod_btn_h, state="normal")
+                _, img = self._draw_modifiers_drawer(col_x, col_w, mod_btn_y, mod_btn_h, w, img, card_fill, card_border)
+                img = self._draw_log_box(right_x, right_w, stats_card_top + 4, h, w, img, card_fill, card_border)
+            else:
+                # Single Column layout
+                reset_btn_w = max(68, min(80, int(col_w * 0.18)))
+                btn_gap = 6
+                toggle_w = col_w - reset_btn_w - btn_gap
+                self.canvas.coords(self.btn_toggle_modifiers_win, col_x, mod_btn_y)
+                self.canvas.itemconfig(self.btn_toggle_modifiers_win, width=toggle_w, height=mod_btn_h, state="normal")
+                self.canvas.coords(self.btn_reset_modifiers_win, col_x + toggle_w + btn_gap, mod_btn_y)
+                self.canvas.itemconfig(self.btn_reset_modifiers_win, width=reset_btn_w, height=mod_btn_h, state="normal")
+                log_y, img = self._draw_modifiers_drawer(col_x, col_w, mod_btn_y, mod_btn_h, w, img, card_fill, card_border)
+                img = self._draw_log_box(col_x, col_w, log_y, h, w, img, card_fill, card_border)
 
         elif self.current_tab == "sim":
             self._set_items_visible(self._bot_items, False)
@@ -1797,55 +1916,75 @@ class HololiveBotUI(tk.Tk):
             self.canvas.itemconfig(self.combo_window, state="hidden")
             self.canvas.itemconfig(self.lbl_setting_bg_id, state="hidden")
             self.canvas.itemconfig(self.combo_bg_win, state="hidden")
+            self.canvas.itemconfig(self.lbl_setting_layout_id, state="hidden")
+            self.canvas.itemconfig(self.combo_setting_layout_win, state="hidden")
             self.canvas.itemconfig(self.btn_bg_win, state="hidden")
             self.canvas.itemconfig(self.btn_clear_logs_win, state="hidden")
             self.canvas.itemconfig(self.btn_open_custom_dialog_win, state="hidden")
+
+            col_x = left_x
+            col_w = left_w
 
             # Strategy Row (full width or with config button if custom parametric / true max coins / hunt 14k active)
             strat_top = tab_y + tab_btn_h / 2 + 10
             strat_field_h = 30
             is_custom = (self.active_mode in ("custom_parametric", "true_max_coins", "true_max_profit")) or bool(self.var_mod_hunt_14k.get())
             if is_custom:
-                config_btn_w = max(100, min(120, int(content_w * 0.28)))
-                combo_strat_w = content_w - config_btn_w - 8
-                self.canvas.coords(self.strategy_window, pad_x, strat_top)
+                config_btn_w = max(100, min(120, int(col_w * 0.28)))
+                combo_strat_w = col_w - config_btn_w - 8
+                self.canvas.coords(self.strategy_window, col_x, strat_top)
                 self.canvas.itemconfig(self.strategy_window, width=combo_strat_w, height=strat_field_h, state="normal")
-                self.canvas.coords(self.btn_config_strat_win, pad_x + combo_strat_w + 8, strat_top)
+                self.canvas.coords(self.btn_config_strat_win, col_x + combo_strat_w + 8, strat_top)
                 self.canvas.itemconfig(self.btn_config_strat_win, width=config_btn_w, height=strat_field_h, state="normal")
             else:
-                self.canvas.coords(self.strategy_window, pad_x, strat_top)
-                self.canvas.itemconfig(self.strategy_window, width=content_w, height=strat_field_h, state="normal")
+                self.canvas.coords(self.strategy_window, col_x, strat_top)
+                self.canvas.itemconfig(self.strategy_window, width=col_w, height=strat_field_h, state="normal")
                 self.canvas.itemconfig(self.btn_config_strat_win, state="hidden")
 
             # Strategy Description
             desc_y = strat_top + strat_field_h + 6
-            self.canvas.coords(self.strategy_desc_id, pad_x, desc_y)
-            self.canvas.itemconfig(self.strategy_desc_id, width=content_w, state="normal")
+            self.canvas.coords(self.strategy_desc_id, col_x, desc_y)
+            self.canvas.itemconfig(self.strategy_desc_id, width=col_w, state="normal")
 
             # Dynamic spacing to guarantee no overlap with description text
             desc_bbox = self.canvas.bbox(self.strategy_desc_id)
             desc_bottom = desc_bbox[3] if (desc_bbox and desc_bbox[3] > desc_y) else (desc_y + 30)
 
             # Strategy Play Style Section & Strategy Modifiers Drawer on Simulation Tab
-            mod_btn_y, img = self._draw_play_style_section(pad_x, content_w, desc_bottom + 8, w, img, card_fill, card_border)
+            mod_btn_y, img = self._draw_play_style_section(col_x, col_w, desc_bottom + 8, w, img, card_fill, card_border)
             mod_btn_h = 30
-            reset_btn_w = max(68, min(80, int(content_w * 0.18)))
-            btn_gap = 6
-            toggle_w = content_w - reset_btn_w - btn_gap
-            self.canvas.coords(self.btn_toggle_modifiers_win, pad_x, mod_btn_y)
-            self.canvas.itemconfig(self.btn_toggle_modifiers_win, width=toggle_w, height=mod_btn_h, state="normal")
-            self.canvas.coords(self.btn_reset_modifiers_win, pad_x + toggle_w + btn_gap, mod_btn_y)
-            self.canvas.itemconfig(self.btn_reset_modifiers_win, width=reset_btn_w, height=mod_btn_h, state="normal")
 
-            days_row_top, img = self._draw_modifiers_drawer(pad_x, content_w, mod_btn_y, mod_btn_h, w, img, card_fill, card_border)
+            if two_col and not self.show_log:
+                # 2-Column with Log Console hidden: Modifiers in Column 2, Sim Days + Buttons in Column 1
+                mod_col_x = right_x
+                mod_col_w = right_w
+                mod_top_y = strat_top
+                reset_btn_w = max(68, min(80, int(mod_col_w * 0.18)))
+                btn_gap = 6
+                toggle_w = mod_col_w - reset_btn_w - btn_gap
+                self.canvas.coords(self.btn_toggle_modifiers_win, mod_col_x, mod_top_y)
+                self.canvas.itemconfig(self.btn_toggle_modifiers_win, width=toggle_w, height=mod_btn_h, state="normal")
+                self.canvas.coords(self.btn_reset_modifiers_win, mod_col_x + toggle_w + btn_gap, mod_top_y)
+                self.canvas.itemconfig(self.btn_reset_modifiers_win, width=reset_btn_w, height=mod_btn_h, state="normal")
+                _, img = self._draw_modifiers_drawer(mod_col_x, mod_col_w, mod_top_y, mod_btn_h, w, img, card_fill, card_border)
+                days_row_top = mod_btn_y + 4
+            else:
+                reset_btn_w = max(68, min(80, int(col_w * 0.18)))
+                btn_gap = 6
+                toggle_w = col_w - reset_btn_w - btn_gap
+                self.canvas.coords(self.btn_toggle_modifiers_win, col_x, mod_btn_y)
+                self.canvas.itemconfig(self.btn_toggle_modifiers_win, width=toggle_w, height=mod_btn_h, state="normal")
+                self.canvas.coords(self.btn_reset_modifiers_win, col_x + toggle_w + btn_gap, mod_btn_y)
+                self.canvas.itemconfig(self.btn_reset_modifiers_win, width=reset_btn_w, height=mod_btn_h, state="normal")
+                days_row_top, img = self._draw_modifiers_drawer(col_x, col_w, mod_btn_y, mod_btn_h, w, img, card_fill, card_border)
 
-            # Days input row (Sim Days + Spinbox on left, Clear Logs on right)
+            # Days input row (Sim Days + Spinbox on left)
             days_row_h = 30
             days_y = days_row_top + days_row_h / 2
-            self.canvas.coords(self.sim_days_label_id, pad_x, days_y)
+            self.canvas.coords(self.sim_days_label_id, col_x, days_y)
 
             lbl_bbox = self.canvas.bbox(self.sim_days_label_id)
-            spin_x = (lbl_bbox[2] + 8) if lbl_bbox else (pad_x + 90)
+            spin_x = (lbl_bbox[2] + 8) if lbl_bbox else (col_x + 90)
             self.canvas.coords(self.spin_sim_days_win, spin_x, days_y)
             self.canvas.itemconfig(self.spin_sim_days_win, width=76, height=days_row_h)
             self.canvas.itemconfig(self.btn_clear_logs_win, state="hidden")
@@ -1855,18 +1994,20 @@ class HololiveBotUI(tk.Tk):
             btn_row1_h = 36
             btn_row1_y = btn_row1_top + btn_row1_h / 2
             action_gap = 10
-            sim_btn_w = (content_w - action_gap) / 2
-            self.canvas.coords(self.btn_sim_run_win, pad_x + sim_btn_w / 2, btn_row1_y)
-            self.canvas.coords(self.btn_sim_compare_win, pad_x + sim_btn_w + action_gap + sim_btn_w / 2, btn_row1_y)
+            sim_btn_w = (col_w - action_gap) / 2
+            self.canvas.coords(self.btn_sim_run_win, col_x + sim_btn_w / 2, btn_row1_y)
+            self.canvas.coords(self.btn_sim_compare_win, col_x + sim_btn_w + action_gap + sim_btn_w / 2, btn_row1_y)
             self.canvas.itemconfig(self.btn_sim_run_win, width=sim_btn_w, height=btn_row1_h)
             self.canvas.itemconfig(self.btn_sim_compare_win, width=sim_btn_w, height=btn_row1_h)
 
             self.canvas.itemconfig(self.btn_sim_export_csv_win, state="hidden")
             self.canvas.itemconfig(self.btn_sim_export_json_win, state="hidden")
 
-            # Log Box filling remainder (gains extra vertical height without redundant export buttons)
-            sim_log_y = btn_row1_top + btn_row1_h + 16
-            img = self._draw_log_box(pad_x, content_w, sim_log_y, h, w, img, card_fill, card_border)
+            if two_col:
+                img = self._draw_log_box(right_x, right_w, strat_top + 4, h, w, img, card_fill, card_border)
+            else:
+                sim_log_y = btn_row1_top + btn_row1_h + 16
+                img = self._draw_log_box(col_x, col_w, sim_log_y, h, w, img, card_fill, card_border)
 
         elif self.current_tab == "settings":
             self._set_items_visible(self._bot_items, False)
@@ -1887,121 +2028,142 @@ class HololiveBotUI(tk.Tk):
             self.canvas.coords(self.lbl_setting_title_id, pad_x, sett_start_y)
             self.canvas.itemconfig(self.settings_card_id, state="hidden")
 
-            card_x1 = pad_x - 6
-            card_x2 = w - pad_x + 6
-            inner_pad_x = pad_x + 8
-            inner_w = content_w - 16
-            input_w = max(130, min(160, int(content_w * 0.44)))
-            row_gap = 32
-            field_h = max(26, min(28, int(h * 0.036)))
+            c1_x = left_x
+            c1_w = left_w
+            c1_card_x1 = c1_x - 6
+            c1_card_x2 = c1_x + c1_w + 6
+            c1_inner_x = c1_x + 8
+            c1_input_w = max(130, min(170, int(c1_w * 0.44)))
+
+            c2_x = right_x if two_col else left_x
+            c2_w = right_w if two_col else left_w
+            c2_card_x1 = c2_x - 6
+            c2_card_x2 = c2_x + c2_w + 6
+            c2_inner_x = c2_x + 8
+            c2_inner_w = c2_w - 16
+            c2_input_w = max(130, min(170, int(c2_w * 0.44)))
+
+            row_gap = 31
+            field_h = max(25, min(28, int(h * 0.035)))
 
             curr_y = sett_start_y + 16
 
             # --- Card 1: Appearance & Display ---
             c1_top = curr_y
-            self.lbl_sec_appearance.place(inner_pad_x, curr_y + 4)
+            self.lbl_sec_appearance.place(c1_inner_x, curr_y + 4)
             curr_y += 24
 
             # Row 1: Language
             r1_y = curr_y + field_h // 2
-            self.canvas.coords(self.lang_label_id, inner_pad_x, r1_y)
-            self.canvas.coords(self.combo_window, card_x2 - 12, r1_y)
-            self.canvas.itemconfig(self.combo_window, width=input_w, height=field_h, state="normal")
+            self.canvas.coords(self.lang_label_id, c1_inner_x, r1_y)
+            self.canvas.coords(self.combo_window, c1_card_x2 - 12, r1_y)
+            self.canvas.itemconfig(self.combo_window, width=c1_input_w, height=field_h, state="normal")
             curr_y += row_gap
 
             # Row 2: Background
             r2_y = curr_y + field_h // 2
-            self.canvas.coords(self.lbl_setting_bg_id, inner_pad_x, r2_y)
-            self.canvas.coords(self.combo_bg_win, card_x2 - 12, r2_y)
-            self.canvas.itemconfig(self.combo_bg_win, width=input_w, height=field_h, state="normal")
+            self.canvas.coords(self.lbl_setting_bg_id, c1_inner_x, r2_y)
+            self.canvas.coords(self.combo_bg_win, c1_card_x2 - 12, r2_y)
+            self.canvas.itemconfig(self.combo_bg_win, width=c1_input_w, height=field_h, state="normal")
             curr_y += row_gap
 
-            # Row 3: Font Family
+            # Row 3: Window Layout
+            r_layout_y = curr_y + field_h // 2
+            self.canvas.coords(self.lbl_setting_layout_id, c1_inner_x, r_layout_y)
+            self.canvas.coords(self.combo_setting_layout_win, c1_card_x2 - 12, r_layout_y)
+            self.canvas.itemconfig(self.combo_setting_layout_win, width=c1_input_w, height=field_h, state="normal")
+            curr_y += row_gap
+
+            # Row 4: Font Family
             r3_y = curr_y + field_h // 2
-            self.canvas.coords(self.lbl_setting_font_id, inner_pad_x, r3_y)
-            self.canvas.coords(self.combo_setting_font_win, card_x2 - 12, r3_y)
-            self.canvas.itemconfig(self.combo_setting_font_win, width=input_w, height=field_h, state="normal")
+            self.canvas.coords(self.lbl_setting_font_id, c1_inner_x, r3_y)
+            self.canvas.coords(self.combo_setting_font_win, c1_card_x2 - 12, r3_y)
+            self.canvas.itemconfig(self.combo_setting_font_win, width=c1_input_w, height=field_h, state="normal")
             curr_y += row_gap
 
-            # Row 4: Font Scale
+            # Row 5: Font Scale
             r4_y = curr_y + field_h // 2
-            self.canvas.coords(self.lbl_setting_font_scale_id, inner_pad_x, r4_y)
-            self.canvas.coords(self.scale_setting_font_win, card_x2 - 12, r4_y)
-            self.canvas.itemconfig(self.scale_setting_font_win, width=input_w, height=field_h, state="normal")
+            self.canvas.coords(self.lbl_setting_font_scale_id, c1_inner_x, r4_y)
+            self.canvas.coords(self.scale_setting_font_win, c1_card_x2 - 12, r4_y)
+            self.canvas.itemconfig(self.scale_setting_font_win, width=c1_input_w, height=field_h, state="normal")
             curr_y += row_gap
 
-            # Row 5: Field Box Opacity
+            # Row 6: Field Box Opacity
             r5_y = curr_y + field_h // 2
-            self.canvas.coords(self.lbl_setting_opacity_id, inner_pad_x, r5_y)
-            self.canvas.coords(self.scale_setting_opacity_win, card_x2 - 12, r5_y)
-            self.canvas.itemconfig(self.scale_setting_opacity_win, width=input_w, height=field_h, state="normal")
+            self.canvas.coords(self.lbl_setting_opacity_id, c1_inner_x, r5_y)
+            self.canvas.coords(self.scale_setting_opacity_win, c1_card_x2 - 12, r5_y)
+            self.canvas.itemconfig(self.scale_setting_opacity_win, width=c1_input_w, height=field_h, state="normal")
             curr_y += row_gap + 4
 
             c1_bottom = curr_y
-            img = draw_glass_card(img, (card_x1, c1_top, card_x2, c1_bottom), fill=card_fill, outline=card_border, radius=8)
-            curr_y += 10
+            img = draw_glass_card(img, (c1_card_x1, c1_top, c1_card_x2, c1_bottom), fill=card_fill, outline=card_border, radius=8)
+
+            if two_col:
+                curr_y = sett_start_y + 16
+            else:
+                curr_y += 10
 
             # --- Card 2: Gameplay & Automation ---
             c2_top = curr_y
-            self.lbl_sec_gameplay.place(inner_pad_x, curr_y + 4)
+            self.lbl_sec_gameplay.place(c2_inner_x, curr_y + 4)
             curr_y += 24
 
             # Row 1: Target limit
             r6_y = curr_y + field_h // 2
-            self.canvas.coords(self.lbl_setting_target_id, inner_pad_x, r6_y)
-            self.canvas.coords(self.entry_setting_target_win, card_x2 - 12, r6_y)
-            self.canvas.itemconfig(self.entry_setting_target_win, width=input_w, height=field_h, state="normal")
+            self.canvas.coords(self.lbl_setting_target_id, c2_inner_x, r6_y)
+            self.canvas.coords(self.entry_setting_target_win, c2_card_x2 - 12, r6_y)
+            self.canvas.itemconfig(self.entry_setting_target_win, width=c2_input_w, height=field_h, state="normal")
             curr_y += row_gap
 
             # Row 2: Ticket Cost
             r7_y = curr_y + field_h // 2
-            self.canvas.coords(self.lbl_setting_ticket_id, inner_pad_x, r7_y)
-            self.canvas.coords(self.entry_setting_ticket_win, card_x2 - 12, r7_y)
-            self.canvas.itemconfig(self.entry_setting_ticket_win, width=input_w, height=field_h, state="normal")
+            self.canvas.coords(self.lbl_setting_ticket_id, c2_inner_x, r7_y)
+            self.canvas.coords(self.entry_setting_ticket_win, c2_card_x2 - 12, r7_y)
+            self.canvas.itemconfig(self.entry_setting_ticket_win, width=c2_input_w, height=field_h, state="normal")
             curr_y += row_gap
 
             # Row 3: Companion Hotkey
             r8_y = curr_y + field_h // 2
-            self.canvas.coords(self.lbl_setting_companion_hotkey_id, inner_pad_x, r8_y)
-            self.canvas.coords(self.btn_setting_companion_hotkey_win, card_x2 - 12, r8_y)
-            self.canvas.itemconfig(self.btn_setting_companion_hotkey_win, width=input_w, height=field_h, state="normal")
+            self.canvas.coords(self.lbl_setting_companion_hotkey_id, c2_inner_x, r8_y)
+            self.canvas.coords(self.btn_setting_companion_hotkey_win, c2_card_x2 - 12, r8_y)
+            self.canvas.itemconfig(self.btn_setting_companion_hotkey_win, width=c2_input_w, height=field_h, state="normal")
             curr_y += row_gap + 4
 
             c2_bottom = curr_y
-            img = draw_glass_card(img, (card_x1, c2_top, card_x2, c2_bottom), fill=card_fill, outline=card_border, radius=8)
+            img = draw_glass_card(img, (c2_card_x1, c2_top, c2_card_x2, c2_bottom), fill=card_fill, outline=card_border, radius=8)
             curr_y += 10
 
             # --- Card 3: Diagnostics & Logging ---
             c3_top = curr_y
-            self.lbl_sec_diagnostics.place(inner_pad_x, curr_y + 4)
+            self.lbl_sec_diagnostics.place(c2_inner_x, curr_y + 4)
             curr_y += 24
 
-            tog_w = int((inner_w - 8) / 2)
-            self.chk_setting_show_log.place(inner_pad_x, curr_y, width=tog_w, height=22)
-            self.chk_setting_debug_log.place(inner_pad_x + tog_w + 8, curr_y, width=tog_w, height=22)
+            tog_w = int((c2_inner_w - 8) / 2)
+            self.chk_setting_show_log.place(c2_inner_x, curr_y, width=tog_w, height=22)
+            self.chk_setting_debug_log.place(c2_inner_x + tog_w + 8, curr_y, width=tog_w, height=22)
             curr_y += 30
 
             c3_bottom = curr_y
-            img = draw_glass_card(img, (card_x1, c3_top, card_x2, c3_bottom), fill=card_fill, outline=card_border, radius=8)
+            img = draw_glass_card(img, (c2_card_x1, c3_top, c2_card_x2, c3_bottom), fill=card_fill, outline=card_border, radius=8)
             curr_y += 14
 
             # --- Action Buttons ---
-            btn_sett_w = (content_w - 8) / 2
+            btn_sett_w = (c2_w - 8) / 2
             btn_sett_h = 34
             btn_sett_y = curr_y + btn_sett_h // 2
-            self.canvas.coords(self.btn_save_settings_win, pad_x + btn_sett_w / 2, btn_sett_y)
-            self.canvas.coords(self.btn_restore_defaults_win, pad_x + btn_sett_w + 8 + btn_sett_w / 2, btn_sett_y)
+            self.canvas.coords(self.btn_save_settings_win, c2_x + btn_sett_w / 2, btn_sett_y)
+            self.canvas.coords(self.btn_restore_defaults_win, c2_x + btn_sett_w + 8 + btn_sett_w / 2, btn_sett_y)
             self.canvas.itemconfig(self.btn_save_settings_win, width=btn_sett_w, height=btn_sett_h, state="normal")
             self.canvas.itemconfig(self.btn_restore_defaults_win, width=btn_sett_w, height=btn_sett_h, state="normal")
             curr_y += btn_sett_h + 8
 
             btn_back_h = 34
             btn_back_y = curr_y + btn_back_h // 2
-            self.canvas.coords(self.btn_back_to_bot_win, pad_x + content_w / 2, btn_back_y)
-            self.canvas.itemconfig(self.btn_back_to_bot_win, width=content_w, height=btn_back_h, state="normal")
+            self.canvas.coords(self.btn_back_to_bot_win, c2_x + c2_w / 2, btn_back_y)
+            self.canvas.itemconfig(self.btn_back_to_bot_win, width=c2_w, height=btn_back_h, state="normal")
 
             # Feedback label
-            self.canvas.coords(self.settings_feedback_id, w / 2, btn_back_y + btn_back_h // 2 + 16)
+            self.canvas.coords(self.settings_feedback_id, c2_x + c2_w / 2, btn_back_y + btn_back_h // 2 + 16)
 
         # 3. Final background PhotoImage update (including any composited cards)
         self.bg_photo = ImageTk.PhotoImage(img)
@@ -2674,6 +2836,29 @@ class HololiveBotUI(tk.Tk):
             menu=self.opacity_menu,
         )
 
+        # Window Layout Submenu
+        self.layout_menu = ModernMenu(self.bg_menu, tearoff=0)
+        if not hasattr(self, "layout_var"):
+            self.layout_var = tk.StringVar(value=getattr(self, "layout_mode", "adaptive"))
+        else:
+            self.layout_var.set(getattr(self, "layout_mode", "adaptive"))
+        layout_presets = [
+            ("adaptive", localization.tr("layout_adaptive", self.current_lang)),
+            ("single", localization.tr("layout_single", self.current_lang)),
+            ("two_col", localization.tr("layout_two_col", self.current_lang)),
+        ]
+        for val, label in layout_presets:
+            self.layout_menu.add_radiobutton(
+                label=f"    {label}",
+                variable=self.layout_var,
+                value=val,
+                command=lambda v=val: self.set_layout_mode(v),
+            )
+        self.bg_menu.add_cascade(
+            label=localization.tr("menu_layout", self.current_lang),
+            menu=self.layout_menu,
+        )
+
         # Language Menu (Top-level in menubar)
         self.lang_menu.delete(0, "end")
         available_langs = localization.load_external_locales()
@@ -2904,6 +3089,7 @@ class HololiveBotUI(tk.Tk):
                 field_box_opacity=self.field_box_opacity,
                 show_log=self.show_log,
                 theme_mode=self.theme_mode,
+                layout_mode=getattr(self, "layout_mode", "adaptive"),
                 custom_font_family=getattr(self, "custom_font_family", "auto"),
                 font_scale=getattr(self, "font_scale", 100),
                 settlement_recovery_mode=self.settlement_recovery_mode,
@@ -2953,6 +3139,11 @@ class HololiveBotUI(tk.Tk):
         self.theme_mode = "system"
         if hasattr(self, "theme_var"):
             self.theme_var.set("system")
+        self.layout_mode = "adaptive"
+        if hasattr(self, "layout_var"):
+            self.layout_var.set("adaptive")
+        if hasattr(self, "combo_setting_layout"):
+            self.combo_setting_layout.current(0)
         self.apply_theme()
         self.custom_font_family = "auto"
         self.font_scale = 100
@@ -3584,6 +3775,7 @@ class HololiveBotUI(tk.Tk):
             field_box_opacity=self.field_box_opacity,
             show_log=self.show_log,
             theme_mode=self.theme_mode,
+            layout_mode=getattr(self, "layout_mode", "adaptive"),
             custom_font_family=getattr(self, "custom_font_family", "auto"),
             font_scale=getattr(self, "font_scale", 100),
             settlement_recovery_mode=getattr(self, "settlement_recovery_mode", "auto"),
@@ -3720,6 +3912,8 @@ class HololiveBotUI(tk.Tk):
             self.canvas.itemconfig(self.lang_label_id, font=font_small_bold)
         if getattr(self, "lbl_setting_bg_id", None):
             self.canvas.itemconfig(self.lbl_setting_bg_id, font=font_small_bold)
+        if getattr(self, "lbl_setting_layout_id", None):
+            self.canvas.itemconfig(self.lbl_setting_layout_id, font=font_small_bold)
         if getattr(self, "lbl_setting_font_id", None):
             self.canvas.itemconfig(self.lbl_setting_font_id, font=font_small_bold)
         if getattr(self, "lbl_setting_font_scale_id", None):
@@ -3803,6 +3997,7 @@ class HololiveBotUI(tk.Tk):
             getattr(self, "entry_setting_target", None),
             getattr(self, "entry_setting_ticket", None),
             getattr(self, "combo_setting_font", None),
+            getattr(self, "combo_setting_layout", None),
         ):
             if widget:
                 try:
@@ -3828,6 +4023,8 @@ class HololiveBotUI(tk.Tk):
         self.canvas.itemconfig(self.title_id, text="", state="hidden")
         self.canvas.itemconfig(self.lang_label_id, text=localization.tr("lang_label", self.current_lang))
         self.canvas.itemconfig(self.lbl_setting_bg_id, text=localization.tr("menu_background", self.current_lang))
+        if getattr(self, "lbl_setting_layout_id", None):
+            self.canvas.itemconfig(self.lbl_setting_layout_id, text=localization.tr("layout_mode_label", self.current_lang))
         self.canvas.itemconfig(self.hotkey_label_id, text=localization.tr("hotkey_label", self.current_lang))
         if getattr(self, "companion_hotkey_label_id", None):
             self.canvas.itemconfig(self.companion_hotkey_label_id, text=localization.tr("hotkey_companion_label", self.current_lang))
@@ -3837,6 +4034,7 @@ class HololiveBotUI(tk.Tk):
         self.bg_var.set(self._get_bg_var_value())
         self.lang_var.set(self.current_lang)
         self._update_combo_bg_values()
+        self._update_combo_layout_values()
 
         # Tab titles & styles
         if hasattr(self, "pill_main_tabs"):
@@ -4323,6 +4521,21 @@ class HololiveBotUI(tk.Tk):
     def start_bot(self):
         if self.is_running or self.is_simulating:
             return
+        is_companion = bool(getattr(self, "var_scan_mode", None) and self.var_scan_mode.get())
+        if not is_companion and self.current_coins >= self.target_limit:
+            proceed = messagebox.askyesno(
+                localization.tr("cap_override_prompt_title", self.current_lang),
+                localization.tr(
+                    "cap_override_prompt_msg",
+                    self.current_lang,
+                    coins=f"{self.current_coins:,}",
+                    target=f"{self.target_limit:,}",
+                ),
+                parent=self,
+            )
+            if not proceed:
+                return
+
         idx = self.combo_strategy.current()
         self.active_mode = STRATEGY_KEYS[idx] if (isinstance(idx, int) and 0 <= idx < len(STRATEGY_KEYS)) else 'balanced'
         self.save_settings()
@@ -4331,7 +4544,6 @@ class HololiveBotUI(tk.Tk):
         self.is_running = True
         self._set_sim_buttons_state("disabled")
         self.refresh_texts()
-        is_companion = bool(getattr(self, "var_scan_mode", None) and self.var_scan_mode.get())
         self._update_status_chip("scanning" if is_companion else "running")
         self._update_start_stop_button_state()
 

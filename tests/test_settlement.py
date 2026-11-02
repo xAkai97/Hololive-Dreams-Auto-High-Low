@@ -8,7 +8,14 @@ import contextlib
 import io
 import unittest
 
-from settlement import SettlementReader, SettlementManager, is_valid_settlement_amount, SettlementTimeoutError
+from settlement import (
+    SettlementReader,
+    SettlementManager,
+    is_valid_settlement_amount,
+    is_valid_hand_payout,
+    validate_and_correct_payout,
+    SettlementTimeoutError,
+)
 
 
 class SettlementTests(unittest.TestCase):
@@ -181,6 +188,93 @@ class SettlementTests(unittest.TestCase):
         self.assertTrue(can_proceed)
         self.assertEqual(prompt_called, [(1600, 160015)])
         self.assertEqual(coins, 2800)
+
+    def test_is_valid_hand_payout(self):
+        # Base Flush = 700 (max hand payout = 11200)
+        self.assertTrue(is_valid_hand_payout(700, 700))
+        self.assertTrue(is_valid_hand_payout(1400, 700))
+        self.assertTrue(is_valid_hand_payout(2800, 700))
+        self.assertTrue(is_valid_hand_payout(5600, 700))
+        self.assertTrue(is_valid_hand_payout(11200, 700))
+        self.assertFalse(is_valid_hand_payout(22400, 700))
+        self.assertFalse(is_valid_hand_payout(1600, 700))
+        self.assertFalse(is_valid_hand_payout(3200, 700))
+        self.assertFalse(is_valid_hand_payout(2100, 700))
+        self.assertFalse(is_valid_hand_payout(0, 700))
+
+        # Base Two Pair / Straight = 400 (max hand payout = 12800)
+        self.assertTrue(is_valid_hand_payout(400, 400))
+        self.assertTrue(is_valid_hand_payout(800, 400))
+        self.assertTrue(is_valid_hand_payout(1600, 400))
+        self.assertTrue(is_valid_hand_payout(3200, 400))
+        self.assertTrue(is_valid_hand_payout(12800, 400))
+        self.assertFalse(is_valid_hand_payout(25600, 400))
+        self.assertFalse(is_valid_hand_payout(700, 400))
+        self.assertFalse(is_valid_hand_payout(1400, 400))
+
+    def test_validate_and_correct_payout(self):
+        # Valid amount untouched
+        amt, valid, corr = validate_and_correct_payout(11200, 700)
+        self.assertEqual((amt, valid, corr), (11200, True, False))
+
+        # Missing trailing zero corrected
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            amt, valid, corr = validate_and_correct_payout(1120, 700)
+        self.assertEqual((amt, valid, corr), (11200, True, True))
+        self.assertIn("Payout validation failed", out.getvalue())
+        self.assertIn("Corrected payout", out.getvalue())
+
+        # Trailing noise digit corrected
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            amt, valid, corr = validate_and_correct_payout(28005, 700)
+        self.assertEqual((amt, valid, corr), (2800, True, True))
+
+        # Expected cashout match when scanned amount is wrong
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            amt, valid, corr = validate_and_correct_payout(9999, 700, expected=5600)
+        self.assertEqual((amt, valid, corr), (5600, True, True))
+
+        # Predicted from (base_prize, win_count) when both result screen OCR and expected are missed
+        amt, valid, corr = validate_and_correct_payout(0, 700, expected=None, win_count=4)
+        self.assertEqual((amt, valid, corr), (11200, True, True))
+
+        # Edit-distance-1 single digit OCR substitution (e.g. 11280 -> 11200)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            amt, valid, corr = validate_and_correct_payout(11280, 700)
+        self.assertEqual((amt, valid, corr), (11200, True, True))
+
+    def test_credit_payout_still_adds_valid_settlement_when_base_prize_stale(self):
+        mgr = SettlementManager(recovery_mode="auto", base_prize=200)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            coins = mgr.credit_payout(earned=2000, daily_coins=5000, daily_fails=0, base_prize=200)
+        self.assertEqual(coins, 7000)
+        self.assertIn("Payout validation failed", out.getvalue())
+
+    def test_settlement_manager_corrects_invalid_power_of_two_payout(self):
+        reader = SettlementReader(timeout=2.0)
+        mgr = SettlementManager(settlement_reader=reader, recovery_mode="auto", base_prize=700)
+        coins = 1000
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            for i in range(11):
+                coins, can_proceed = mgr.process_result(
+                    amount=1120,
+                    now=i * 0.25,
+                    daily_coins=coins,
+                    daily_fails=0,
+                    base_prize=700,
+                )
+                if can_proceed:
+                    break
+        self.assertTrue(can_proceed)
+        self.assertEqual(coins, 12200)  # 1000 + 11200
+        self.assertIn("Payout validation failed", out.getvalue())
+        self.assertIn("Corrected payout", out.getvalue())
 
 
 if __name__ == '__main__':
