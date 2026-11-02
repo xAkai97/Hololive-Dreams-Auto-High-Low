@@ -1758,7 +1758,9 @@ def handle_ask_challenge(ctx: BotSessionState, img: np.ndarray, win_left: int, w
             print(f"  " + tr('mod_force_19900_msg', cashout=current_cashout, total=ctx.daily_coins + current_cashout))
 
     if getattr(ctx, "cap_override", False) and not ctx.scan_mode:
-        if action == 'cashout' and current_cashout < 10000:
+        if ctx.daily_coins < ctx.target_limit:
+            ctx.cap_override = False
+        elif action == 'cashout' and current_cashout < 10000:
             action = 'challenge'
             mod_reason = tr('reason_cap_override_sprint')
             if hasattr(ctx.strategy, 'intent_to_fail'):
@@ -2276,26 +2278,18 @@ def auto_play_loop(
 
     cap_override = (ctx.daily_coins >= ctx.target_limit)
     ctx.cap_override = cap_override
-    cap_notice_logged = False
     if cap_override and bot_running:
         print(tr('state_full_override', coins=ctx.daily_coins, target=ctx.target_limit))
         if not ctx.scan_mode:
             print(tr('warn_cap_override_sprint', coins=ctx.daily_coins, target=ctx.target_limit))
             print(tr('tip_cap_override', target=f"{ctx.target_limit:,}"))
         log_debug(f"[System] Daily coin cap ({ctx.daily_coins}/{ctx.target_limit}) override active at session start; continuing.")
-        cap_notice_logged = True
 
     try:
         while (ctx.daily_coins < ctx.target_limit or cap_override or ctx.scan_mode) and bot_running:
-            if ctx.daily_coins >= ctx.target_limit and not cap_notice_logged:
-                print(tr('state_full_override', coins=ctx.daily_coins, target=ctx.target_limit))
-                if not ctx.scan_mode:
-                    print(tr('warn_cap_override_sprint', coins=ctx.daily_coins, target=ctx.target_limit))
-                    print(tr('tip_cap_override', target=f"{ctx.target_limit:,}"))
-                log_debug(f"[System] Daily coin cap ({ctx.daily_coins}/{ctx.target_limit}) reached; override active, continuing.")
-                cap_notice_logged = True
-                cap_override = True
-                ctx.cap_override = True
+            if cap_override and ctx.daily_coins < ctx.target_limit:
+                cap_override = False
+                ctx.cap_override = False
             img, win_left, win_top = capture_game_window()
             if img is None:
                 print(tr('window_not_found'))
@@ -2327,7 +2321,7 @@ def auto_play_loop(
         _active_session_ctx = None
 
     if ctx.daily_coins >= ctx.target_limit and not cap_override and not ctx.scan_mode:
-        print(tr('state_full'))
+        print(tr('state_full', coins=ctx.daily_coins, target=ctx.target_limit))
 
 
 if __name__ == "__main__":

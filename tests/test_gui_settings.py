@@ -393,6 +393,7 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         self.assertIn(localization.tr("menu_background", self.app.current_lang), menubar_labels)
         self.assertIn(localization.tr("menu_language", self.app.current_lang), menubar_labels)
         self.assertIn(localization.tr("menu_settings", self.app.current_lang), menubar_labels)
+        self.assertIn(localization.tr("menu_layout_header", self.app.current_lang), menubar_labels)
         self.assertIn(localization.tr("menu_help", self.app.current_lang), menubar_labels)
 
         file_menu_labels = [self.app.file_menu.entrycget(i, "label") for i in range(self.app.file_menu.index("end") + 1)
@@ -409,6 +410,10 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         folder_labels = [self.app.open_folders_menu.entrycget(i, "label") for i in range(self.app.open_folders_menu.index("end") + 1)]
         self.assertIn(localization.tr("menu_open_config_dir", self.app.current_lang), folder_labels)
         self.assertIn(localization.tr("menu_open_logs_dir", self.app.current_lang), folder_labels)
+
+        bg_menu_labels = [self.app.bg_menu.entrycget(i, "label") for i in range(self.app.bg_menu.index("end") + 1)
+                          if self.app.bg_menu.type(i) != "separator"]
+        self.assertNotIn(localization.tr("menu_layout", self.app.current_lang), bg_menu_labels)
 
         help_menu_labels = [self.app.help_menu.entrycget(i, "label") for i in range(self.app.help_menu.index("end") + 1)
                             if self.app.help_menu.type(i) != "separator"]
@@ -1051,7 +1056,10 @@ class TestGUISettingsAndMenus(unittest.TestCase):
             self.app.show_log = True
             self.app.draw_ui(920, 680)
             log_x_two = self.app.canvas.coords(self.app.log_text_win)[0]
-            self.assertGreater(log_x_two, strat_x_two + 300)
+            self.assertGreater(log_x_two, strat_x_two + 420)
+            # Verify Column 1 button width prevents text truncation
+            companion_btn_w = float(self.app.canvas.itemcget(self.app.btn_companion_win, "width"))
+            self.assertGreaterEqual(companion_btn_w, 200)
 
             # Settings tab in Two-column mode places Gameplay card in Column 2
             self.app.switch_tab("settings")
@@ -1059,6 +1067,53 @@ class TestGUISettingsAndMenus(unittest.TestCase):
             lang_x = self.app.canvas.coords(self.app.lang_label_id)[0]
             target_x = self.app.canvas.coords(self.app.lbl_setting_target_id)[0]
             self.assertGreater(target_x, lang_x + 300)
+
+            # Direct Layout Toggle Button functionality
+            self.app.set_layout_mode("single", resize_window=False)
+            self.assertEqual(self.app.btn_menubar_layout.cget("text"), localization.tr("btn_switch_to_2col", self.app.current_lang))
+            self.app.toggle_layout_mode()
+            self.assertEqual(self.app.layout_mode, "two_col")
+            self.assertEqual(self.app.btn_menubar_layout.cget("text"), localization.tr("btn_switch_to_1col", self.app.current_lang))
+            self.app.toggle_layout_mode()
+            self.assertEqual(self.app.layout_mode, "single")
+            self.assertEqual(self.app.btn_menubar_layout.cget("text"), localization.tr("btn_switch_to_2col", self.app.current_lang))
+
+            # Verify single-column log toggling adjusts window height
+            self.app.set_layout_mode("single", resize_window=False)
+            self.app.show_log = False
+            self.app.toggle_log_console()
+            self.assertTrue(self.app.show_log)
+            self.assertGreaterEqual(self.app.last_h, 900)
+            self.app.toggle_log_console()
+            self.assertFalse(self.app.show_log)
+            self.assertLessEqual(self.app.last_h, 850)
+
+            # Verify 2-column mode height fits all 3 expanded modifier categories
+            self.app.set_layout_mode("two_col", resize_window=False)
+            self.app.modifiers_expanded = True
+            self.app.cat_cards_expanded = True
+            self.app.cat_bail_expanded = True
+            self.app.cat_prog_expanded = True
+            self.app.draw_ui(920, 820)
+            hunt_y = self.app.chk_mod_hunt_14k._y + self.app.chk_mod_hunt_14k._h
+            self.assertLess(hunt_y, 800)
+
+            # Verify 2-column mode height adapts when categories are collapsed/expanded
+            self.app.last_w = 920
+            h_all = self.app.get_adaptive_two_col_height()
+            self.assertGreaterEqual(h_all, 760)
+
+            # Collapse Bailouts and Progression (matching user scenario)
+            self.app.toggle_mod_cat("bail")
+            self.app.toggle_mod_cat("prog")
+            h_collapsed = self.app.last_h
+            self.assertLess(h_collapsed, h_all)
+            self.assertLessEqual(h_collapsed, 700)
+
+            # Re-expand both
+            self.app.toggle_mod_cat("bail")
+            self.app.toggle_mod_cat("prog")
+            self.assertEqual(self.app.last_h, h_all)
 
             # Restore defaults
             self.app.show_log = False

@@ -201,6 +201,53 @@ class TestStateMachineHandlers(unittest.TestCase):
             self.assertEqual(len(icons["START_BET"]), 2)
             self.assertEqual(len(ok_as_is), 2)
 
+    def test_auto_play_loop_stops_on_cap_when_not_override(self):
+        buf = io.StringIO()
+        auto_bot.bot_running = True
+
+        def fake_capture():
+            # Simulate round ending and crediting coins past cap
+            if auto_bot._active_session_ctx:
+                auto_bot._active_session_ctx.daily_coins = 32600
+            return (np.zeros((10, 10, 3), dtype=np.uint8), 0, 0)
+
+        with contextlib.redirect_stdout(buf), \
+             patch.object(auto_bot, "load_config", return_value={"target_limit": 20000}), \
+             patch.object(auto_bot, "load_daily_data", return_value=(500, 0)), \
+             patch.object(auto_bot, "capture_game_window", side_effect=fake_capture), \
+             patch.object(auto_bot, "detect_game_state", return_value="UNKNOWN"), \
+             patch("time.sleep"):
+            auto_bot.auto_play_loop("max_profit")
+
+        out = buf.getvalue()
+        self.assertIn("Daily coin cap (32600 / 20000) reached", out)
+        self.assertIn("stopping bot", out)
+        self.assertNotIn("override active", out)
+
+    def test_auto_play_loop_continues_when_started_with_override(self):
+        buf = io.StringIO()
+        auto_bot.bot_running = True
+        iterations = [0]
+
+        def fake_capture():
+            iterations[0] += 1
+            if iterations[0] >= 2:
+                auto_bot.bot_running = False
+            return (np.zeros((10, 10, 3), dtype=np.uint8), 0, 0)
+
+        with contextlib.redirect_stdout(buf), \
+             patch.object(auto_bot, "load_config", return_value={"target_limit": 20000}), \
+             patch.object(auto_bot, "load_daily_data", return_value=(25000, 0)), \
+             patch.object(auto_bot, "capture_game_window", side_effect=fake_capture), \
+             patch.object(auto_bot, "detect_game_state", return_value="UNKNOWN"), \
+             patch("time.sleep"):
+            auto_bot.auto_play_loop("max_profit")
+
+        out = buf.getvalue()
+        self.assertIn("Daily coin cap (25000 / 20000) reached", out)
+        self.assertIn("override active", out)
+
+
 
 if __name__ == "__main__":
     unittest.main()

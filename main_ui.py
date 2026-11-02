@@ -157,12 +157,21 @@ class HololiveBotUI(tk.Tk):
         if self.layout_mode not in ("adaptive", "single", "two_col"):
             self.layout_mode = "adaptive"
         self.layout_var = tk.StringVar(value=self.layout_mode)
+        self.show_log = bool(saved_config.get("show_log", False))
+        self.var_show_log = tk.BooleanVar(value=self.show_log)
 
         if self.layout_mode == "two_col":
-            self.geometry("920x680")
+            init_h = self.get_adaptive_two_col_height()
+            self.geometry(f"920x{init_h}")
+            self.minsize(760, 500)
         else:
-            self.geometry("480x850")
-        self.minsize(420, 620)
+            try:
+                screen_h = self.winfo_screenheight()
+            except Exception:
+                screen_h = 1080
+            init_h = min(980, max(700, screen_h - 80)) if self.show_log else 850
+            self.geometry(f"480x{init_h}")
+            self.minsize(420, 620)
         self.protocol("WM_DELETE_WINDOW", self.destroy)
 
         self.last_w = 0
@@ -182,8 +191,6 @@ class HololiveBotUI(tk.Tk):
             self.theme_mode = "system"
         self.theme_var = tk.StringVar(value=self.theme_mode)
         self.field_box_opacity = auto_bot.cfg_get_int(saved_config, "field_box_opacity", 30, min_val=0, max_val=100)
-        self.show_log = bool(saved_config.get("show_log", False))
-        self.var_show_log = tk.BooleanVar(value=self.show_log)
         self.original_bg = None
         self._load_current_bg()
 
@@ -352,6 +359,7 @@ class HololiveBotUI(tk.Tk):
         self.open_folders_menu = ModernMenu(self.file_menu, tearoff=0)
         self.logs_menu = ModernMenu(self.menubar, tearoff=0)
         self.settings_menu = ModernMenu(self.menubar, tearoff=0)
+        self.layout_menu = ModernMenu(self.menubar, tearoff=0)
         self.bg_menu = ModernMenu(self.menubar, tearoff=0)
         self.lang_menu = ModernMenu(self.menubar, tearoff=0)
         self.sim_menu = ModernMenu(self.menubar, tearoff=0)
@@ -359,6 +367,7 @@ class HololiveBotUI(tk.Tk):
         self.menubar.add_cascade(label="File", menu=self.file_menu)
         self.menubar.add_cascade(label="Logs", menu=self.logs_menu)
         self.menubar.add_cascade(label="Settings", menu=self.settings_menu)
+        self.menubar.add_cascade(label="Layout", menu=self.layout_menu)
         self.menubar.add_cascade(label="Background", menu=self.bg_menu)
         self.menubar.add_cascade(label="Language", menu=self.lang_menu)
         self.menubar.add_cascade(label="Help", menu=self.help_menu)
@@ -369,6 +378,7 @@ class HololiveBotUI(tk.Tk):
             "file": self.file_menu,
             "logs": self.logs_menu,
             "settings": self.settings_menu,
+            "layout": self.layout_menu,
             "bg": self.bg_menu,
             "lang": self.lang_menu,
             "help": self.help_menu,
@@ -377,6 +387,7 @@ class HololiveBotUI(tk.Tk):
             ("file", "File"),
             ("logs", "Logs"),
             ("settings", "Settings"),
+            ("layout", "Layout"),
             ("bg", "Background"),
             ("lang", "Language"),
             ("help", "Help"),
@@ -396,6 +407,23 @@ class HololiveBotUI(tk.Tk):
             lbl.bind("<Enter>", lambda e, k=key: self._on_menu_button_enter(k))
             lbl.bind("<Leave>", lambda e, k=key: self._on_menu_button_leave(k))
             self.menu_buttons[key] = lbl
+
+        # Quick Direct Layout Toggle Button (Far right of menubar)
+        self.btn_menubar_layout = tk.Label(
+            self.menubar_frame,
+            text="⚏ 2-Col",
+            bg="#27272A",
+            fg="#38BDF8",
+            font=(self.font_family, 8, "bold"),
+            padx=8,
+            pady=2,
+            cursor="hand2",
+            relief="flat",
+        )
+        self.btn_menubar_layout.pack(side="right", padx=6, pady=2)
+        self.btn_menubar_layout.bind("<Button-1>", lambda e: self.toggle_layout_mode())
+        self.btn_menubar_layout.bind("<Enter>", self._on_layout_toggle_enter)
+        self.btn_menubar_layout.bind("<Leave>", self._on_layout_toggle_leave)
 
         # --- Tab Switcher (Auto Bot & Simulation segmented pill) ---
         self.current_tab = "bot"
@@ -1027,6 +1055,8 @@ class HololiveBotUI(tk.Tk):
         self.tooltips["field_box_opacity"] = ToolTip(self.scale_setting_opacity)
         self.tooltips["show_log"] = ToolTip(self.chk_setting_show_log)
         self.tooltips["debug_log"] = ToolTip(self.chk_setting_debug_log)
+        if hasattr(self, "btn_menubar_layout"):
+            self.tooltips["btn_menubar_layout"] = ToolTip(self.btn_menubar_layout)
 
         self.apply_theme()
         self.refresh_texts()
@@ -1602,7 +1632,45 @@ class HololiveBotUI(tk.Tk):
         if mode == "single":
             return False
         eff_w = w if (w is not None and w > 50) else (self.last_w if getattr(self, "last_w", 0) > 50 else 480)
-        return eff_w >= 760
+        return eff_w >= 780
+
+    def get_adaptive_two_col_height(self) -> int:
+        """Calculate the ideal window height in 2-column mode so Column 1 has no trailing dead space."""
+        desc_h = 60
+        if hasattr(self, "canvas") and hasattr(self, "strategy_desc_id"):
+            try:
+                bbox = self.canvas.bbox(self.strategy_desc_id)
+                if bbox and len(bbox) == 4:
+                    desc_h = max(40, bbox[3] - bbox[1])
+            except Exception:
+                pass
+        base_h = 400 + desc_h
+
+        if not getattr(self, "modifiers_expanded", True):
+            return min(max(500, base_h + 30), 950)
+
+        drawer_h = 24
+        if getattr(self, "cat_cards_expanded", True):
+            drawer_h += 104
+        else:
+            drawer_h += 32
+
+        if getattr(self, "cat_bail_expanded", True):
+            drawer_h += 80
+        else:
+            drawer_h += 32
+
+        if getattr(self, "cat_prog_expanded", True):
+            drawer_h += 104
+        else:
+            drawer_h += 28
+
+        total_h = base_h + drawer_h + 24
+        try:
+            screen_h = self.winfo_screenheight()
+        except Exception:
+            screen_h = 1080
+        return min(max(500, total_h), max(500, screen_h - 80))
 
     def set_layout_mode(self, mode: str, resize_window: bool = True):
         if mode not in ("adaptive", "single", "two_col"):
@@ -1617,22 +1685,77 @@ class HololiveBotUI(tk.Tk):
         w = self.last_w if (getattr(self, "last_w", 0) > 50) else (self.winfo_width() if self.winfo_width() > 50 else 480)
         h = self.last_h if (getattr(self, "last_h", 0) > 50) else (self.winfo_height() if self.winfo_height() > 50 else 850)
         if resize_window:
-            if mode == "two_col" and w < 760:
-                w, h = 920, max(680, min(h, 760))
+            try:
+                screen_h = self.winfo_screenheight()
+            except Exception:
+                screen_h = 1080
+            if mode == "two_col":
+                try:
+                    self.minsize(760, 500)
+                except Exception:
+                    pass
+                target_h = self.get_adaptive_two_col_height()
+                w = max(w, 920)
+                h = target_h
                 self.last_w, self.last_h = w, h
                 try:
                     self.geometry(f"{w}x{h}")
                 except Exception:
                     pass
-            elif mode == "single" and w >= 760:
-                w, h = 480, max(850, h)
-                self.last_w, self.last_h = w, h
+            elif mode == "single":
                 try:
-                    self.geometry(f"{w}x{h}")
+                    self.minsize(420, 620)
+                except Exception:
+                    pass
+                target_h = min(980, max(700, screen_h - 80)) if self.show_log else 850
+                if w >= 760 or h < target_h:
+                    w = 480
+                    h = target_h
+                    self.last_w, self.last_h = w, h
+                    try:
+                        self.geometry(f"{w}x{h}")
+                    except Exception:
+                        pass
+            else:
+                try:
+                    self.minsize(420, 620)
                 except Exception:
                     pass
         self.draw_ui(w, h)
+        self._update_layout_toggle_btn()
         self.save_settings()
+
+    def toggle_layout_mode(self):
+        """Directly toggle between single-column and two-column layout modes."""
+        if self.is_two_col_active():
+            self.set_layout_mode("single")
+        else:
+            self.set_layout_mode("two_col")
+
+    def _update_layout_toggle_btn(self, is_two: Optional[bool] = None):
+        if not hasattr(self, "btn_menubar_layout"):
+            return
+        if is_two is None:
+            is_two = self.is_two_col_active()
+        if is_two:
+            txt = localization.tr("btn_switch_to_1col", self.current_lang)
+            tip = localization.tr("tip_switch_to_1col", self.current_lang)
+        else:
+            txt = localization.tr("btn_switch_to_2col", self.current_lang)
+            tip = localization.tr("tip_switch_to_2col", self.current_lang)
+        self.btn_menubar_layout.configure(text=txt)
+        if "btn_menubar_layout" in getattr(self, "tooltips", {}):
+            self.tooltips["btn_menubar_layout"].update_text(tip)
+
+    def _on_layout_toggle_enter(self, event=None):
+        if hasattr(self, "btn_menubar_layout"):
+            is_dark = self.theme_palette.get("is_dark", True)
+            self.btn_menubar_layout.configure(bg="#3F3F46" if is_dark else "#CBD5E1")
+
+    def _on_layout_toggle_leave(self, event=None):
+        if hasattr(self, "btn_menubar_layout"):
+            is_dark = self.theme_palette.get("is_dark", True)
+            self.btn_menubar_layout.configure(bg="#27272A" if is_dark else "#E2E8F0")
 
     def _on_setting_layout_change(self, event=None):
         if not hasattr(self, "combo_setting_layout") or not hasattr(self, "_layout_keys"):
@@ -1675,12 +1798,19 @@ class HololiveBotUI(tk.Tk):
 
         # 2. Responsive layout dimensions (Single Column vs Two Columns / Adaptive)
         two_col = self.is_two_col_active(w)
+        self._update_layout_toggle_btn(two_col)
         pad_x = max(16, int(w * (0.03 if two_col else 0.06)))
         content_w = w - 2 * pad_x
         if two_col:
             col_gap = max(18, int(w * 0.025))
-            left_w = max(320, int((content_w - col_gap) * 0.48))
-            right_w = max(280, content_w - col_gap - left_w)
+            avail_w = content_w - col_gap
+            min_left_w = 430
+            if avail_w > min_left_w:
+                left_w = max(min_left_w, min(500, int(avail_w * 0.48)))
+                right_w = max(200, avail_w - left_w)
+            else:
+                left_w = avail_w
+                right_w = avail_w
             left_x = pad_x
             right_x = pad_x + left_w + col_gap
         else:
@@ -1874,7 +2004,7 @@ class HololiveBotUI(tk.Tk):
                 mod_col_x = right_x
                 mod_col_w = right_w
                 mod_top_y = stats_card_top
-                reset_btn_w = max(68, min(80, int(mod_col_w * 0.18)))
+                reset_btn_w = max(76, min(90, int(mod_col_w * 0.18)))
                 btn_gap = 6
                 toggle_w = mod_col_w - reset_btn_w - btn_gap
                 self.canvas.coords(self.btn_toggle_modifiers_win, mod_col_x, mod_top_y)
@@ -1885,7 +2015,7 @@ class HololiveBotUI(tk.Tk):
                 img = self._draw_log_box(right_x, right_w, stats_card_top + 4, h, w, img, card_fill, card_border)
             elif two_col and self.show_log:
                 # 2-Column with Log Console visible: Modifiers in Column 1, Full-Height Log Console in Column 2
-                reset_btn_w = max(68, min(80, int(col_w * 0.18)))
+                reset_btn_w = max(76, min(90, int(col_w * 0.18)))
                 btn_gap = 6
                 toggle_w = col_w - reset_btn_w - btn_gap
                 self.canvas.coords(self.btn_toggle_modifiers_win, col_x, mod_btn_y)
@@ -1896,7 +2026,7 @@ class HololiveBotUI(tk.Tk):
                 img = self._draw_log_box(right_x, right_w, stats_card_top + 4, h, w, img, card_fill, card_border)
             else:
                 # Single Column layout
-                reset_btn_w = max(68, min(80, int(col_w * 0.18)))
+                reset_btn_w = max(76, min(90, int(col_w * 0.18)))
                 btn_gap = 6
                 toggle_w = col_w - reset_btn_w - btn_gap
                 self.canvas.coords(self.btn_toggle_modifiers_win, col_x, mod_btn_y)
@@ -1959,7 +2089,7 @@ class HololiveBotUI(tk.Tk):
                 mod_col_x = right_x
                 mod_col_w = right_w
                 mod_top_y = strat_top
-                reset_btn_w = max(68, min(80, int(mod_col_w * 0.18)))
+                reset_btn_w = max(76, min(90, int(mod_col_w * 0.18)))
                 btn_gap = 6
                 toggle_w = mod_col_w - reset_btn_w - btn_gap
                 self.canvas.coords(self.btn_toggle_modifiers_win, mod_col_x, mod_top_y)
@@ -1969,7 +2099,7 @@ class HololiveBotUI(tk.Tk):
                 _, img = self._draw_modifiers_drawer(mod_col_x, mod_col_w, mod_top_y, mod_btn_h, w, img, card_fill, card_border)
                 days_row_top = mod_btn_y + 4
             else:
-                reset_btn_w = max(68, min(80, int(col_w * 0.18)))
+                reset_btn_w = max(76, min(90, int(col_w * 0.18)))
                 btn_gap = 6
                 toggle_w = col_w - reset_btn_w - btn_gap
                 self.canvas.coords(self.btn_toggle_modifiers_win, col_x, mod_btn_y)
@@ -2414,6 +2544,10 @@ class HololiveBotUI(tk.Tk):
             self.menubar_frame.configure(bg=bar_bg)
             for btn in getattr(self, "menu_buttons", {}).values():
                 btn.configure(bg=bar_bg, fg=bar_fg)
+            if hasattr(self, "btn_menubar_layout"):
+                btn_bg = "#27272A" if is_dark else "#E2E8F0"
+                btn_fg = "#38BDF8" if is_dark else "#0284C7"
+                self.btn_menubar_layout.configure(bg=btn_bg, fg=btn_fg)
 
         try:
             self.configure(bg=palette["bg_plain_hex"])
@@ -2601,6 +2735,28 @@ class HololiveBotUI(tk.Tk):
             self.var_show_log.set(self.show_log)
         w = self.last_w if self.last_w else self.winfo_width()
         h = self.last_h if self.last_h else self.winfo_height()
+        if not self.is_two_col_active(w):
+            try:
+                screen_h = self.winfo_screenheight()
+            except Exception:
+                screen_h = 1080
+            if self.show_log:
+                target_h = min(980, max(700, screen_h - 80))
+                if h < target_h:
+                    h = target_h
+                    self.last_h = h
+                    try:
+                        self.geometry(f"{w}x{h}")
+                    except Exception:
+                        pass
+            else:
+                if h >= 950:
+                    h = 850
+                    self.last_h = h
+                    try:
+                        self.geometry(f"{w}x{h}")
+                    except Exception:
+                        pass
         self.draw_ui(w, h)
         self.save_settings()
 
@@ -2837,7 +2993,7 @@ class HololiveBotUI(tk.Tk):
         )
 
         # Window Layout Submenu
-        self.layout_menu = ModernMenu(self.bg_menu, tearoff=0)
+        self.layout_menu.delete(0, "end")
         if not hasattr(self, "layout_var"):
             self.layout_var = tk.StringVar(value=getattr(self, "layout_mode", "adaptive"))
         else:
@@ -2854,10 +3010,7 @@ class HololiveBotUI(tk.Tk):
                 value=val,
                 command=lambda v=val: self.set_layout_mode(v),
             )
-        self.bg_menu.add_cascade(
-            label=localization.tr("menu_layout", self.current_lang),
-            menu=self.layout_menu,
-        )
+
 
         # Language Menu (Top-level in menubar)
         self.lang_menu.delete(0, "end")
@@ -2932,17 +3085,21 @@ class HololiveBotUI(tk.Tk):
         self.menubar.entryconfig(0, label=localization.tr("menu_file", self.current_lang))
         self.menubar.entryconfig(1, label=localization.tr("menu_logs", self.current_lang))
         self.menubar.entryconfig(2, label=localization.tr("menu_settings", self.current_lang))
-        self.menubar.entryconfig(3, label=localization.tr("menu_background", self.current_lang))
-        self.menubar.entryconfig(4, label=localization.tr("menu_language", self.current_lang))
-        self.menubar.entryconfig(5, label=localization.tr("menu_help", self.current_lang))
+        self.menubar.entryconfig(3, label=localization.tr("menu_layout_header", self.current_lang))
+        self.menubar.entryconfig(4, label=localization.tr("menu_background", self.current_lang))
+        self.menubar.entryconfig(5, label=localization.tr("menu_language", self.current_lang))
+        self.menubar.entryconfig(6, label=localization.tr("menu_help", self.current_lang))
 
         if hasattr(self, "menu_buttons"):
             self.menu_buttons["file"].configure(text=localization.tr("menu_file", self.current_lang))
             self.menu_buttons["logs"].configure(text=localization.tr("menu_logs", self.current_lang))
             self.menu_buttons["settings"].configure(text=localization.tr("menu_settings", self.current_lang))
+            if "layout" in self.menu_buttons:
+                self.menu_buttons["layout"].configure(text=localization.tr("menu_layout_header", self.current_lang))
             self.menu_buttons["bg"].configure(text=localization.tr("menu_background", self.current_lang))
             self.menu_buttons["lang"].configure(text=localization.tr("menu_language", self.current_lang))
             self.menu_buttons["help"].configure(text=localization.tr("menu_help", self.current_lang))
+        self._update_layout_toggle_btn()
 
     def _on_menu_button_click(self, key: str):
         if getattr(self, "_active_menu_key", None) == key and ModernMenu._active_popups:
@@ -3328,8 +3485,15 @@ class HololiveBotUI(tk.Tk):
             self.active_mode = STRATEGY_KEYS[idx]
         self.update_strategy_description()
         self.save_settings()
-        w = self.last_w if self.last_w else 480
-        h = self.last_h if self.last_h else 850
+        w = self.last_w if self.last_w else self.winfo_width()
+        h = self.last_h if self.last_h else self.winfo_height()
+        if self.is_two_col_active(w):
+            h = self.get_adaptive_two_col_height()
+            self.last_h = h
+            try:
+                self.geometry(f"{w}x{h}")
+            except Exception:
+                pass
         self.draw_ui(w, h)
 
     def apply_strategy_preset(self, key: str):
@@ -3341,8 +3505,15 @@ class HololiveBotUI(tk.Tk):
             self.active_mode = key
             self.update_strategy_description()
             self.save_settings()
-            w = self.last_w if self.last_w else 480
-            h = self.last_h if self.last_h else 850
+            w = self.last_w if self.last_w else self.winfo_width()
+            h = self.last_h if self.last_h else self.winfo_height()
+            if self.is_two_col_active(w):
+                h = self.get_adaptive_two_col_height()
+                self.last_h = h
+                try:
+                    self.geometry(f"{w}x{h}")
+                except Exception:
+                    pass
             self.draw_ui(w, h)
 
     def _update_preset_styles(self):
@@ -3569,8 +3740,15 @@ class HololiveBotUI(tk.Tk):
         self.modifiers_expanded = not self.modifiers_expanded
         self.save_settings()
         self.refresh_modifiers_ui()
-        w = self.last_w if self.last_w else 480
-        h = self.last_h if self.last_h else 850
+        w = self.last_w if self.last_w else self.winfo_width()
+        h = self.last_h if self.last_h else self.winfo_height()
+        if self.is_two_col_active(w):
+            h = self.get_adaptive_two_col_height()
+            self.last_h = h
+            try:
+                self.geometry(f"{w}x{h}")
+            except Exception:
+                pass
         self.draw_ui(w, h)
 
     def reset_strategy_modifiers(self):
@@ -3609,8 +3787,15 @@ class HololiveBotUI(tk.Tk):
         self.save_settings()
         if self.is_running:
             print(f"\n{localization.tr('log_modifiers_reset', self.current_lang)}\n")
-        w = self.last_w if self.last_w else 480
-        h = self.last_h if self.last_h else 850
+        w = self.last_w if self.last_w else self.winfo_width()
+        h = self.last_h if self.last_h else self.winfo_height()
+        if self.is_two_col_active(w):
+            h = self.get_adaptive_two_col_height()
+            self.last_h = h
+            try:
+                self.geometry(f"{w}x{h}")
+            except Exception:
+                pass
         self.draw_ui(w, h)
 
     def toggle_mod_cat(self, cat: str):
@@ -3622,8 +3807,15 @@ class HololiveBotUI(tk.Tk):
             self.cat_prog_expanded = not self.cat_prog_expanded
         self._update_mod_category_headers()
         self.save_settings()
-        w = self.last_w if self.last_w else 480
-        h = self.last_h if self.last_h else 850
+        w = self.last_w if self.last_w else self.winfo_width()
+        h = self.last_h if self.last_h else self.winfo_height()
+        if self.is_two_col_active(w):
+            h = self.get_adaptive_two_col_height()
+            self.last_h = h
+            try:
+                self.geometry(f"{w}x{h}")
+            except Exception:
+                pass
         self.draw_ui(w, h)
 
     def _update_mod_category_headers(self):
@@ -4093,6 +4285,8 @@ class HololiveBotUI(tk.Tk):
                 tip.update_text(localization.tr("tip_btn_start", self.current_lang, key=self.current_hotkey))
             elif key == "btn_companion":
                 tip.update_text(localization.tr("tip_btn_companion", self.current_lang, key=self.current_companion_hotkey))
+            elif key == "btn_menubar_layout":
+                continue
             else:
                 tip.update_text(localization.tr(f"tip_{key}", self.current_lang))
 
