@@ -66,7 +66,7 @@ class GrinderStrategy(BaseStrategy):
 
         # Sprint: daily >= cushion
         if daily_coins >= cushion:
-            action = 'cashout' if current_cashout >= 10000 else 'challenge'
+            action = "cashout" if current_cashout >= 10000 else "challenge"
         else:
             guard = self.evaluate_cushion_guard(
                 current_cashout=current_cashout,
@@ -83,9 +83,9 @@ class GrinderStrategy(BaseStrategy):
                 min_rate = 0.55 if style == "aggressive" else (0.65 if style == "conservative" else 0.60)
                 cash_floor = 3200 if style == "aggressive" else (800 if style == "conservative" else 1600)
                 if self._doubles_this_round >= max_d or win_rate < min_rate or current_cashout >= cash_floor:
-                    action = 'cashout'
+                    action = "cashout"
                 else:
-                    action = 'challenge'
+                    action = "challenge"
 
-        self.last_cashout = current_cashout if action == 'cashout' else None
+        self.last_cashout = current_cashout if action == "cashout" else None
         return action

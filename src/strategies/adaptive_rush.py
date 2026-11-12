@@ -8,7 +8,7 @@ is too slow. Once in cushion mode, it stays there (no switching back).
 from strategies.base import BaseStrategy, normalize_play_style
 
 # Auto-adjust triggers
-DEFAULT_FAIL_THRESHOLD = 10        # Consecutive fails before downshift
+DEFAULT_FAIL_THRESHOLD = 10  # Consecutive fails before downshift
 DEFAULT_NEGATIVE_THRESHOLD = -2000  # Net profit floor before downshift
 
 
@@ -53,7 +53,9 @@ class AdaptiveRushStrategy(BaseStrategy):
         if self._in_cushion_mode:
             return
         style = normalize_play_style(getattr(self, "play_style", "default"))
-        neg_floor = -3000 if style == "aggressive" else (-1000 if style == "conservative" else DEFAULT_NEGATIVE_THRESHOLD)
+        neg_floor = (
+            -3000 if style == "aggressive" else (-1000 if style == "conservative" else DEFAULT_NEGATIVE_THRESHOLD)
+        )
         net_profit = daily_coins - (daily_fails * ticket_cost)
         if net_profit < neg_floor:
             self._in_cushion_mode = True
@@ -74,7 +76,7 @@ class AdaptiveRushStrategy(BaseStrategy):
 
         # Sprint: daily >= cushion (both modes)
         if daily_coins >= cushion:
-            action = 'cashout' if current_cashout >= 10000 else 'challenge'
+            action = "cashout" if current_cashout >= 10000 else "challenge"
 
         # Cushion mode (auto-adjusted)
         elif self._in_cushion_mode:
@@ -92,18 +94,18 @@ class AdaptiveRushStrategy(BaseStrategy):
                 cash_floor = 6400 if style == "aggressive" else 3200
                 rate_floor = 0.50 if style == "aggressive" else (0.60 if style == "conservative" else 0.55)
                 if current_cashout >= cash_floor or win_rate < rate_floor:
-                    action = 'cashout'
+                    action = "cashout"
                 else:
-                    action = 'challenge'
+                    action = "challenge"
 
         # Rush mode (default)
         # Only cashout if it reaches daily cap
         elif daily_coins + current_cashout >= getattr(self, "target_limit", 20000):
-            action = 'cashout'
+            action = "cashout"
         else:
-            action = 'challenge'
+            action = "challenge"
 
-        self.last_cashout = current_cashout if action == 'cashout' else None
+        self.last_cashout = current_cashout if action == "cashout" else None
         return action
 
     def notify_fail(self) -> None:

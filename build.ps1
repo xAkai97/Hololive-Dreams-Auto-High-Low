@@ -1,7 +1,8 @@
 # Automated Build Script for Hololive Dreams-Auto
 # Universal script: works seamlessly on local SSDs, external disks, and network/SMB shares.
 param(
-    [string]$PythonPath = ""
+    [string]$PythonPath = "",
+    [switch]$SkipChecks
 )
 $ErrorActionPreference = "Stop"
 
@@ -43,6 +44,27 @@ if ($LASTEXITCODE -ne 0 -and (Get-Command py -ErrorAction SilentlyContinue)) {
     }
 }
 $ErrorActionPreference = $oldEap
+
+# 2b. Pre-build quality gate (Ruff & Localization Parity)
+if (-not $SkipChecks) {
+    Write-Host "[Pre-Check] Verifying code syntax and localization parity..." -ForegroundColor Yellow
+    $oldEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    & $py -m ruff --version >$null 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        & $py -m ruff check .
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "`n[ERROR] Ruff lint check failed. Fix lint issues or pass -SkipChecks." -ForegroundColor Red
+            exit $LASTEXITCODE
+        }
+    }
+    $ErrorActionPreference = $oldEap
+    & $py -m unittest tests/test_localization.py
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "`n[ERROR] Localization parity check failed." -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
+}
 
 # 3. Compile via PyInstaller using local temp drive
 Write-Host "[2/3] Compiling executable on local temp drive (using $py)..." -ForegroundColor Yellow

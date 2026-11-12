@@ -35,7 +35,13 @@ private/
 # IDE & OS configurations
 .vscode/
 .idea/
+pyrightconfig.json
 *.swp
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Testing & Coverage
+.coverage
+.coverage.*
+htmlcov/

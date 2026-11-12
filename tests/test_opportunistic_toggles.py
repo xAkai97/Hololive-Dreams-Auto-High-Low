@@ -1,9 +1,8 @@
-import unittest
-import json
-from pathlib import Path
 import sys
+import unittest
+from pathlib import Path
 
-SRC_DIR = Path(__file__).resolve().parents[1] / 'src'
+SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
@@ -17,21 +16,14 @@ class TestOpportunisticToggles(unittest.TestCase):
     def test_opportunistic_logic_card_selection(self):
         # Test A & 2 only
         runtime_config = {"opp_a2": True, "opp_3k": False, "opp_4q": False}
-        target_limit = 20000
-        daily_coins = 5000
-        next_reward = 800
 
         def check_should_double(card_val, config):
             opp_a2 = config.get("opp_a2", False)
             opp_3k = config.get("opp_3k", False)
             opp_4q = config.get("opp_4q", False)
-            if card_val in (2, 14) and opp_a2:
-                return True
-            elif card_val in (3, 13) and opp_3k:
-                return True
-            elif card_val in (4, 12) and opp_4q:
-                return True
-            return False
+            return bool(
+                card_val in (2, 14) and opp_a2 or card_val in (3, 13) and opp_3k or card_val in (4, 12) and opp_4q
+            )
 
         # Card 2 (rank 2) and Ace (rank 14)
         self.assertTrue(check_should_double(2, runtime_config))

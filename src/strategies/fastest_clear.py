@@ -48,13 +48,13 @@ class FastestClearStrategy(BaseStrategy):
         target = getattr(self, "target_limit", 20000)
         if daily_coins + current_cashout >= target:
             self.last_cashout = current_cashout
-            return 'cashout'
+            return "cashout"
 
         style = normalize_play_style(getattr(self, "play_style", "default"))
         if style == "conservative" and current_cashout >= 6400 and (win_rate is not None and win_rate < 0.55):
             self.last_cashout = current_cashout
-            return 'cashout'
+            return "cashout"
 
         # Otherwise always keep doubling — let game cap handle it
         self.last_cashout = None
-        return 'challenge'
+        return "challenge"

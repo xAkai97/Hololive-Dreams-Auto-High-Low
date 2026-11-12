@@ -1,4 +1,5 @@
 """UI components and modules for Hololive Dreams Auto Bot."""
+
 from src.ui.canvas_renderer import (
     discover_backgrounds,
     draw_glass_card,

@@ -1,6 +1,7 @@
 """Unit tests for Strategy Modifiers and Overrides Engine."""
-import unittest
+
 import sys
+import unittest
 from pathlib import Path
 
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
@@ -190,7 +191,6 @@ class TestStrategyModifiers(unittest.TestCase):
         )
         self.assertEqual(dec_limit, "cashout")
         self.assertIsNone(reason_limit)
-
 
     def test_mod_drop_6789(self):
         for rank in (6, 7, 8, 9):
@@ -428,8 +428,8 @@ class TestStrategyModifiers(unittest.TestCase):
             import auto_bot
         except ImportError:
             self.skipTest("auto_bot dependencies (numpy/cv2) not installed in environment")
-        from unittest.mock import patch
         import tempfile
+        from unittest.mock import patch
 
         with tempfile.TemporaryDirectory() as tmpdir:
             test_debug_file = Path(tmpdir) / "debug_log.txt"
@@ -497,7 +497,7 @@ class TestStrategyModifiers(unittest.TestCase):
 
     def test_fast_build_supersedes_bailouts_and_card_overrides(self):
         # Even with mod_drop_78=True, mod_fast_build forces doubling under cushion
-        dec, reason = apply_strategy_modifiers(
+        dec, _reason = apply_strategy_modifiers(
             decision="challenge",
             card_val=7,
             current_cashout=800,
@@ -556,4 +556,3 @@ class TestStrategyModifiers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

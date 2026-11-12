@@ -1,11 +1,11 @@
 """Confirm result amounts after the count-up animation, without game strategy."""
 
-
-from typing import Any, Optional
+from typing import Any
 
 try:
-    from auto_bot import SafeStop
+    from auto_bot import SafeStop  # type: ignore[assignment]
 except ImportError:
+
     class SafeStop(Exception):
         pass
 
@@ -61,9 +61,9 @@ def is_valid_hand_payout(amount: int, base_prize: int) -> bool:
 
 def validate_and_correct_payout(
     observed_amount: int,
-    base_prize: Optional[int],
-    expected: Optional[int] = None,
-    win_count: Optional[int] = None,
+    base_prize: int | None,
+    expected: int | None = None,
+    win_count: int | None = None,
 ) -> tuple[int, bool, bool]:
     """Validate observed settlement payout against hand base prize and correct if possible.
 
@@ -73,23 +73,31 @@ def validate_and_correct_payout(
     try:
         from auto_bot import log_debug
     except ImportError:
-        def log_debug(msg): pass
+
+        def log_debug(msg):
+            pass
+
     try:
-        from localization import tr
+        from localization import tr  # type: ignore[assignment]
     except ImportError:
-        def tr(key, **kwargs): return f"[{key}]"
+
+        def tr(key, **kwargs):
+            return f"[{key}]"
 
     predicted_by_wins = (
-        base_prize * (2 ** win_count)
+        base_prize * (2**win_count)
         if (isinstance(base_prize, int) and base_prize > 0 and isinstance(win_count, int) and 0 <= win_count <= 10)
         else None
     )
     eff_expected = expected if (expected is not None and is_valid_settlement_amount(expected)) else predicted_by_wins
 
     if not isinstance(observed_amount, int) or observed_amount <= 0:
-        if eff_expected is not None and is_valid_settlement_amount(eff_expected):
-            if base_prize is None or is_valid_hand_payout(eff_expected, base_prize):
-                return eff_expected, True, True
+        if (
+            eff_expected is not None
+            and is_valid_settlement_amount(eff_expected)
+            and (base_prize is None or is_valid_hand_payout(eff_expected, base_prize))
+        ):
+            return eff_expected, True, True
         return observed_amount, False, False
 
     if base_prize is None or base_prize <= 0:
@@ -102,13 +110,15 @@ def validate_and_correct_payout(
         return observed_amount, True, False
 
     # Validation failed: scanned amount is not a valid power-of-two multiple of base_prize
-    print(tr('warn_payout_mismatch', observed=observed_amount, base=base_prize))
-    log_debug(f"[Payout Warning] Validation failed: scanned {observed_amount} is not a valid power-of-two multiple of base hand {base_prize}!")
+    print(tr("warn_payout_mismatch", observed=observed_amount, base=base_prize))
+    log_debug(
+        f"[Payout Warning] Validation failed: scanned {observed_amount} is not a valid power-of-two multiple of base hand {base_prize}!"
+    )
 
     # Attempt correction
     corrected = None
     max_hand = _get_max_hand_payout(base_prize)
-    valid_multipliers = [base_prize * (2 ** k) for k in range(12) if base_prize * (2 ** k) <= max_hand]
+    valid_multipliers = [base_prize * (2**k) for k in range(12) if base_prize * (2**k) <= max_hand]
 
     # Priority 1: If expected cashout (or base_prize * 2^win_count) matches a valid power-of-two multiple
     if eff_expected is not None and is_valid_hand_payout(eff_expected, base_prize):
@@ -119,7 +129,9 @@ def validate_and_correct_payout(
         corrected = observed_amount * 10
 
     # Priority 3: Trailing noise digit (e.g. OCR read 112005 instead of 11200, or 28005 instead of 2800)
-    elif (not is_valid_settlement_amount(observed_amount) or observed_amount > 20000) and is_valid_hand_payout(observed_amount // 10, base_prize):
+    elif (not is_valid_settlement_amount(observed_amount) or observed_amount > 20000) and is_valid_hand_payout(
+        observed_amount // 10, base_prize
+    ):
         corrected = observed_amount // 10
 
     # Priority 4: Unique prefix match among valid multipliers when a trailing digit was truncated
@@ -131,16 +143,25 @@ def validate_and_correct_payout(
         else:
             # Priority 5: Edit-distance-1 single digit substitution (e.g. 11280 -> 11200, 5680 -> 5600)
             ed1_matches = [
-                m for m in valid_multipliers
-                if len(str(m)) == len(obs_str)
-                and sum(1 for a, b in zip(str(m), obs_str) if a != b) == 1
+                m
+                for m in valid_multipliers
+                if len(str(m)) == len(obs_str) and sum(1 for a, b in zip(str(m), obs_str) if a != b) == 1
             ]
             if len(ed1_matches) == 1:
                 corrected = ed1_matches[0]
 
     if corrected is not None and is_valid_hand_payout(corrected, base_prize):
-        print(tr('settle_payout_corrected', observed=observed_amount, corrected=corrected, base=base_prize))
-        log_debug(f"[Settlement Correction] Corrected payout: scanned={observed_amount} -> corrected={corrected} (base={base_prize}, expected={eff_expected})")
+        print(
+            tr(
+                "settle_payout_corrected",
+                observed=observed_amount,
+                corrected=corrected,
+                base=base_prize,
+            )
+        )
+        log_debug(
+            f"[Settlement Correction] Corrected payout: scanned={observed_amount} -> corrected={corrected} (base={base_prize}, expected={eff_expected})"
+        )
         return corrected, True, True
 
     return observed_amount, False, False
@@ -165,7 +186,15 @@ class SettlementReader:
         self.last_observed = 0
         self.last_valid_observed = 0
 
-    def observe(self, amount, now, expected=None, timeout=_DEFAULT_TIMEOUT, fast_mode: bool = False, base_prize: Optional[int] = None):
+    def observe(
+        self,
+        amount,
+        now,
+        expected=None,
+        timeout=_DEFAULT_TIMEOUT,
+        fast_mode: bool = False,
+        base_prize: int | None = None,
+    ):
         if self.started is None:
             self.started = now
         self.last_observed = amount
@@ -210,13 +239,13 @@ class SettlementReader:
         else:
             self.samples += 1
 
-        if is_fast and self.samples >= 2 and self.since is not None and now - self.since >= .10:
+        if is_fast and self.samples >= 2 and self.since is not None and now - self.since >= 0.10:
             return self.candidate
-        if self.samples >= 3 and self.since is not None and now - self.since >= .6:
+        if self.samples >= 3 and self.since is not None and now - self.since >= 0.6:
             return self.candidate
         if eff_timeout is not None and now - self.started >= eff_timeout:
             raise SettlementTimeoutError(
-                'Settlement amount could not be confirmed reliably; stopped and excluded from ledger. Please check the settlement screen and daily balance.',
+                "Settlement amount could not be confirmed reliably; stopped and excluded from ledger. Please check the settlement screen and daily balance.",
                 last_amount=self.last_observed,
                 expected=expected,
             )
@@ -232,7 +261,7 @@ class SettlementManager:
         save_data_fn=None,
         recovery_mode: str = "auto",
         on_prompt_settlement=None,
-        base_prize: Optional[int] = None,
+        base_prize: int | None = None,
     ):
         self.settlement_reader = settlement_reader if settlement_reader is not None else SettlementReader()
         self.save_data_fn = save_data_fn
@@ -258,7 +287,7 @@ class SettlementManager:
         strategy=None,
         on_stats_update=None,
         ticket_cost: int = 50,
-        base_prize: Optional[int] = None,
+        base_prize: int | None = None,
     ) -> int:
         """Credit a confirmed or recovered payout amount once per round."""
         eff_base = base_prize or self.base_prize
@@ -267,9 +296,7 @@ class SettlementManager:
 
         if eff_base and not is_valid_hand_payout(earned, eff_base):
             win_cnt = getattr(strategy, "win_count", None) if strategy is not None else None
-            earned, valid, _ = validate_and_correct_payout(
-                earned, eff_base, self.expected_cashout, win_count=win_cnt
-            )
+            earned, valid, _ = validate_and_correct_payout(earned, eff_base, self.expected_cashout, win_count=win_cnt)
             if not valid and not is_valid_settlement_amount(earned):
                 return daily_coins
 
@@ -279,10 +306,21 @@ class SettlementManager:
 
         daily_coins += earned
         net_profit = daily_coins - (daily_fails * ticket_cost)
-        print(tr('settle_success', earned=earned, coins=daily_coins, fails=daily_fails, profit=net_profit))
+        print(
+            tr(
+                "settle_success",
+                earned=earned,
+                coins=daily_coins,
+                fails=daily_fails,
+                profit=net_profit,
+            )
+        )
         try:
             from auto_bot import log_debug
-            log_debug(f"[Settlement Credited] +{earned} coins | Daily Total: {daily_coins} | Fails: {daily_fails} | Net: {net_profit}")
+
+            log_debug(
+                f"[Settlement Credited] +{earned} coins | Daily Total: {daily_coins} | Fails: {daily_fails} | Net: {net_profit}"
+            )
         except ImportError:
             pass
         if on_stats_update:
@@ -307,7 +345,7 @@ class SettlementManager:
         ticket_cost: int = 50,
         on_prompt_settlement=None,
         timeout: Any = _DEFAULT_TIMEOUT,
-        base_prize: Optional[int] = None,
+        base_prize: int | None = None,
     ) -> tuple[int, bool]:
         """
         Process an observed payout amount during the RESULT state.
@@ -325,9 +363,9 @@ class SettlementManager:
                 eff_base = getattr(strategy, "base_cash", None)
 
             if self.settlement_reader.started is None:
-                print(f"\n" + tr('state_settlement_wait'))
+                print("\n" + tr("state_settlement_wait"))
             if strategy is not None:
-                cashout_requested = (self.expected_cashout is not None)
+                cashout_requested = self.expected_cashout is not None
                 strategy.begin_settlement(cashout_requested)
                 if cashout_requested:
                     if getattr(strategy, "expected_cash", None) is not None:
@@ -337,19 +375,29 @@ class SettlementManager:
 
             prompt_fn = on_prompt_settlement or self.on_prompt_settlement
             try:
-                earned = self.settlement_reader.observe(amount, now, self.expected_cashout, timeout=timeout, base_prize=eff_base)
+                earned = self.settlement_reader.observe(
+                    amount,
+                    now,
+                    self.expected_cashout,
+                    timeout=timeout,
+                    base_prize=eff_base,
+                )
             except RuntimeError as err:
                 recovery = self.recovery_mode or "auto"
                 last_amt = getattr(err, "last_amount", amount)
                 try:
                     from auto_bot import log_debug
                 except ImportError:
-                    def log_debug(msg): pass
+
+                    def log_debug(msg):
+                        pass
 
                 if recovery == "auto" and self.expected_cashout:
                     earned = self.expected_cashout
-                    print(tr('settle_auto_recovered', observed=last_amt, expected=earned))
-                    log_debug(f"[Settlement Recovery] OCR discrepancy (observed={last_amt}). Auto-recovered using expected={earned}")
+                    print(tr("settle_auto_recovered", observed=last_amt, expected=earned))
+                    log_debug(
+                        f"[Settlement Recovery] OCR discrepancy (observed={last_amt}). Auto-recovered using expected={earned}"
+                    )
                 elif eff_base and recovery == "auto":
                     win_cnt = getattr(strategy, "win_count", None) if strategy is not None else None
                     corr, valid, _ = validate_and_correct_payout(
@@ -367,12 +415,14 @@ class SettlementManager:
                     earned = prompt_fn(self.expected_cashout, last_amt)
                     if earned is None:
                         raise SafeStop("Settlement confirmation cancelled or stopped by user.")
-                    print(tr('settle_manual_confirmed', amount=earned))
+                    print(tr("settle_manual_confirmed", amount=earned))
                     log_debug(f"[Settlement Manual] Confirmed payout: {earned}")
                 elif recovery == "manual" and self.expected_cashout:
                     earned = self.expected_cashout
-                    print(tr('settle_auto_recovered', observed=last_amt, expected=earned))
-                    log_debug(f"[Settlement Recovery] OCR discrepancy (observed={last_amt}). Auto-recovered using expected={earned}")
+                    print(tr("settle_auto_recovered", observed=last_amt, expected=earned))
+                    log_debug(
+                        f"[Settlement Recovery] OCR discrepancy (observed={last_amt}). Auto-recovered using expected={earned}"
+                    )
                 else:
                     raise SafeStop(f"Settlement OCR recovery failed: {err}") from err
 
@@ -390,5 +440,3 @@ class SettlementManager:
             )
 
         return daily_coins, True
-
-

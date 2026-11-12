@@ -1,4 +1,5 @@
 """Centralized localization strings and translation helper for Hololive Dreams Auto Bot."""
+
 from __future__ import annotations
 
 import json
@@ -36,9 +37,16 @@ def get_strategy_labels(lang: str | None = None) -> tuple[str, ...]:
 
 
 def get_locales_dir() -> Path:
-    app_dir = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
+    app_dir = (
+        Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
+    )
     resource_dir = Path(getattr(sys, "_MEIPASS", app_dir)).resolve()
-    for candidate in [app_dir / "locales", resource_dir / "locales", Path(__file__).resolve().parent / "locales", Path("locales").resolve()]:
+    for candidate in [
+        app_dir / "locales",
+        resource_dir / "locales",
+        Path(__file__).resolve().parent / "locales",
+        Path("locales").resolve(),
+    ]:
         if candidate.exists() and candidate.is_dir():
             return candidate
     return app_dir / "locales"
@@ -63,7 +71,9 @@ def _flatten_dict(nested: dict, prefix: str = "") -> dict[str, str]:
     return flat
 
 
-def load_external_locales(locales_dir: Path | str | None = None) -> list[tuple[str, str]]:
+def load_external_locales(
+    locales_dir: Path | str | None = None,
+) -> list[tuple[str, str]]:
     """Scan and load external JSON translation files.
 
     Translations, strategy labels, and error messages are loaded directly from JSON files
@@ -103,7 +113,7 @@ def load_external_locales(locales_dir: Path | str | None = None) -> list[tuple[s
                     if pattern not in ERROR_TRANSLATIONS:
                         ERROR_TRANSLATIONS[pattern] = {}
                     ERROR_TRANSLATIONS[pattern][lang_code] = str(msg)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             print(f"[i18n] Failed to load locale {file_path.name}: {exc}")
 
     return get_available_languages()
@@ -133,7 +143,7 @@ def tr(_key: str, _lang: str | None = None, **kwargs) -> str:
     if kwargs:
         try:
             return template.format(**kwargs)
-        except Exception:
+        except (KeyError, IndexError, ValueError):
             return template
     return template
 

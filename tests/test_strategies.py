@@ -1,15 +1,16 @@
 import sys
 from pathlib import Path
 
-SRC_DIR = Path(__file__).resolve().parents[1] / 'src'
+SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 import unittest
+
 from strategies import (
     BaseStrategy,
-    MaxProfitStrategy,
     FastestClearStrategy,
+    MaxProfitStrategy,
     get_strategy,
 )
 
@@ -26,51 +27,51 @@ class TestStrategies(unittest.TestCase):
         strat = MaxProfitStrategy()
         # Daily coins >= 19800 and cashout >= 10000 -> cashout
         decision = strat.decide(current_cashout=12800, next_reward=25600, win_rate=0.75, daily_coins=20000)
-        self.assertEqual(decision, 'cashout')
+        self.assertEqual(decision, "cashout")
 
     def test_max_profit_sprint_continue(self):
         strat = MaxProfitStrategy()
         # Daily coins >= 19800 but cashout < 10000 -> challenge
         decision = strat.decide(current_cashout=3200, next_reward=6400, win_rate=0.75, daily_coins=20050)
-        self.assertEqual(decision, 'challenge')
+        self.assertEqual(decision, "challenge")
 
     def test_max_profit_cushion_warning(self):
         strat = MaxProfitStrategy()
         # total + current <= 19800 and total + next > 19800 -> cashout
         decision = strat.decide(current_cashout=3200, next_reward=6400, win_rate=0.80, daily_coins=14000)
-        self.assertEqual(decision, 'cashout')
+        self.assertEqual(decision, "cashout")
 
     def test_max_profit_lucky_cashout(self):
         strat = MaxProfitStrategy()
         # Royal Flush (10,000 -> 20,000) at 5,000 coins fits under cushion (15,000 <= 19,900, 25,000 > 19,900) -> cashout
         decision = strat.decide(current_cashout=10000, next_reward=20000, win_rate=0.80, daily_coins=5000)
-        self.assertEqual(decision, 'cashout')
+        self.assertEqual(decision, "cashout")
         # Royal Flush (10,000 -> 20,000) at 13,600 coins overshoots cushion (23,600 < 32,600),
         # but 13,600 + 20,000 = 33,600 >= 32,600 -> challenge to WIN (not cashout at 23,600!)
         decision_13600 = strat.decide(current_cashout=10000, next_reward=20000, win_rate=0.80, daily_coins=13600)
-        self.assertEqual(decision_13600, 'challenge')
+        self.assertEqual(decision_13600, "challenge")
         self.assertFalse(strat.intent_to_fail)
         # Royal Flush at 11,000 coins overshoots cushion (21,000) and 11,000 + 20,000 = 31,000 < 32,600 -> challenge with intent_to_fail
         decision_11000 = strat.decide(current_cashout=10000, next_reward=20000, win_rate=0.80, daily_coins=11000)
-        self.assertEqual(decision_11000, 'challenge')
+        self.assertEqual(decision_11000, "challenge")
         self.assertTrue(strat.intent_to_fail)
 
     def test_max_profit_force_double(self):
         strat = MaxProfitStrategy()
         # total + current > 19800 and current < 10000 -> challenge
         decision = strat.decide(current_cashout=400, next_reward=800, win_rate=0.80, daily_coins=19800)
-        self.assertEqual(decision, 'challenge')
+        self.assertEqual(decision, "challenge")
 
     def test_max_profit_low_rate_cashout(self):
         strat = MaxProfitStrategy()
         # win_rate < 0.60 -> cashout
         decision = strat.decide(current_cashout=800, next_reward=1600, win_rate=0.55, daily_coins=5000)
-        self.assertEqual(decision, 'cashout')
+        self.assertEqual(decision, "cashout")
 
     def test_max_profit_safe_continue(self):
         strat = MaxProfitStrategy()
         decision = strat.decide(current_cashout=800, next_reward=1600, win_rate=0.72, daily_coins=5000)
-        self.assertEqual(decision, 'challenge')
+        self.assertEqual(decision, "challenge")
 
     def test_aliases_and_subclasses(self):
         self.assertTrue(issubclass(MaxProfitStrategy, BaseStrategy))
@@ -82,29 +83,30 @@ class TestStrategies(unittest.TestCase):
             self.skipTest("numpy or cv2 not installed")
         counter = HighLowCounter()
         choice, rate = counter.get_best_choice_and_rate(7)
-        self.assertEqual(choice, 'high')
+        self.assertEqual(choice, "high")
         # 28 higher (8..A), 20 lower (2..6); 4 ties (7s) are pushes: rate = 28 / (28 + 20) = 28 / 48
         self.assertAlmostEqual(rate, 28 / 48, places=4)
 
         # After removing 4 sevens, total decision cards = 48, rate = 28 / 48
         counter.remove_cards([7, 7, 7, 7])
         choice, rate = counter.get_best_choice_and_rate(7)
-        self.assertEqual(choice, 'high')
+        self.assertEqual(choice, "high")
         self.assertAlmostEqual(rate, 28 / 48, places=4)
 
         # Card 2 has no lower cards; win rate should be 100.0%
         choice_2, rate_2 = counter.get_best_choice_and_rate(2)
-        self.assertEqual(choice_2, 'high')
+        self.assertEqual(choice_2, "high")
         self.assertEqual(rate_2, 1.0)
 
         # Card Ace (14) has no higher cards; win rate should be 100.0%
         choice_ace, rate_ace = counter.get_best_choice_and_rate(14)
-        self.assertEqual(choice_ace, 'low')
+        self.assertEqual(choice_ace, "low")
         self.assertEqual(rate_ace, 1.0)
 
     def test_card_recognizer_precomputed_shifts(self):
         try:
             import numpy as np
+
             from recognizer import CardRecognizer
         except ImportError:
             self.skipTest("numpy or cv2 not installed")
@@ -118,6 +120,5 @@ class TestStrategies(unittest.TestCase):
         self.assertEqual(score, 1.0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
-

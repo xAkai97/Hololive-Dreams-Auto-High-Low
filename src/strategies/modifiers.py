@@ -81,7 +81,10 @@ def apply_strategy_modifiers(
 
     eff_cushion = 19900 if (mod_force_19900 and not force_19900_unreachable) else cushion_target
     max_cushion_limit = max(1000, target_limit - 100)
-    cushion_cap = min(max_cushion_limit, 19900 if mod_force_19900 else (cushion_target if cushion_target >= max_cushion_limit else cushion_target + 100))
+    cushion_cap = min(
+        max_cushion_limit,
+        19900 if mod_force_19900 else (cushion_target if cushion_target >= max_cushion_limit else cushion_target + 100),
+    )
 
     # 0. Force 19,900 Odd Cushion parity rules when under 19,900 and not in unreachable state
     if mod_force_19900 and not force_19900_unreachable and current_cashout > 0 and daily_coins < 19900:
@@ -146,15 +149,17 @@ def apply_strategy_modifiers(
 
     if not mod_fast_build and decision == "cashout" and card_val is not None and card_val not in bail_cards:
         should_opp = (
-            (card_val in (2, 14) and opp_a2) or
-            (card_val in (3, 13) and opp_3k) or
-            (card_val in (4, 12) and opp_4q) or
-            (card_val in (5, 11) and opp_5j) or
-            (card_val in (6, 10) and opp_610) or
-            (card_val in (7, 9) and opp_79) or
-            (card_val == 8 and opp_8)
+            (card_val in (2, 14) and opp_a2)
+            or (card_val in (3, 13) and opp_3k)
+            or (card_val in (4, 12) and opp_4q)
+            or (card_val in (5, 11) and opp_5j)
+            or (card_val in (6, 10) and opp_610)
+            or (card_val in (7, 9) and opp_79)
+            or (card_val == 8 and opp_8)
         )
-        max_opp = 19200 if (mod_force_19900 and (daily_coins % 200) == 0 and (next_reward % 200) == 0) else (target_limit - 1)
+        max_opp = (
+            19200 if (mod_force_19900 and (daily_coins % 200) == 0 and (next_reward % 200) == 0) else (target_limit - 1)
+        )
         if should_opp and (daily_coins + next_reward <= max_opp):
             return "challenge", "opportunistic_card"
 

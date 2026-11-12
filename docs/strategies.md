@@ -265,4 +265,3 @@ To eliminate conflicting automated decisions, the UI enforces automatic mutual e
 |----------|------------|------------|------|----------|----------|
 | **Custom Parametric** | Varies | Varies | Custom | Varies | User-tuned parameters |
 | ⚠️ **True Max Coins** | 33,900 | **-30k to -100k+** | Extreme | Hours | 33.9k trophy screenshot (high ticket cost) |
-

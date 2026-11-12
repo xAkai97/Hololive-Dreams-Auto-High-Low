@@ -29,7 +29,9 @@ def show_help_rules(app: Any):
 
 def show_help_strategies(app: Any, num_strategies: int | None = None):
     """Open online strategy catalog and modifier system guide on GitHub in the default browser."""
-    webbrowser.open("https://github.com/xAkai97/Hololive-Dreams-Auto-High-Low/blob/main/docs/strategies.md#available-strategies")
+    webbrowser.open(
+        "https://github.com/xAkai97/Hololive-Dreams-Auto-High-Low/blob/main/docs/strategies.md#available-strategies"
+    )
 
 
 def show_help_about(app: Any, num_strategies: int | None = None):
@@ -75,9 +77,7 @@ def show_help_about(app: Any, num_strategies: int | None = None):
     lbl_credits_header.pack(anchor="w", pady=(0, 6))
 
     credits_text = (
-        "• Original Author: mwty-0415\n"
-        "• Computer Vision Insights: harrykuang-dev\n"
-        "• Poker Hand Solver: Oreki0504"
+        "• Original Author: mwty-0415\n• Computer Vision Insights: harrykuang-dev\n• Poker Hand Solver: Oreki0504"
     )
     lbl_credits = tk.Label(
         frame,
@@ -135,33 +135,57 @@ def open_settings_dialog(app: Any):
     font_label = (app.font_family, 9, "bold")
 
     # --- Section 1: Game & Doubling Rules ---
-    lf_game = ttk.LabelFrame(frame, text=f" {localization.tr('section_game_rules', app.current_lang)} ", padding=(14, 10))
+    lf_game = ttk.LabelFrame(
+        frame,
+        text=f" {localization.tr('section_game_rules', app.current_lang)} ",
+        padding=(14, 10),
+    )
     lf_game.pack(fill="x", expand=True, pady=(0, 10))
     lf_game.columnconfigure(0, weight=1)
     lf_game.columnconfigure(1, weight=0)
 
-    ttk.Label(lf_game, text=localization.tr("target_limit_label", app.current_lang), font=font_label).grid(row=0, column=0, sticky="w", pady=6)
+    ttk.Label(
+        lf_game,
+        text=localization.tr("target_limit_label", app.current_lang),
+        font=font_label,
+    ).grid(row=0, column=0, sticky="w", pady=6)
     ent_target = ttk.Entry(lf_game, width=14, justify="center")
     ent_target.insert(0, str(app.target_limit))
     ent_target.grid(row=0, column=1, sticky="e", pady=6)
 
-    ttk.Label(lf_game, text=localization.tr("ticket_cost_label", app.current_lang), font=font_label).grid(row=1, column=0, sticky="w", pady=6)
+    ttk.Label(
+        lf_game,
+        text=localization.tr("ticket_cost_label", app.current_lang),
+        font=font_label,
+    ).grid(row=1, column=0, sticky="w", pady=6)
     ent_ticket = ttk.Entry(lf_game, width=14, justify="center")
     ent_ticket.insert(0, str(app.ticket_cost))
     ent_ticket.grid(row=1, column=1, sticky="e", pady=6)
 
     # --- Section 2: Log Maintenance & Archival ---
-    lf_logs = ttk.LabelFrame(frame, text=f" {localization.tr('section_log_maintenance', app.current_lang)} ", padding=(14, 10))
+    lf_logs = ttk.LabelFrame(
+        frame,
+        text=f" {localization.tr('section_log_maintenance', app.current_lang)} ",
+        padding=(14, 10),
+    )
     lf_logs.pack(fill="x", expand=True, pady=(0, 10))
     lf_logs.columnconfigure(0, weight=1)
     lf_logs.columnconfigure(1, weight=0)
 
-    ttk.Label(lf_logs, text=localization.tr("log_retention_days_label", app.current_lang), font=font_label).grid(row=0, column=0, sticky="w", pady=6)
+    ttk.Label(
+        lf_logs,
+        text=localization.tr("log_retention_days_label", app.current_lang),
+        font=font_label,
+    ).grid(row=0, column=0, sticky="w", pady=6)
     ent_retention = ttk.Entry(lf_logs, width=14, justify="center")
     ent_retention.insert(0, str(app.log_retention_days))
     ent_retention.grid(row=0, column=1, sticky="e", pady=6)
 
-    ttk.Label(lf_logs, text=localization.tr("log_max_size_mb_label", app.current_lang), font=font_label).grid(row=1, column=0, sticky="w", pady=6)
+    ttk.Label(
+        lf_logs,
+        text=localization.tr("log_max_size_mb_label", app.current_lang),
+        font=font_label,
+    ).grid(row=1, column=0, sticky="w", pady=6)
     ent_size = ttk.Entry(lf_logs, width=14, justify="center")
     ent_size.insert(0, str(app.log_max_size_mb))
     ent_size.grid(row=1, column=1, sticky="e", pady=6)
@@ -175,12 +199,20 @@ def open_settings_dialog(app: Any):
     chk_dlg_show_log.grid(row=2, column=0, columnspan=2, sticky="w", pady=(6, 2))
 
     # --- Section 3: Settlement Verification & OCR Recovery ---
-    lf_settle = ttk.LabelFrame(frame, text=f" {localization.tr('section_settlement_recovery', app.current_lang)} ", padding=(14, 10))
+    lf_settle = ttk.LabelFrame(
+        frame,
+        text=f" {localization.tr('section_settlement_recovery', app.current_lang)} ",
+        padding=(14, 10),
+    )
     lf_settle.pack(fill="x", expand=True, pady=(0, 10))
     lf_settle.columnconfigure(0, weight=1)
     lf_settle.columnconfigure(1, weight=0)
 
-    ttk.Label(lf_settle, text=localization.tr("settlement_recovery_label", app.current_lang), font=font_label).grid(row=0, column=0, sticky="w", pady=6)
+    ttk.Label(
+        lf_settle,
+        text=localization.tr("settlement_recovery_label", app.current_lang),
+        font=font_label,
+    ).grid(row=0, column=0, sticky="w", pady=6)
     recovery_options = [
         ("auto", localization.tr("recovery_mode_auto", app.current_lang)),
         ("manual", localization.tr("recovery_mode_manual", app.current_lang)),
@@ -193,18 +225,30 @@ def open_settings_dialog(app: Any):
     combo_recovery.current(rec_idx)
     combo_recovery.grid(row=0, column=1, sticky="e", pady=6)
 
-    ttk.Label(lf_settle, text=localization.tr("settlement_timeout_label", app.current_lang), font=font_label).grid(row=1, column=0, sticky="w", pady=6)
+    ttk.Label(
+        lf_settle,
+        text=localization.tr("settlement_timeout_label", app.current_lang),
+        font=font_label,
+    ).grid(row=1, column=0, sticky="w", pady=6)
     ent_settle_timeout = ttk.Entry(lf_settle, width=14, justify="center")
     ent_settle_timeout.insert(0, str(int(app.settlement_ocr_timeout)))
     ent_settle_timeout.grid(row=1, column=1, sticky="e", pady=6)
 
     # --- Section 4: Font & Typography Appearance ---
-    lf_font = ttk.LabelFrame(frame, text=f" {localization.tr('section_font_settings', app.current_lang)} ", padding=(14, 10))
+    lf_font = ttk.LabelFrame(
+        frame,
+        text=f" {localization.tr('section_font_settings', app.current_lang)} ",
+        padding=(14, 10),
+    )
     lf_font.pack(fill="x", expand=True, pady=(0, 10))
     lf_font.columnconfigure(0, weight=1)
     lf_font.columnconfigure(1, weight=0)
 
-    ttk.Label(lf_font, text=localization.tr("font_family_label", app.current_lang), font=font_label).grid(row=0, column=0, sticky="w", pady=6)
+    ttk.Label(
+        lf_font,
+        text=localization.tr("font_family_label", app.current_lang),
+        font=font_label,
+    ).grid(row=0, column=0, sticky="w", pady=6)
     font_options = [("auto", localization.tr("font_family_auto", app.current_lang))]
     for fam in get_available_ui_font_families():
         font_options.append((fam, fam))
@@ -216,7 +260,11 @@ def open_settings_dialog(app: Any):
     combo_font.current(cur_font_idx)
     combo_font.grid(row=0, column=1, sticky="e", pady=6)
 
-    ttk.Label(lf_font, text=localization.tr("font_scale_label", app.current_lang), font=font_label).grid(row=1, column=0, sticky="w", pady=6)
+    ttk.Label(
+        lf_font,
+        text=localization.tr("font_scale_label", app.current_lang),
+        font=font_label,
+    ).grid(row=1, column=0, sticky="w", pady=6)
     scale_frame = ttk.Frame(lf_font)
     scale_frame.grid(row=1, column=1, sticky="e", pady=6)
 
@@ -272,7 +320,10 @@ def open_settings_dialog(app: Any):
             lbl_status.configure(text=localization.tr("settings_saved_msg", app.current_lang))
             dialog.after(600, dialog.destroy)
         except ValueError:
-            lbl_status.configure(text=localization.tr("err_invalid_numbers", app.current_lang), foreground="red")
+            lbl_status.configure(
+                text=localization.tr("err_invalid_numbers", app.current_lang),
+                foreground="red",
+            )
 
     def on_restore():
         app.restore_default_settings()
@@ -297,9 +348,21 @@ def open_settings_dialog(app: Any):
         app.set_field_box_opacity(30, save=True)
         lbl_status.configure(text=localization.tr("settings_saved_msg", app.current_lang))
 
-    ttk.Button(btn_box, text=localization.tr("btn_save_settings", app.current_lang), command=on_save).pack(side="left", padx=5)
-    ttk.Button(btn_box, text=localization.tr("btn_restore_defaults", app.current_lang), command=on_restore).pack(side="left", padx=5)
-    ttk.Button(btn_box, text=localization.tr("btn_cancel", app.current_lang, default="Cancel"), command=dialog.destroy).pack(side="left", padx=5)
+    ttk.Button(
+        btn_box,
+        text=localization.tr("btn_save_settings", app.current_lang),
+        command=on_save,
+    ).pack(side="left", padx=5)
+    ttk.Button(
+        btn_box,
+        text=localization.tr("btn_restore_defaults", app.current_lang),
+        command=on_restore,
+    ).pack(side="left", padx=5)
+    ttk.Button(
+        btn_box,
+        text=localization.tr("btn_cancel", app.current_lang, default="Cancel"),
+        command=dialog.destroy,
+    ).pack(side="left", padx=5)
 
     dialog.update_idletasks()
     req_w = max(650, dialog.winfo_reqwidth() + 40)
@@ -330,32 +393,56 @@ def open_custom_parametric_dialog(app: Any):
 
     font_label = (app.font_family, 9, "bold")
 
-    ttk.Label(frame, text=localization.tr("min_win_rate_label", app.current_lang), font=font_label).grid(row=0, column=0, sticky="w", pady=6)
+    ttk.Label(
+        frame,
+        text=localization.tr("min_win_rate_label", app.current_lang),
+        font=font_label,
+    ).grid(row=0, column=0, sticky="w", pady=6)
     ent_winrate = ttk.Entry(frame, width=10, justify="center")
     ent_winrate.insert(0, str(app.param_min_win_rate))
     ent_winrate.grid(row=0, column=1, sticky="e", pady=6)
 
-    ttk.Label(frame, text=localization.tr("cushion_target_label", app.current_lang), font=font_label).grid(row=1, column=0, sticky="w", pady=6)
+    ttk.Label(
+        frame,
+        text=localization.tr("cushion_target_label", app.current_lang),
+        font=font_label,
+    ).grid(row=1, column=0, sticky="w", pady=6)
     ent_cushion = ttk.Entry(frame, width=10, justify="center")
     ent_cushion.insert(0, str(app.param_cushion_target))
     ent_cushion.grid(row=1, column=1, sticky="e", pady=6)
 
-    ttk.Label(frame, text=localization.tr("sprint_target_label", app.current_lang), font=font_label).grid(row=2, column=0, sticky="w", pady=6)
+    ttk.Label(
+        frame,
+        text=localization.tr("sprint_target_label", app.current_lang),
+        font=font_label,
+    ).grid(row=2, column=0, sticky="w", pady=6)
     ent_sprint = ttk.Entry(frame, width=10, justify="center")
     ent_sprint.insert(0, str(app.param_sprint_target))
     ent_sprint.grid(row=2, column=1, sticky="e", pady=6)
 
-    ttk.Label(frame, text=localization.tr("max_doubles_label", app.current_lang), font=font_label).grid(row=3, column=0, sticky="w", pady=6)
+    ttk.Label(
+        frame,
+        text=localization.tr("max_doubles_label", app.current_lang),
+        font=font_label,
+    ).grid(row=3, column=0, sticky="w", pady=6)
     ent_doubles = ttk.Entry(frame, width=10, justify="center")
     ent_doubles.insert(0, str(app.param_max_doubles))
     ent_doubles.grid(row=3, column=1, sticky="e", pady=6)
 
-    ttk.Label(frame, text=localization.tr("lbl_hunt_14k_attempts", app.current_lang), font=font_label).grid(row=4, column=0, sticky="w", pady=6)
+    ttk.Label(
+        frame,
+        text=localization.tr("lbl_hunt_14k_attempts", app.current_lang),
+        font=font_label,
+    ).grid(row=4, column=0, sticky="w", pady=6)
     ent_hunt_attempts = ttk.Entry(frame, width=10, justify="center")
     ent_hunt_attempts.insert(0, str(getattr(app, "hunt_14k_attempts", 0)))
     ent_hunt_attempts.grid(row=4, column=1, sticky="e", pady=6)
 
-    ttk.Label(frame, text=localization.tr("drop_seven_eight_label", app.current_lang), font=font_label).grid(row=5, column=0, sticky="w", pady=6)
+    ttk.Label(
+        frame,
+        text=localization.tr("drop_seven_eight_label", app.current_lang),
+        font=font_label,
+    ).grid(row=5, column=0, sticky="w", pady=6)
     var_drop = tk.BooleanVar(value=bool(app.param_drop_seven_eight))
     chk_drop = ttk.Checkbutton(frame, variable=var_drop)
     chk_drop.grid(row=5, column=1, sticky="e", pady=6)
@@ -390,9 +477,17 @@ def open_custom_parametric_dialog(app: Any):
         except (ValueError, TypeError, tk.TclError, OSError) as e:
             lbl_status.configure(text=f"Error: {e}", foreground="#cc0000")
 
-    btn_save = ttk.Button(btn_box, text=localization.tr("btn_save_settings", app.current_lang), command=on_save)
+    btn_save = ttk.Button(
+        btn_box,
+        text=localization.tr("btn_save_settings", app.current_lang),
+        command=on_save,
+    )
     btn_save.pack(side="left", padx=6)
-    btn_cancel = ttk.Button(btn_box, text=localization.tr("btn_cancel", app.current_lang), command=dialog.destroy)
+    btn_cancel = ttk.Button(
+        btn_box,
+        text=localization.tr("btn_cancel", app.current_lang),
+        command=dialog.destroy,
+    )
     btn_cancel.pack(side="left", padx=6)
 
 
@@ -459,8 +554,16 @@ def show_benchmark_results_dialog(app: Any, results: list[dict]):
     btn_bar = ttk.Frame(dialog, padding=(16, 10))
     btn_bar.pack(fill="x", side="bottom")
 
-    ttk.Button(btn_bar, text=localization.tr("btn_close", app.current_lang), command=dialog.destroy).pack(side="right", padx=4)
-    ttk.Button(btn_bar, text=localization.tr("btn_export_csv", app.current_lang), command=lambda: export_benchmark_csv(app, results)).pack(side="right", padx=4)
+    ttk.Button(
+        btn_bar,
+        text=localization.tr("btn_close", app.current_lang),
+        command=dialog.destroy,
+    ).pack(side="right", padx=4)
+    ttk.Button(
+        btn_bar,
+        text=localization.tr("btn_export_csv", app.current_lang),
+        command=lambda: export_benchmark_csv(app, results),
+    ).pack(side="right", padx=4)
 
     dialog.update_idletasks()
     req_w = max(730, dialog.winfo_reqwidth() + 30)
@@ -473,7 +576,10 @@ def show_benchmark_results_dialog(app: Any, results: list[dict]):
 def export_benchmark_csv(app: Any, results: list[dict]):
     """Export benchmark results to a user-specified CSV file."""
     if not results:
-        messagebox.showinfo("Export CSV", "No simulation benchmark data available yet. Please run a simulation first!")
+        messagebox.showinfo(
+            "Export CSV",
+            "No simulation benchmark data available yet. Please run a simulation first!",
+        )
         return
     path = filedialog.asksaveasfilename(
         parent=app,
@@ -497,7 +603,10 @@ def export_benchmark_csv(app: Any, results: list[dict]):
 def export_benchmark_json(app: Any, results: list[dict]):
     """Export benchmark results to a user-specified JSON file."""
     if not results:
-        messagebox.showinfo("Export JSON", "No simulation benchmark data available yet. Please run a simulation first!")
+        messagebox.showinfo(
+            "Export JSON",
+            "No simulation benchmark data available yet. Please run a simulation first!",
+        )
         return
     path = filedialog.asksaveasfilename(
         parent=app,
@@ -541,7 +650,11 @@ def show_settlement_modal(app: Any, expected: int | None, observed: str | None, 
 
     entry_frame = ttk.Frame(frame)
     entry_frame.pack(fill="x", pady=(0, 14))
-    ttk.Label(entry_frame, text=localization.tr("custom_amount_label", app.current_lang), font=font_label).pack(side="left")
+    ttk.Label(
+        entry_frame,
+        text=localization.tr("custom_amount_label", app.current_lang),
+        font=font_label,
+    ).pack(side="left")
     custom_ent = ttk.Entry(entry_frame, width=12, justify="center")
     custom_ent.insert(0, str(expected if expected else ""))
     custom_ent.pack(side="right")

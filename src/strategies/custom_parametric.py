@@ -84,7 +84,7 @@ class CustomParametricStrategy(BaseStrategy):
 
         # 1. Sprint check
         if daily_coins >= cushion:
-            action = 'cashout' if current_cashout >= self.sprint_cashout else 'challenge'
+            action = "cashout" if current_cashout >= self.sprint_cashout else "challenge"
         else:
             guard = self.evaluate_cushion_guard(
                 current_cashout=current_cashout,
@@ -97,13 +97,20 @@ class CustomParametricStrategy(BaseStrategy):
             if guard is not None:
                 action = guard
             elif self._in_safety_mode:
-                action = 'cashout' if current_cashout >= 200 else 'challenge'
-            elif self.max_doubles > 0 and self._doubles_this_round >= self.max_doubles or self.drop_on_seven_eight and win_rate <= 0.52 or win_rate < self.min_win_rate or current_cashout >= self.cashout_target:
-                action = 'cashout'
+                action = "cashout" if current_cashout >= 200 else "challenge"
+            elif (
+                self.max_doubles > 0
+                and self._doubles_this_round >= self.max_doubles
+                or self.drop_on_seven_eight
+                and win_rate <= 0.52
+                or win_rate < self.min_win_rate
+                or current_cashout >= self.cashout_target
+            ):
+                action = "cashout"
             else:
-                action = 'challenge'
+                action = "challenge"
 
-        self.last_cashout = current_cashout if action == 'cashout' else None
+        self.last_cashout = current_cashout if action == "cashout" else None
         return action
 
     def notify_fail(self) -> None:

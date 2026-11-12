@@ -6,8 +6,9 @@ except ImportError:
     PRIZES = (200, 400, 700, 800, 1500, 3000, 7000, 10000)
 
 try:
-    from auto_bot import SafeStop
+    from auto_bot import SafeStop  # type: ignore[assignment]
 except ImportError:
+
     class SafeStop(Exception):
         pass
 
@@ -41,7 +42,7 @@ class ChallengeRewardReader:
         self.started = self.candidate = self.since = None
         self.samples = 0
 
-    def observe(self, value, now, timeout=8.0, fast_mode: bool = False):
+    def observe(self, value, now, timeout: float | None = 8.0, fast_mode: bool = False):
         if self.started is None:
             self.started = now
         plausible = valid_next_reward(value)
@@ -58,9 +59,11 @@ class ChallengeRewardReader:
         if is_fast and self.samples >= 1 and self.candidate is not None:
             self.last = value
             return value
-        if self.samples >= 2 and now - self.since >= .25:
+        if self.samples >= 2 and now - self.since >= 0.25:
             self.last = value
             return value
         if timeout is not None and now - self.started >= timeout:
-            raise SafeStop('Challenge payout cannot be confirmed; stopped. Will not use inaccurate or fallback payout to decide doubling. Please check the game screen.')
+            raise SafeStop(
+                "Challenge payout cannot be confirmed; stopped. Will not use inaccurate or fallback payout to decide doubling. Please check the game screen."
+            )
         return None

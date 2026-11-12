@@ -63,7 +63,7 @@ class MaxProfitStrategy(BaseStrategy):
 
         # Sprint: daily >= cushion (19,800-19,900) — chase 10k+ cashout
         if daily_coins >= cushion:
-            action = 'cashout' if current_cashout >= 10000 else 'challenge'
+            action = "cashout" if current_cashout >= 10000 else "challenge"
         else:
             guard = self.evaluate_cushion_guard(
                 current_cashout=current_cashout,
@@ -78,11 +78,11 @@ class MaxProfitStrategy(BaseStrategy):
                 style = normalize_play_style(getattr(self, "play_style", "default"))
                 min_rate = 0.55 if style == "aggressive" else (0.65 if style == "conservative" else 0.60)
                 if win_rate < min_rate:
-                    action = 'cashout'
+                    action = "cashout"
                 else:
-                    action = 'challenge'
+                    action = "challenge"
 
-        self.last_cashout = current_cashout if action == 'cashout' else None
+        self.last_cashout = current_cashout if action == "cashout" else None
         return action
 
 
@@ -154,7 +154,7 @@ class TrueMaxCoinsStrategy(BaseStrategy):
         if self._is_adaptive_sprint_fallback(daily_coins):
             eff_cushion = 19800
             if daily_coins >= eff_cushion:
-                action = 'cashout' if current_cashout >= 10000 else 'challenge'
+                action = "cashout" if current_cashout >= 10000 else "challenge"
             else:
                 guard = self.evaluate_cushion_guard(
                     current_cashout=current_cashout,
@@ -167,10 +167,10 @@ class TrueMaxCoinsStrategy(BaseStrategy):
                 if guard is not None:
                     action = guard
                 elif win_rate < min_rate:
-                    action = 'cashout'
+                    action = "cashout"
                 else:
-                    action = 'challenge'
-            self.last_cashout = current_cashout if action == 'cashout' else None
+                    action = "challenge"
+            self.last_cashout = current_cashout if action == "cashout" else None
             return action
 
         cushion = getattr(self, "cushion_target", 19900)
@@ -179,11 +179,11 @@ class TrueMaxCoinsStrategy(BaseStrategy):
             self._in_sprint_round = True
             max_payout = get_max_round_payout(current_cashout)
             if current_cashout >= 14000:
-                action = 'cashout'
+                action = "cashout"
             elif max_payout >= 14000:
-                action = 'challenge'
+                action = "challenge"
             else:
-                action = 'challenge'
+                action = "challenge"
                 self.intent_to_fail = True
         else:
             guard = self.evaluate_cushion_guard(
@@ -198,17 +198,17 @@ class TrueMaxCoinsStrategy(BaseStrategy):
                 action = guard
                 # In True Max Profit, even an early Five of a Kind only sprints if daily + 14,000 >= TRUE_MAX_EARLY_BENCHMARK
                 if (
-                    action == 'challenge'
+                    action == "challenge"
                     and not self.intent_to_fail
                     and daily_coins + get_max_round_payout(current_cashout) < TRUE_MAX_EARLY_BENCHMARK
                 ):
                     self.intent_to_fail = True
             elif win_rate < min_rate:
-                action = 'cashout'
+                action = "cashout"
             else:
-                action = 'challenge'
+                action = "challenge"
 
-        self.last_cashout = current_cashout if action == 'cashout' else None
+        self.last_cashout = current_cashout if action == "cashout" else None
         return action
 
     def _is_adaptive_sprint_fallback(self, daily_coins: int) -> bool:

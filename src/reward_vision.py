@@ -1,45 +1,58 @@
 """Read yellow challenge amounts without including the wallet coin below."""
+
 import cv2
 import numpy as np
 
 
 def challenge_number_image(img, zone):
     x, y, w, h = zone
-    roi = img[y:y+h, x:x+w]
+    roi = img[y : y + h, x : x + w]
     if roi.size == 0:
         return None
-    mask = cv2.inRange(cv2.cvtColor(roi, cv2.COLOR_BGR2HSV),
-                       np.array([15, 50, 50]), np.array([45, 255, 255]))
+    mask = cv2.inRange(
+        cv2.cvtColor(roi, cv2.COLOR_BGR2HSV),
+        np.array([15, 50, 50]),
+        np.array([45, 255, 255]),
+    )
     count, labels, stats, _ = cv2.connectedComponentsWithStats(mask)
-    components = [(i, tuple(map(int, stats[i]))) for i in range(1, count)
-                  if stats[i, cv2.CC_STAT_HEIGHT] >= 12
-                  and stats[i, cv2.CC_STAT_AREA] >= 30]
+    components = [
+        (i, tuple(map(int, stats[i])))
+        for i in range(1, count)
+        if stats[i, cv2.CC_STAT_HEIGHT] >= 12 and stats[i, cv2.CC_STAT_AREA] >= 30
+    ]
     if not components:
         return None
     # Digits share a baseline; group components horizontally to exclude unrelated coin graphics.
     groups = []
     for _, (_, yy, _, hh, _) in components:
-        group = [(i, s) for i, s in components
-                 if abs(s[1] + s[3]/2 - yy - hh/2) < max(hh, s[3])*.4]
+        group = [(i, s) for i, s in components if abs(s[1] + s[3] / 2 - yy - hh / 2) < max(hh, s[3]) * 0.4]
         groups.append(group)
     group = max(groups, key=lambda g: sum(s[4] for _, s in g))
     x1 = min(s[0] for _, s in group)
     y1 = min(s[1] for _, s in group)
-    x2 = max(s[0]+s[2] for _, s in group)
-    y2 = max(s[1]+s[3] for _, s in group)
-    clean = np.isin(labels[y1:y2, x1:x2], [i for i, _ in group]).astype('uint8')*255
-    clean = cv2.copyMakeBorder(255-clean, 8, 8, 8, 8, cv2.BORDER_CONSTANT, value=255)
+    x2 = max(s[0] + s[2] for _, s in group)
+    y2 = max(s[1] + s[3] for _, s in group)
+    clean = np.isin(labels[y1:y2, x1:x2], [i for i, _ in group]).astype("uint8") * 255
+    clean = cv2.copyMakeBorder(255 - clean, 8, 8, 8, 8, cv2.BORDER_CONSTANT, value=255)
     return cv2.resize(clean, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
 
 
-_DIGIT_TRANSLATE_TABLE = str.maketrans({
-    'O': '0', 'o': '0',
-    'Q': '0', 'q': '0',
-    'I': '1', 'i': '1',
-    'L': '1', 'l': '1',
-    'S': '5', 's': '5',
-    'B': '8', 'b': '8',
-})
+_DIGIT_TRANSLATE_TABLE = str.maketrans(
+    {
+        "O": "0",
+        "o": "0",
+        "Q": "0",
+        "q": "0",
+        "I": "1",
+        "i": "1",
+        "L": "1",
+        "l": "1",
+        "S": "5",
+        "s": "5",
+        "B": "8",
+        "b": "8",
+    }
+)
 
 _PNG_FAST_PARAMS = [int(cv2.IMWRITE_PNG_COMPRESSION), 1]
 _CHALLENGE_OCR_CACHE: dict[tuple[tuple[int, ...], bytes], int] = {}
@@ -58,7 +71,7 @@ def read_challenge_number(img, zone, ocr):
     cache_key = (prepared.shape, prepared.tobytes()) if use_cache else None
     if cache_key is not None and cache_key in _CHALLENGE_OCR_CACHE:
         return _CHALLENGE_OCR_CACHE[cache_key]
-    ok, encoded = cv2.imencode('.png', prepared, _PNG_FAST_PARAMS)
+    ok, encoded = cv2.imencode(".png", prepared, _PNG_FAST_PARAMS)
     if not ok or encoded is None:
         return 0
     text = ocr.classification(encoded.tobytes()).strip().upper()
@@ -74,22 +87,23 @@ def read_challenge_number(img, zone, ocr):
 def result_number_image(img, zone):
     """Isolate cyan result digits, excluding the grey unit and caption."""
     x, y, w, h = zone
-    roi = img[y:y+h, x:x+w]
+    roi = img[y : y + h, x : x + w]
     if roi.size == 0:
         return None
-    mask = cv2.inRange(cv2.cvtColor(roi, cv2.COLOR_BGR2HSV),
-                       np.array([80, 90, 80]), np.array([115, 255, 255]))
+    mask = cv2.inRange(
+        cv2.cvtColor(roi, cv2.COLOR_BGR2HSV),
+        np.array([80, 90, 80]),
+        np.array([115, 255, 255]),
+    )
     count, labels, stats, _ = cv2.connectedComponentsWithStats(mask)
-    ids = [i for i in range(1, count)
-           if stats[i, cv2.CC_STAT_HEIGHT] >= 20
-           and stats[i, cv2.CC_STAT_AREA] >= 80]
+    ids = [i for i in range(1, count) if stats[i, cv2.CC_STAT_HEIGHT] >= 20 and stats[i, cv2.CC_STAT_AREA] >= 80]
     if not ids:
         return None
     boxes = stats[ids]
     x1, y1 = boxes[:, 0].min(), boxes[:, 1].min()
     x2 = (boxes[:, 0] + boxes[:, 2]).max()
     y2 = (boxes[:, 1] + boxes[:, 3]).max()
-    clean = np.isin(labels[y1:y2, x1:x2], ids).astype('uint8') * 255
+    clean = np.isin(labels[y1:y2, x1:x2], ids).astype("uint8") * 255
     clean = cv2.copyMakeBorder(255 - clean, 12, 12, 12, 12, cv2.BORDER_CONSTANT, value=255)
     return cv2.resize(clean, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
 
@@ -102,7 +116,7 @@ def read_result_number(img, zone, ocr):
     cache_key = (prepared.shape, prepared.tobytes()) if use_cache else None
     if cache_key is not None and cache_key in _RESULT_OCR_CACHE:
         return _RESULT_OCR_CACHE[cache_key]
-    ok, encoded = cv2.imencode('.png', prepared, _PNG_FAST_PARAMS)
+    ok, encoded = cv2.imencode(".png", prepared, _PNG_FAST_PARAMS)
     if not ok or encoded is None:
         return 0
     text = ocr.classification(encoded.tobytes()).strip().upper()
@@ -113,4 +127,3 @@ def read_result_number(img, zone, ocr):
             _RESULT_OCR_CACHE.clear()
         _RESULT_OCR_CACHE[cache_key] = val
     return val
-

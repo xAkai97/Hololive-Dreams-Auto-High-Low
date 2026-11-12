@@ -1,4 +1,5 @@
 """Strategy package providing modular doubling policies for Hololive Dreams Auto Bot."""
+
 from collections.abc import Callable
 from typing import Any
 
@@ -62,7 +63,12 @@ def get_strategy(name: str, **kwargs) -> BaseStrategy:
     normalized = str(name).strip().lower()
     if normalized in ("adaptive_max_profit", "maxprofit"):
         normalized = "max_profit"
-    elif normalized in ("true_max_profit", "true_max_coins_possible", "truemaxprofit", "truemaxcoins"):
+    elif normalized in (
+        "true_max_profit",
+        "true_max_coins_possible",
+        "truemaxprofit",
+        "truemaxcoins",
+    ):
         normalized = "true_max_coins"
     elif normalized in ("aggressive_balanced", "aggressivebalanced"):
         return AggressiveBalancedStrategy(**kwargs)

@@ -1,4 +1,5 @@
 """Aggressive Balanced strategy — backward-compatible alias for BalancedStrategy(play_style='aggressive')."""
+
 from strategies.balanced import BalancedStrategy
 
 
@@ -10,4 +11,3 @@ class AggressiveBalancedStrategy(BalancedStrategy):
 
     def __init__(self, play_style: str = "aggressive"):
         super().__init__(play_style=play_style)
-

@@ -1,4 +1,5 @@
 """Log management, rotation, retention pruning, and session loading."""
+
 import datetime
 import re
 import time
@@ -123,10 +124,16 @@ def rotate_previous_log(max_days: int = 14, max_size_mb: int = 20, lang: str = "
                 except OSError as err:
                     auto_bot.log_debug(f"[LogRotate] Failed to delete trivial log.txt: {err}")
             else:
-                m = re.search(r"=== UI Session Started:\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2}):(\d{2})", content)
+                m = re.search(
+                    r"=== UI Session Started:\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2}):(\d{2})",
+                    content,
+                )
                 if m:
                     try:
-                        session_dt = datetime.datetime.strptime(f"{m.group(1)} {m.group(2)}:{m.group(3)}:{m.group(4)}", "%Y-%m-%d %H:%M:%S").astimezone()
+                        session_dt = datetime.datetime.strptime(
+                            f"{m.group(1)} {m.group(2)}:{m.group(3)}:{m.group(4)}",
+                            "%Y-%m-%d %H:%M:%S",
+                        ).astimezone()
                         log_game_date = auto_bot.get_game_date(session_dt.astimezone(datetime.UTC))
                     except (ValueError, OSError):
                         log_game_date = m.group(1)
@@ -135,7 +142,7 @@ def rotate_previous_log(max_days: int = 14, max_size_mb: int = 20, lang: str = "
                     config = auto_bot.load_config()
                     coins = auto_bot.cfg_get_int(config, "coins", 0)
                     target = auto_bot.cfg_get_int(config, "target_limit", 20000)
-                    is_same_day_in_progress = (log_game_date == current_date and coins < target)
+                    is_same_day_in_progress = log_game_date == current_date and coins < target
                 else:
                     log_game_date = None
                     is_same_day_in_progress = False

@@ -1,4 +1,5 @@
 """Platform-specific utilities, theming, and font detection."""
+
 from __future__ import annotations
 
 import ctypes
@@ -8,7 +9,11 @@ import tkinter as tk
 def is_windows_dark_mode() -> bool:
     try:
         import winreg
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as key:
+
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+        ) as key:
             val, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
             return val == 0
     except (OSError, ValueError, TypeError):
@@ -23,17 +28,20 @@ def set_window_dark_titlebar(window, dark: bool):
             hwnd = window.winfo_id()
         val = ctypes.c_int(1 if dark else 0)
         for attr in (20, 19):
-            if ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                ctypes.c_void_p(hwnd),
-                ctypes.c_uint(attr),
-                ctypes.byref(val),
-                ctypes.sizeof(val)
-            ) == 0:
+            if (
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    ctypes.c_void_p(hwnd),
+                    ctypes.c_uint(attr),
+                    ctypes.byref(val),
+                    ctypes.sizeof(val),
+                )
+                == 0
+            ):
                 break
         try:
-            ctypes.windll.uxtheme[133](ctypes.c_void_p(hwnd), ctypes.c_bool(dark))
-            ctypes.windll.uxtheme[135](2 if dark else 3)
-            ctypes.windll.uxtheme[136]()
+            ctypes.windll.uxtheme[133](ctypes.c_void_p(hwnd), ctypes.c_bool(dark))  # type: ignore[index]
+            ctypes.windll.uxtheme[135](2 if dark else 3)  # type: ignore[index]
+            ctypes.windll.uxtheme[136]()  # type: ignore[index]
         except (AttributeError, IndexError, OSError):
             pass
     except (tk.TclError, AttributeError, OSError):
@@ -45,6 +53,7 @@ def get_locale_font_family(lang: str = "en") -> str:
     code = (lang or "en").lower().replace("-", "_")
     try:
         from tkinter import font as tkfont
+
         available = set(tkfont.families())
     except (tk.TclError, RuntimeError):
         available = set()
@@ -69,6 +78,7 @@ def get_available_ui_font_families() -> list[str]:
     """Return an ordered list of clean UI font families available on the system."""
     try:
         from tkinter import font as tkfont
+
         raw_families = sorted(set(tkfont.families()))
     except (tk.TclError, RuntimeError):
         raw_families = []

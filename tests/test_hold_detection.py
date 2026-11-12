@@ -1,5 +1,5 @@
 import unittest
-import numpy as np
+
 from src.auto_bot import get_currently_held_indices
 
 

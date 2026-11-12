@@ -1,13 +1,19 @@
 import sys
-from pathlib import Path
 import unittest
+from pathlib import Path
 
-SRC_DIR = Path(__file__).resolve().parents[1] / 'src'
+SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 try:
-    from simulation import GameSimulator, RoundResult, DaySimulationResult, MonteCarloSummary
+    from simulation import (
+        DaySimulationResult,
+        GameSimulator,
+        MonteCarloSummary,
+        RoundResult,
+    )
+
     HAVE_SIMULATION = True
 except ImportError:
     HAVE_SIMULATION = False
@@ -15,17 +21,17 @@ except ImportError:
 from strategies.max_profit import MaxProfitStrategy
 
 
-@unittest.skipUnless(HAVE_SIMULATION, 'Simulation dependencies (numpy) not installed')
+@unittest.skipUnless(HAVE_SIMULATION, "Simulation dependencies (numpy) not installed")
 class TestGameSimulator(unittest.TestCase):
     def setUp(self):
         self.sim = GameSimulator(seed=42)
 
     def test_draw_poker_hand_fast(self):
-        payout, hand, cat = self.sim.draw_poker_hand(exact_poker=False)
+        payout, _hand, _cat = self.sim.draw_poker_hand(exact_poker=False)
         self.assertIn(payout, [0, 200, 400, 700, 800, 1500, 3000, 7000, 10000])
 
     def test_draw_poker_hand_exact(self):
-        payout, hand, cat = self.sim.draw_poker_hand(exact_poker=True)
+        payout, hand, _cat = self.sim.draw_poker_hand(exact_poker=True)
         self.assertEqual(len(hand), 5)
         self.assertIn(payout, [0, 200, 400, 700, 800, 1500, 3000, 7000, 10000])
 
@@ -82,6 +88,7 @@ class TestGameSimulator(unittest.TestCase):
 
     def test_max_payout_limit_enforced(self):
         from strategies.fastest_clear import FastestClearStrategy
+
         # FastestClear never stops voluntarily unless at cap, so it tests the hard cap
         result = self.sim.play_high_low_round(
             strategy=FastestClearStrategy(),
@@ -95,6 +102,7 @@ class TestGameSimulator(unittest.TestCase):
 
     def test_opportunistic_doubling_override(self):
         from strategies.grinder import GrinderStrategy
+
         # Grinder normally cashes out at 200, but with a 2 or A as first card,
         # opportunistic doubling should force it to challenge!
         sim = GameSimulator(seed=42, opportunistic_double_mode="a_2_only")
@@ -107,9 +115,9 @@ class TestGameSimulator(unittest.TestCase):
         )
         self.assertTrue(result.won_poker)
 
-
     def test_modifiers_in_simulator(self):
         from strategies.grinder import GrinderStrategy
+
         # Test GameSimulator initialization with modifiers
         sim = GameSimulator(
             seed=42,
@@ -165,5 +173,3 @@ class TestGameSimulator(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-

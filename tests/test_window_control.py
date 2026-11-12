@@ -1,21 +1,29 @@
+import contextlib
+import io
 import sys
+import unittest
 from pathlib import Path
-SRC_DIR = Path(__file__).resolve().parents[1] / 'src'
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import numpy as np
+
+SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-import unittest
-from unittest.mock import patch, MagicMock
-from types import SimpleNamespace
-
 try:
     import window_control
+
     HAVE_WINDOW_CONTROL = True
 except ImportError:
     HAVE_WINDOW_CONTROL = False
 
 
-@unittest.skipUnless(HAVE_WINDOW_CONTROL, 'Window control dependencies (cv2, pygetwindow, etc.) not installed')
+@unittest.skipUnless(
+    HAVE_WINDOW_CONTROL,
+    "Window control dependencies (cv2, pygetwindow, etc.) not installed",
+)
 class WindowControlTests(unittest.TestCase):
     def test_find_game_window_exact_match(self):
         w1 = SimpleNamespace(title="hololive-Dreams-Auto-High-Low", width=800, height=600, _hWnd=1)
@@ -36,14 +44,19 @@ class WindowControlTests(unittest.TestCase):
         # Test coordinate mapping from 1920x1080 normalized frame to client window
         window_control._capture_context = {"hwnd": 12345, "width": 1280, "height": 720}
 
-        with patch.object(window_control, "_bring_game_to_front", return_value=True), \
-             patch.object(window_control._user32, "GetForegroundWindow", return_value=12345), \
-             patch.object(window_control, "_get_client_geometry", return_value=(100, 200, 1280, 720)), \
-             patch("random.randint", return_value=0), \
-             patch("pydirectinput.moveTo") as mock_move, \
-             patch("pydirectinput.mouseDown") as mock_down, \
-             patch("pydirectinput.mouseUp") as mock_up:
-
+        with (
+            patch.object(window_control, "_bring_game_to_front", return_value=True),
+            patch.object(window_control._user32, "GetForegroundWindow", return_value=12345),
+            patch.object(
+                window_control,
+                "_get_client_geometry",
+                return_value=(100, 200, 1280, 720),
+            ),
+            patch("random.randint", return_value=0),
+            patch("pydirectinput.moveTo") as mock_move,
+            patch("pydirectinput.mouseDown") as mock_down,
+            patch("pydirectinput.mouseUp") as mock_up,
+        ):
             # (960, 540) in 1920x1080 should map to center of 1280x720: (640, 360) + origin (100, 200) = (740, 560)
             res = window_control.safe_click(960, 540)
             self.assertTrue(res)
@@ -52,33 +65,88 @@ class WindowControlTests(unittest.TestCase):
             mock_up.assert_called_once()
 
     def test_safe_click_aborts_when_not_foreground(self):
-        import contextlib
-        import io
         window_control._capture_context = {"hwnd": 12345, "width": 1280, "height": 720}
 
-        with patch.object(window_control, "_bring_game_to_front", return_value=True), \
-             patch.object(window_control._user32, "GetForegroundWindow", return_value=99999), \
-             patch("pydirectinput.mouseDown") as mock_down, \
-             contextlib.redirect_stdout(io.StringIO()):
-
+        with (
+            patch.object(window_control, "_bring_game_to_front", return_value=True),
+            patch.object(window_control._user32, "GetForegroundWindow", return_value=99999),
+            patch("pydirectinput.mouseDown") as mock_down,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
             res = window_control.safe_click(960, 540)
             self.assertFalse(res)
             mock_down.assert_not_called()
 
     def test_safe_click_aborts_when_foreground_hwnd_is_null(self):
-        import contextlib
-        import io
         window_control._capture_context = {"hwnd": 12345, "width": 1280, "height": 720}
 
-        with patch.object(window_control, "_bring_game_to_front", return_value=True), \
-             patch.object(window_control._user32, "GetForegroundWindow", return_value=0), \
-             patch("pydirectinput.mouseDown") as mock_down, \
-             contextlib.redirect_stdout(io.StringIO()):
-
+        with (
+            patch.object(window_control, "_bring_game_to_front", return_value=True),
+            patch.object(window_control._user32, "GetForegroundWindow", return_value=0),
+            patch("pydirectinput.mouseDown") as mock_down,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
             res = window_control.safe_click(960, 540)
             self.assertFalse(res)
             mock_down.assert_not_called()
 
+    def test_safe_click_aborts_when_no_context(self):
+        window_control._capture_context = None
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertFalse(window_control.safe_click(100, 100))
 
-if __name__ == '__main__':
+    def test_bring_game_to_front(self):
+        # Invalid hwnd
+        self.assertFalse(window_control._bring_game_to_front(0))
+
+        # Valid hwnd already foreground
+        with (
+            patch.object(window_control._user32, "IsWindow", return_value=True),
+            patch.object(window_control._user32, "GetForegroundWindow", return_value=123),
+        ):
+            self.assertTrue(window_control._bring_game_to_front(123))
+
+        # Valid hwnd background -> bring to front
+        with (
+            patch.object(window_control._user32, "IsWindow", return_value=True),
+            patch.object(window_control._user32, "GetForegroundWindow", return_value=999),
+            patch.object(window_control._user32, "ShowWindowAsync"),
+            patch.object(window_control._user32, "BringWindowToTop"),
+            patch.object(window_control._user32, "SetForegroundWindow"),
+            patch.object(window_control._user32, "SetWindowPos"),
+            patch("time.sleep"),
+        ):
+            self.assertTrue(window_control._bring_game_to_front(123))
+
+    def test_capture_game_window(self):
+        # 1. No window found
+        with patch.object(window_control, "find_game_window", return_value=None):
+            frame, left, top = window_control.capture_game_window()
+            self.assertIsNone(frame)
+            self.assertEqual((left, top), (0, 0))
+
+        # 2. Minimized window, restore disallowed
+        win_min = SimpleNamespace(title="hololive-Dreams", width=1920, height=1080, _hWnd=100, isMinimized=True)
+        with patch.object(window_control, "find_game_window", return_value=win_min):
+            frame, left, top = window_control.capture_game_window(allow_foreground_fallback=False)
+            self.assertIsNone(frame)
+
+        # 3. Normal window foreground MSS capture
+        fake_frame = np.full((1080, 1920, 4), 200, dtype=np.uint8)
+        win_normal = SimpleNamespace(title="hololive-Dreams", width=1920, height=1080, _hWnd=100, isMinimized=False)
+        mock_mss = MagicMock()
+        mock_mss.grab.return_value = fake_frame
+
+        with (
+            patch.object(window_control, "find_game_window", return_value=win_normal),
+            patch.object(window_control, "_get_client_geometry", return_value=(0, 0, 1920, 1080)),
+            patch.object(window_control._user32, "GetForegroundWindow", return_value=100),
+            patch.object(window_control, "_get_mss_instance", return_value=mock_mss),
+        ):
+            frame, left, top = window_control.capture_game_window()
+            self.assertIsNotNone(frame)
+            self.assertEqual(frame.shape, (1080, 1920, 3))
+
+
+if __name__ == "__main__":
     unittest.main()

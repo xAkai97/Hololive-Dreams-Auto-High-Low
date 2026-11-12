@@ -1,15 +1,15 @@
 import sys
 from pathlib import Path
-SRC_DIR = Path(__file__).resolve().parents[1] / 'src'
+
+SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 """Tests for i18n localization and multilingual support."""
-import unittest
-from types import SimpleNamespace
-from unittest.mock import patch, MagicMock
 import contextlib
 import io
+import unittest
+from unittest.mock import MagicMock, patch
 
 import localization
 
@@ -43,6 +43,7 @@ class I18nTests(unittest.TestCase):
 
     def test_format_placeholders_match_across_all_languages(self):
         import re
+
         pattern = re.compile(r"\{([a-zA-Z0-9_]+)(?::[^}]*)?\}")
         for key, en_text in localization.TRANSLATIONS["en"].items():
             en_vars = set(pattern.findall(en_text))
@@ -56,8 +57,9 @@ class I18nTests(unittest.TestCase):
                 )
 
     def test_nested_namespaced_locale_loading(self):
-        import tempfile
         import json
+        import tempfile
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             nested_data = {
@@ -74,8 +76,8 @@ class I18nTests(unittest.TestCase):
                         "cards": {
                             "opp_5j": "5 & J",
                         }
-                    }
-                }
+                    },
+                },
             }
             (tmp_path / "tl.json").write_text(json.dumps(nested_data), encoding="utf-8")
             languages = localization.load_external_locales(tmp_path)
@@ -154,7 +156,6 @@ class I18nTests(unittest.TestCase):
             self.assertIn(lang, localization.STRATEGY_LABELS)
             self.assertEqual(len(localization.STRATEGY_LABELS[lang]), 7)
 
-
     @unittest.skipIf(bot is None, "auto_bot dependencies not installed")
     def test_bot_loop_stats_callback_and_language(self):
         stats_calls = []
@@ -162,22 +163,31 @@ class I18nTests(unittest.TestCase):
         def on_stats(coins, fails, profit):
             stats_calls.append((coins, fails, profit))
 
-        with patch.object(bot, 'load_daily_data', return_value=(500, 1)), \
-             patch.object(bot, 'load_config', return_value={"ticket_cost": 50, "target_limit": 20000}), \
-             patch.object(bot, 'CardRecognizer', return_value=MagicMock()), \
-             patch.object(bot, 'HighLowCounter', return_value=MagicMock()), \
-             patch.object(bot, 'capture_game_window', return_value=(None, 0, 0)), \
-             contextlib.redirect_stdout(io.StringIO()) as buf:
+        with (
+            patch.object(bot, "load_daily_data", return_value=(500, 1)),
+            patch.object(
+                bot,
+                "load_config",
+                return_value={"ticket_cost": 50, "target_limit": 20000},
+            ),
+            patch.object(bot, "CardRecognizer", return_value=MagicMock()),
+            patch.object(bot, "HighLowCounter", return_value=MagicMock()),
+            patch.object(bot, "capture_game_window", return_value=(None, 0, 0)),
+            contextlib.redirect_stdout(io.StringIO()) as buf,
+        ):
             bot.bot_running = False
-            bot.auto_play_loop(mode='max_profit', on_stats_update=on_stats, lang='en')
+            bot.auto_play_loop(mode="max_profit", on_stats_update=on_stats, lang="en")
 
-        self.assertEqual(localization.get_lang(), 'en')
+        self.assertEqual(localization.get_lang(), "en")
         self.assertEqual(stats_calls, [(500, 1, 450)])
-        self.assertIn("Starting bot... Today's coins: 500 | Fails: 1 | Net profit: 450", buf.getvalue())
+        self.assertIn(
+            "Starting bot... Today's coins: 500 | Fails: 1 | Net profit: 450",
+            buf.getvalue(),
+        )
 
     def test_load_external_locales_from_directory(self):
-        import tempfile
         import json
+        import tempfile
         from pathlib import Path
 
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -188,7 +198,7 @@ class I18nTests(unittest.TestCase):
                 "translations": {
                     "title": "Hololive Dreams Aŭtomata",
                     "start_bot": "Komencante roboton... Moneroj: {coins}",
-                }
+                },
             }
             (tmp_path / "eo.json").write_text(json.dumps(custom_locale), encoding="utf-8")
 
@@ -199,7 +209,10 @@ class I18nTests(unittest.TestCase):
 
             localization.set_lang("eo")
             self.assertEqual(localization.tr("title"), "Hololive Dreams Aŭtomata")
-            self.assertEqual(localization.tr("start_bot", coins=100), "Komencante roboton... Moneroj: 100")
+            self.assertEqual(
+                localization.tr("start_bot", coins=100),
+                "Komencante roboton... Moneroj: 100",
+            )
             # Fallback for untranslated keys
             self.assertEqual(localization.tr("status_idle"), "Status: Idle")
 
@@ -211,18 +224,21 @@ class I18nTests(unittest.TestCase):
             ("en", "Starting bot... Today's coins: 1000"),
             ("ja", "自動Botを開始... 本日の獲得コイン: 1000"),
         ]:
-            with patch.object(bot, 'load_daily_data', return_value=(1000, 0)), \
-                 patch.object(bot, 'CardRecognizer', return_value=MagicMock()), \
-                 patch.object(bot, 'HighLowCounter', return_value=MagicMock()), \
-                 patch.object(bot, 'capture_game_window', return_value=(None, 0, 0)), \
-                 contextlib.redirect_stdout(io.StringIO()) as buf:
+            with (
+                patch.object(bot, "load_daily_data", return_value=(1000, 0)),
+                patch.object(bot, "CardRecognizer", return_value=MagicMock()),
+                patch.object(bot, "HighLowCounter", return_value=MagicMock()),
+                patch.object(bot, "capture_game_window", return_value=(None, 0, 0)),
+                contextlib.redirect_stdout(io.StringIO()) as buf,
+            ):
                 bot.bot_running = False
-                bot.auto_play_loop(mode='max_profit', lang=lang)
+                bot.auto_play_loop(mode="max_profit", lang=lang)
 
             self.assertIn(expected_token, buf.getvalue(), f"Log output did not match {lang}")
 
     def test_all_strategies_have_descriptions(self):
         from strategies import STRATEGY_REGISTRY
+
         for strat_key in STRATEGY_REGISTRY:
             desc_key = f"desc_{strat_key}"
             for lang in ("zh", "tw", "en", "ja"):
@@ -231,7 +247,5 @@ class I18nTests(unittest.TestCase):
                 self.assertTrue(len(desc) > 5, f"Description too short for {strat_key} in {lang}")
 
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
-

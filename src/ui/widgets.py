@@ -1,28 +1,46 @@
 """Reusable canvas-backed widgets, tooltips, and I/O redirection."""
+
 import time
 import tkinter as tk
 from collections.abc import Callable
-from typing import ClassVar
+from typing import Any, ClassVar
 
 try:
     from PIL import Image, ImageDraw, ImageTk
+
     HAS_PIL = True
 except ImportError:
+    Image = None  # type: ignore[assignment]
+    ImageDraw = None  # type: ignore[assignment]
+    ImageTk = None  # type: ignore[assignment]
     HAS_PIL = False
 
 
 class DummyFrame:
     """Drop-in shim for deprecated modifier subframes."""
-    def pack(self, *args, **kwargs): pass
-    def pack_forget(self, *args, **kwargs): pass
-    def columnconfigure(self, *args, **kwargs): pass
-    def grid(self, *args, **kwargs): pass
-    def update_idletasks(self): pass
-    def winfo_reqheight(self): return 200
+
+    def pack(self, *args, **kwargs):
+        pass
+
+    def pack_forget(self, *args, **kwargs):
+        pass
+
+    def columnconfigure(self, *args, **kwargs):
+        pass
+
+    def grid(self, *args, **kwargs):
+        pass
+
+    def update_idletasks(self):
+        pass
+
+    def winfo_reqheight(self):
+        return 200
 
 
 class CanvasHeaderLabel:
     """Header label rendered directly on tk.Canvas for 100% alpha transparency."""
+
     def __init__(self, canvas, text="", font=None, cursor="hand2", fill="#334155"):
         self.canvas = canvas
         self.text = text
@@ -54,8 +72,13 @@ class CanvasHeaderLabel:
         if not self._visible:
             return
         self._item = self.canvas.create_text(
-            int(self._x), int(self._y), text=self.text, font=self.font,
-            fill=self.fill, anchor="w", tags=self._tag
+            int(self._x),
+            int(self._y),
+            text=self.text,
+            font=self.font,
+            fill=self.fill,
+            anchor="w",
+            tags=self._tag,
         )
         for seq, funcs in self._bound_handlers.items():
             for f in funcs:
@@ -85,12 +108,12 @@ class CanvasHeaderLabel:
             self.canvas.tag_bind(self._item, seq, func)
 
 
-_TOGGLE_IMAGE_CACHE: dict[tuple[str, bool, bool], "ImageTk.PhotoImage"] = {}
+_TOGGLE_IMAGE_CACHE: dict[tuple[str, bool, bool], Any] = {}
 
 
 def _get_toggle_image(theme_mode: str, is_checked: bool, is_disabled: bool):
     """Generate and cache smooth 4x supersampled anti-aliased toggle switch images."""
-    if not HAS_PIL:
+    if not HAS_PIL or Image is None or ImageDraw is None or ImageTk is None:
         return None
     cache_key = (theme_mode, is_checked, is_disabled)
     if cache_key in _TOGGLE_IMAGE_CACHE:
@@ -139,13 +162,22 @@ def _get_toggle_image(theme_mode: str, is_checked: bool, is_disabled: bool):
     # Outer pill border
     draw.rounded_rectangle([0, 0, w - 1, h - 1], radius=radius, fill=track_border)
     # Inner pill fill
-    draw.rounded_rectangle([scale, scale, w - 1 - scale, h - 1 - scale], radius=radius - scale, fill=track_fill)
+    draw.rounded_rectangle(
+        [scale, scale, w - 1 - scale, h - 1 - scale],
+        radius=radius - scale,
+        fill=track_fill,
+    )
 
     # Smooth circular knob
     knob_r = 5.5 * scale
     kx = (20 * scale) if is_checked else (8 * scale)
     ky = h / 2.0
-    draw.ellipse([kx - knob_r, ky - knob_r, kx + knob_r, ky + knob_r], fill=knob_fill, outline=knob_border, width=scale)
+    draw.ellipse(
+        [kx - knob_r, ky - knob_r, kx + knob_r, ky + knob_r],
+        fill=knob_fill,
+        outline=knob_border,
+        width=scale,
+    )
 
     final_img = img.resize((28, 16), Image.Resampling.BICUBIC)
     photo = ImageTk.PhotoImage(final_img)
@@ -155,6 +187,7 @@ def _get_toggle_image(theme_mode: str, is_checked: bool, is_disabled: bool):
 
 class CanvasCheckbutton:
     """Modern Pill Toggle Switch rendered directly on tk.Canvas with alpha transparency."""
+
     def __init__(self, canvas, variable, text="", command=None, font=None, style_tag=None):
         self.canvas = canvas
         self.var = variable
@@ -201,7 +234,7 @@ class CanvasCheckbutton:
             return
 
         is_checked = bool(self.var.get()) if self.var else False
-        is_disabled = (self.state == "disabled")
+        is_disabled = self.state == "disabled"
 
         track_w = 28
         track_h = 16
@@ -247,44 +280,69 @@ class CanvasCheckbutton:
         photo = _get_toggle_image(self.theme_mode, is_checked, is_disabled)
         if photo:
             self._photo = photo
-            img_item = self.canvas.create_image(
-                track_x, cy, image=photo, anchor="w", tags=self._tag
-            )
+            img_item = self.canvas.create_image(track_x, cy, image=photo, anchor="w", tags=self._tag)
             self._items.append(img_item)
         else:
             # Native fallback if PIL is unavailable
             t_out = self.canvas.create_line(
-                x1, cy, x2, cy,
-                width=track_h, capstyle="round", fill=track_border, tags=self._tag
+                x1,
+                cy,
+                x2,
+                cy,
+                width=track_h,
+                capstyle="round",
+                fill=track_border,
+                tags=self._tag,
             )
             self._items.append(t_out)
 
             t_in = self.canvas.create_line(
-                x1, cy, x2, cy,
-                width=track_h - 2, capstyle="round", fill=track_fill, tags=self._tag
+                x1,
+                cy,
+                x2,
+                cy,
+                width=track_h - 2,
+                capstyle="round",
+                fill=track_fill,
+                tags=self._tag,
             )
             self._items.append(t_in)
 
             knob_r = 5
             kx = int(x2 if is_checked else x1)
             knob = self.canvas.create_oval(
-                kx - knob_r, cy - knob_r, kx + knob_r, cy + knob_r,
-                fill=knob_fill, outline="", width=0, tags=self._tag
+                kx - knob_r,
+                cy - knob_r,
+                kx + knob_r,
+                cy + knob_r,
+                fill=knob_fill,
+                outline="",
+                width=0,
+                tags=self._tag,
             )
             self._items.append(knob)
 
         # Text label to the right of toggle
         txt = self.canvas.create_text(
-            track_x + track_w + 8, cy,
-            text=self.text, font=self.font,
-            fill=text_fill, anchor="w", tags=self._tag
+            track_x + track_w + 8,
+            cy,
+            text=self.text,
+            font=self.font,
+            fill=text_fill,
+            anchor="w",
+            tags=self._tag,
         )
         self._items.append(txt)
 
         # Transparent hit box for click target
         hit = self.canvas.create_rectangle(
-            self._x, self._y, self._x + self._w, self._y + self._h,
-            fill="", outline="", tags=self._tag
+            self._x,
+            self._y,
+            self._x + self._w,
+            self._y + self._h,
+            fill="",
+            outline="",
+            tags=self._tag,
         )
         self._items.append(hit)
 
@@ -351,7 +409,16 @@ class CanvasCheckbutton:
 
 class CanvasSegmentedPill:
     """Segmented pill selector rendered directly on tk.Canvas with smooth active highlight."""
-    def __init__(self, canvas, segments, initial_key="default", command=None, font=None, theme_mode="dark"):
+
+    def __init__(
+        self,
+        canvas,
+        segments,
+        initial_key="default",
+        command=None,
+        font=None,
+        theme_mode="dark",
+    ):
         self.canvas = canvas
         self.segments = list(segments)
         self.selected_key = initial_key
@@ -397,7 +464,7 @@ class CanvasSegmentedPill:
         n = len(self.segments)
         seg_w = w / float(n)
 
-        is_dark = (self.theme_mode == "dark")
+        is_dark = self.theme_mode == "dark"
         bg_border = "#3F3F46" if is_dark else "#CBD5E1"
         bg_fill = "#1E1E24" if is_dark else "#F1F5F9"
         active_fill = "#0284C7" if is_dark else "#2563EB"
@@ -406,8 +473,26 @@ class CanvasSegmentedPill:
         inactive_text = "#94A3B8" if is_dark else "#64748B"
 
         # Outer track container
-        c1 = self.canvas.create_line(x + r, y + r, x + w - r, y + r, width=h, capstyle="round", fill=bg_border, tags=self._tag)
-        c2 = self.canvas.create_line(x + r, y + r, x + w - r, y + r, width=h - 2, capstyle="round", fill=bg_fill, tags=self._tag)
+        c1 = self.canvas.create_line(
+            x + r,
+            y + r,
+            x + w - r,
+            y + r,
+            width=h,
+            capstyle="round",
+            fill=bg_border,
+            tags=self._tag,
+        )
+        c2 = self.canvas.create_line(
+            x + r,
+            y + r,
+            x + w - r,
+            y + r,
+            width=h - 2,
+            capstyle="round",
+            fill=bg_fill,
+            tags=self._tag,
+        )
         self._items.extend([c1, c2])
 
         # Active highlight index
@@ -421,7 +506,15 @@ class CanvasSegmentedPill:
         for i in range(1, n):
             if active_idx is None or (i != active_idx and i != (active_idx + 1)):
                 div_x = int(x + i * seg_w)
-                div = self.canvas.create_line(div_x, y + 6, div_x, y + h - 6, fill=bg_border, width=1, tags=self._tag)
+                div = self.canvas.create_line(
+                    div_x,
+                    y + 6,
+                    div_x,
+                    y + h - 6,
+                    fill=bg_border,
+                    width=1,
+                    tags=self._tag,
+                )
                 self._items.append(div)
 
         # Active highlight pill
@@ -432,8 +525,26 @@ class CanvasSegmentedPill:
             sx1 = x + active_idx * seg_w + pad
             sx2 = x + (active_idx + 1) * seg_w - pad
             sy = y + pad + sr
-            act_out = self.canvas.create_line(sx1 + sr, sy, sx2 - sr, sy, width=sh, capstyle="round", fill=active_border, tags=self._tag)
-            act_in = self.canvas.create_line(sx1 + sr, sy, sx2 - sr, sy, width=sh - 2, capstyle="round", fill=active_fill, tags=self._tag)
+            act_out = self.canvas.create_line(
+                sx1 + sr,
+                sy,
+                sx2 - sr,
+                sy,
+                width=sh,
+                capstyle="round",
+                fill=active_border,
+                tags=self._tag,
+            )
+            act_in = self.canvas.create_line(
+                sx1 + sr,
+                sy,
+                sx2 - sr,
+                sy,
+                width=sh - 2,
+                capstyle="round",
+                fill=active_fill,
+                tags=self._tag,
+            )
             self._items.extend([act_out, act_in])
 
         # Segment texts & hitboxes
@@ -443,19 +554,29 @@ class CanvasSegmentedPill:
         for i, (k, label) in enumerate(self.segments):
             tx = x + (i + 0.5) * seg_w
             ty = y + r
-            is_active = (k == self.selected_key)
+            is_active = k == self.selected_key
             color = active_text if is_active else inactive_text
             weight = "bold" if is_active else "normal"
 
             txt = self.canvas.create_text(
-                tx, ty, text=label, fill=color,
-                font=(f_name, f_size, weight), anchor="center", tags=(self._tag, f"{self._tag}_{k}")
+                tx,
+                ty,
+                text=label,
+                fill=color,
+                font=(f_name, f_size, weight),
+                anchor="center",
+                tags=(self._tag, f"{self._tag}_{k}"),
             )
             self._items.append(txt)
 
             hit = self.canvas.create_rectangle(
-                int(x + i * seg_w), y, int(x + (i + 1) * seg_w), y + h,
-                fill="", outline="", tags=(self._tag, f"{self._tag}_{k}")
+                int(x + i * seg_w),
+                y,
+                int(x + (i + 1) * seg_w),
+                y + h,
+                fill="",
+                outline="",
+                tags=(self._tag, f"{self._tag}_{k}"),
             )
             self._items.append(hit)
 
@@ -513,6 +634,7 @@ class CanvasSegmentedPill:
 
 class SegmentProxy:
     """Proxy providing backward compatibility for tests and ToolTip attachments to a segment."""
+
     def __init__(self, pill: CanvasSegmentedPill, key: str, text: str):
         self.pill = pill
         self.key = key
@@ -668,6 +790,7 @@ class ToolTip:
 
 class RedirectText:
     """Output interceptor and virtual log buffer."""
+
     def __init__(self, ui):
         self.ui = ui
         self.raw_text = ""
@@ -701,6 +824,7 @@ class RedirectText:
 
 class ModernMenu(tk.Menu):
     """Modern theme-aware popup menu with custom borders and hover states."""
+
     _active_popups: ClassVar[list[tk.Toplevel]] = []
     _is_bound: bool = False
     _open_time: float = 0.0
@@ -721,8 +845,10 @@ class ModernMenu(tk.Menu):
                 pass
         try:
             import tkinter as _tk
-            if hasattr(_tk, "_default_root") and _tk._default_root and hasattr(_tk._default_root, "_active_menu_key"):
-                _tk._default_root._active_menu_key = None
+
+            def_root = getattr(_tk, "_default_root", None)
+            if def_root and hasattr(def_root, "_active_menu_key"):
+                def_root._active_menu_key = None
         except (AttributeError, tk.TclError):
             pass
 
@@ -757,15 +883,16 @@ class ModernMenu(tk.Menu):
 
         is_dark = True
         if hasattr(root, "get_active_theme"):
-            is_dark = (root.get_active_theme() == "dark")
-        elif hasattr(root, "theme_palette") and root.theme_palette:
-            is_dark = root.theme_palette.get("is_dark", True)
+            is_dark = root.get_active_theme() == "dark"  # type: ignore[attr-defined]
+        elif hasattr(root, "theme_palette") and getattr(root, "theme_palette", None):
+            is_dark = getattr(root, "theme_palette", {}).get("is_dark", True)
         elif hasattr(root, "theme_mode"):
-            if root.theme_mode == "system":
+            if getattr(root, "theme_mode", "dark") == "system":
                 from src.ui.platform import is_windows_dark_mode
+
                 is_dark = is_windows_dark_mode()
             else:
-                is_dark = (root.theme_mode == "dark")
+                is_dark = getattr(root, "theme_mode", "dark") == "dark"
 
         menu_bg = "#18181B" if is_dark else "#FFFFFF"
         menu_fg = "#F8FAFC" if is_dark else "#0F172A"
@@ -799,7 +926,7 @@ class ModernMenu(tk.Menu):
                 if event.widget and hasattr(root, "menubar_frame"):
                     w = event.widget
                     while w:
-                        if w == root.menubar_frame:
+                        if w == getattr(root, "menubar_frame", None):
                             return
                         w = getattr(w, "master", None)
             except (AttributeError, tk.TclError):
@@ -854,7 +981,8 @@ class ModernMenu(tk.Menu):
 
             accel = ""
             try:
-                if "accelerator" in self.entryconfig(i):
+                cfg = self.entryconfig(i)
+                if cfg and "accelerator" in cfg:
                     accel = self.entrycget(i, "accelerator") or ""
             except (AttributeError, tk.TclError, KeyError):
                 pass
@@ -948,6 +1076,7 @@ class ModernMenu(tk.Menu):
         ph = popup.winfo_reqheight()
 
         from src.ui.platform import get_monitor_work_area
+
         work_area = get_monitor_work_area(x, y)
         if work_area:
             mon_left, mon_top, mon_right, mon_bottom = work_area
@@ -974,4 +1103,3 @@ class ModernMenu(tk.Menu):
             y = max(0, y)
         popup.geometry(f"+{x}+{y}")
         popup.update_idletasks()
-

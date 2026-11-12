@@ -61,7 +61,7 @@ class BalancedStrategy(BaseStrategy):
 
         # Sprint: daily >= cushion
         if daily_coins >= cushion:
-            action = 'cashout' if current_cashout >= 10000 else 'challenge'
+            action = "cashout" if current_cashout >= 10000 else "challenge"
         else:
             guard = self.evaluate_cushion_guard(
                 current_cashout=current_cashout,
@@ -76,19 +76,19 @@ class BalancedStrategy(BaseStrategy):
                 style = normalize_play_style(getattr(self, "play_style", "default"))
                 if style == "aggressive":
                     if daily_coins >= 12000:
-                        action = 'cashout' if win_rate < 0.45 else 'challenge'
+                        action = "cashout" if win_rate < 0.45 else "challenge"
                     else:
-                        action = 'cashout' if (current_cashout >= 6400 or win_rate < 0.50) else 'challenge'
+                        action = "cashout" if (current_cashout >= 6400 or win_rate < 0.50) else "challenge"
                 elif style == "conservative":
                     if daily_coins >= 16000:
-                        action = 'cashout' if (current_cashout >= 6400 or win_rate < 0.55) else 'challenge'
+                        action = "cashout" if (current_cashout >= 6400 or win_rate < 0.55) else "challenge"
                     else:
-                        action = 'cashout' if (current_cashout >= 3200 or win_rate < 0.60) else 'challenge'
+                        action = "cashout" if (current_cashout >= 3200 or win_rate < 0.60) else "challenge"
                 else:
                     if daily_coins >= 15000:
-                        action = 'cashout' if (current_cashout >= 10000 or win_rate < 0.50) else 'challenge'
+                        action = "cashout" if (current_cashout >= 10000 or win_rate < 0.50) else "challenge"
                     else:
-                        action = 'cashout' if (current_cashout >= 6400 or win_rate < 0.55) else 'challenge'
+                        action = "cashout" if (current_cashout >= 6400 or win_rate < 0.55) else "challenge"
 
-        self.last_cashout = current_cashout if action == 'cashout' else None
+        self.last_cashout = current_cashout if action == "cashout" else None
         return action

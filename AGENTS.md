@@ -5,6 +5,10 @@ Automated 5-Card Draw poker solver, High-Low card-counting bot, zero-click Obser
 - **Environment**: Windows PowerShell (`pwsh`), Python 3.10–3.14 (`$py = (py -3.14 -c "import sys;print(sys.executable)")`). Reuse the active interpreter; do not create a `.venv` if one exists.
 - **Run App**: `& $py main_ui.py`
 - **Test** (mandatory before committing): `& $py -m unittest discover tests`
+- **Coverage**: `& $py -m coverage run -m unittest discover tests; & $py -m coverage report`
+- **Lint & Format**: `& $py -m ruff check --fix .; & $py -m ruff format .`
+- **Typecheck**: `$env:PYTHONPATH="src"; & $py -m pyright main_ui.py src`
+- **Pre-commit**: `pre-commit run --all-files`
 - **Simulate / Benchmark**: `& $py src/simulation.py --compare-all`
 - **Build Executable**: `./build.ps1 -PythonPath $py` (or `build.bat`)
 

@@ -17,7 +17,7 @@ try:
     # Windows source-mode runs otherwise inherit a legacy console encoding and
     # crash on the existing multilingual/emoji status messages.
     if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 except (AttributeError, OSError, ValueError):
     pass
 
@@ -101,8 +101,11 @@ def toggle_scan_mode() -> bool:
 
 def get_scan_mode() -> bool:
     return scan_mode
+
+
 # ================= Global Configuration & Constants =================
 TARGET_LIMIT = 20000
+
 
 def _resolve_app_dir() -> Path:
     """Resolve the directory used for writable user data (config, logs, debug).
@@ -111,7 +114,9 @@ def _resolve_app_dir() -> Path:
     application directory. If that location is write-protected (e.g. Program Files
     or read-only volume), it automatically falls back to %APPDATA%/HololiveDreamsAuto.
     """
-    base = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
+    base = (
+        Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
+    )
     try:
         test_file = base / f".write_test_{os.getpid()}"
         test_file.touch()
@@ -126,7 +131,9 @@ def _resolve_app_dir() -> Path:
         return base
 
 
-INSTALL_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
+INSTALL_DIR = (
+    Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
+)
 APP_DIR = _resolve_app_dir()
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", INSTALL_DIR)).resolve()
 TEMPLATE_DIR = RESOURCE_DIR / "templates"
@@ -188,6 +195,7 @@ def log_debug(msg: str):
 def resource_path(*parts):
     return str(RESOURCE_DIR.joinpath(*parts))
 
+
 # === Dynamic Bounding Box Parameters ===
 # Large search area covering middle screen to prevent missing detections
 HIGH_LOW_SEARCH_ZONE = (42, 358, 1256, 451)
@@ -201,19 +209,37 @@ RESULT_REWARD_ZONE = (990, 290, 600, 150)
 
 # === Card Value Mapping ===
 ROBUST_RANK_MAP = {
-    "2": 2, "TWO": 2,
-    "3": 3, "THREE": 3,
-    "4": 4, "FOUR": 4,
-    "5": 5, "FIVE": 5,
-    "6": 6, "SIX": 6,
-    "7": 7, "SEVEN": 7,
-    "8": 8, "EIGHT": 8,
-    "9": 9, "NINE": 9,
-    "10": 10, "TEN": 10,
-    "11": 11, "J": 11, "JACK": 11,
-    "12": 12, "Q": 12, "QUEEN": 12,
-    "13": 13, "K": 13, "KING": 13,
-    "14": 14, "A": 14, "ACE": 14, "1": 14
+    "2": 2,
+    "TWO": 2,
+    "3": 3,
+    "THREE": 3,
+    "4": 4,
+    "FOUR": 4,
+    "5": 5,
+    "FIVE": 5,
+    "6": 6,
+    "SIX": 6,
+    "7": 7,
+    "SEVEN": 7,
+    "8": 8,
+    "EIGHT": 8,
+    "9": 9,
+    "NINE": 9,
+    "10": 10,
+    "TEN": 10,
+    "11": 11,
+    "J": 11,
+    "JACK": 11,
+    "12": 12,
+    "Q": 12,
+    "QUEEN": 12,
+    "13": 13,
+    "K": 13,
+    "KING": 13,
+    "14": 14,
+    "A": 14,
+    "ACE": 14,
+    "1": 14,
 }
 
 
@@ -253,10 +279,12 @@ def _build_icon_templates() -> tuple[dict[str, list[str]], dict[str, list[tuple[
         "FAIL": [],
         "ASK_CHALLENGE": [],
     }
-    lang_templates: dict[str, list[tuple[str, str]]] = {"other": [
-        ("HOLD_CARDS", resource_path("templates", "icons", "tpl_replace.png")),
-        ("HIGH_LOW", resource_path("templates", "icons", "tpl_high.png")),
-    ]}
+    lang_templates: dict[str, list[tuple[str, str]]] = {
+        "other": [
+            ("HOLD_CARDS", resource_path("templates", "icons", "tpl_replace.png")),
+            ("HIGH_LOW", resource_path("templates", "icons", "tpl_high.png")),
+        ]
+    }
     ok_as_is: list[str] = []
 
     prefix_map = {
@@ -301,9 +329,19 @@ def _build_icon_templates() -> tuple[dict[str, list[str]], dict[str, list[tuple[
             icon_templates["ASK_CHALLENGE"].append(resource_path("templates", "icons", lk, f"chance_{lk}.png"))
             icon_templates["ASK_CHALLENGE"].append(resource_path("templates", "icons", lk, f"success_{lk}.png"))
             ok_as_is.append(resource_path("templates", "icons", lk, f"full_{lk}.png"))
-            for state in ("START_BET", "HOLD_CARDS", "TAP_TO_PROCEED", "RESULT", "FAIL", "ASK_CHALLENGE"):
+            for state in (
+                "START_BET",
+                "HOLD_CARDS",
+                "TAP_TO_PROCEED",
+                "RESULT",
+                "FAIL",
+                "ASK_CHALLENGE",
+            ):
                 for p in icon_templates[state]:
-                    if (f"_{lk}." in str(p) or f"/{lk}/" in str(p) or f"\\{lk}\\" in str(p)) and (state, p) not in lang_templates[lk]:
+                    if (f"_{lk}." in str(p) or f"/{lk}/" in str(p) or f"\\{lk}\\" in str(p)) and (
+                        state,
+                        p,
+                    ) not in lang_templates[lk]:
                         lang_templates[lk].append((state, p))
 
     return icon_templates, lang_templates, ok_as_is
@@ -340,7 +378,7 @@ class HighLowCounter:
             return "high", 0.5
 
         c = self._counts
-        high_count = sum(c[current_card + 1:])
+        high_count = sum(c[current_card + 1 :])
         low_count = sum(c[2:current_card])
 
         decision_cards = high_count + low_count
@@ -391,7 +429,15 @@ def preload_templates() -> int:
         for p in tpl_paths:
             if get_template(p) is not None:
                 count += 1
-    for p in (TPL_REPLACE, TPL_HIGH, TPL_LOW, TPL_CONFIRM_DOUBLE, TPL_CASHOUT, TPL_CARD_LOCK, *OK_AS_IS_TEMPLATES):
+    for p in (
+        TPL_REPLACE,
+        TPL_HIGH,
+        TPL_LOW,
+        TPL_CONFIRM_DOUBLE,
+        TPL_CASHOUT,
+        TPL_CARD_LOCK,
+        *OK_AS_IS_TEMPLATES,
+    ):
         if get_template(p) is not None:
             count += 1
     return count
@@ -436,7 +482,7 @@ def _match_template_fast(
             min(sw, mx + tw + _ROI_MARGIN),
             min(sh, my + th + _ROI_MARGIN),
         )
-    return float(max_val), max_loc
+    return float(max_val), (int(max_loc[0]), int(max_loc[1]))
 
 
 def find_and_click_icon(screen_bgr, tpl_path, win_left, win_top, threshold=0.80):
@@ -447,7 +493,7 @@ def find_and_click_icon(screen_bgr, tpl_path, win_left, win_top, threshold=0.80)
     tpl_img = get_template(tpl_path)
     if tpl_img is None:
         if not os.path.exists(tpl_path):
-            print(tr('icon_not_found', path=tpl_path))
+            print(tr("icon_not_found", path=tpl_path))
         return False
 
     screen_gray = cv2.cvtColor(screen_bgr, cv2.COLOR_BGR2GRAY)
@@ -456,7 +502,14 @@ def find_and_click_icon(screen_bgr, tpl_path, win_left, win_top, threshold=0.80)
     if max_val >= threshold:
         h, w = tpl_img.shape
         if safe_click(max_loc[0] + w // 2, max_loc[1] + h // 2, win_left, win_top):
-            log_debug(tr('click_trigger', name=os.path.basename(tpl_path), score=max_val, threshold=threshold))
+            log_debug(
+                tr(
+                    "click_trigger",
+                    name=os.path.basename(tpl_path),
+                    score=max_val,
+                    threshold=threshold,
+                )
+            )
             return True
         return False
     else:
@@ -465,7 +518,7 @@ def find_and_click_icon(screen_bgr, tpl_path, win_left, win_top, threshold=0.80)
 
 def is_success_prompt(screen_bgr):
     gray = cv2.cvtColor(screen_bgr, cv2.COLOR_BGR2GRAY)
-    paths = ICON_TEMPLATES['ASK_CHALLENGE']
+    paths = ICON_TEMPLATES["ASK_CHALLENGE"]
     if _DETECTED_GAME_LANG:
         lang_suffix = f"_{_DETECTED_GAME_LANG}."
         ordered = [p for p in paths if lang_suffix in os.path.basename(p)] + [
@@ -474,12 +527,12 @@ def is_success_prompt(screen_bgr):
     else:
         ordered = paths
     for path in ordered:
-        if 'success_' not in os.path.basename(path):
+        if "success_" not in os.path.basename(path):
             continue
         template = get_template(path)
         if template is not None:
             score, _ = _match_template_fast(gray, path, template, 0.85, roi_only_on_miss=True)
-            if score >= .85:
+            if score >= 0.85:
                 return True
     return False
 
@@ -586,7 +639,7 @@ def detect_game_state(
 
 def find_all_card_rects(img, search_zone):
     sx, sy, sw, sh = search_zone
-    roi = img[sy:sy + sh, sx:sx + sw]
+    roi = img[sy : sy + sh, sx : sx + sw]
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
 
     # Extract all pure white regions (utilize purple-black face-down cards to ignore them)
@@ -675,7 +728,9 @@ def get_currently_held_indices(
             log_debug(f"[Poker Hold Vision] Lock icon detected on slots {sorted(held_by_badge)} ({scores_str})")
             return held_by_badge
         else:
-            log_debug(f"[Poker Hold Vision] No lock icons detected ({scores_str}). Checking card vertical displacement...")
+            log_debug(
+                f"[Poker Hold Vision] No lock icons detected ({scores_str}). Checking card vertical displacement..."
+            )
 
     # Pass 2: Vertical Y displacement (held cards shifted downward)
     y_vals = [r[1] for r in rects]
@@ -686,7 +741,9 @@ def get_currently_held_indices(
     if max_y - min_y >= min_gap:
         split_threshold = min_y + (max_y - min_y) // 2
         detected = {i for i, y in enumerate(y_vals) if y > split_threshold}
-        log_debug(f"[Poker Hold Vision] Shift fallback: detected slots {sorted(detected)} by downward displacement (gap: {max_y - min_y}px)")
+        log_debug(
+            f"[Poker Hold Vision] Shift fallback: detected slots {sorted(detected)} by downward displacement (gap: {max_y - min_y}px)"
+        )
         return detected
 
     # When all 5 cards are at the same height:
@@ -694,7 +751,9 @@ def get_currently_held_indices(
     # Shifted down (held) y is typically ~0.344 * height.
     held_down_threshold = round(0.330 * screen_h)
     if min_y > held_down_threshold:
-        log_debug(f"[Poker Hold Vision] Shift fallback: all 5 cards shifted downward past threshold (y={min_y} > {held_down_threshold})")
+        log_debug(
+            f"[Poker Hold Vision] Shift fallback: all 5 cards shifted downward past threshold (y={min_y} > {held_down_threshold})"
+        )
         return {0, 1, 2, 3, 4}
 
     log_debug("[Poker Hold Vision] Shift fallback: all cards at upper baseline, none held")
@@ -711,12 +770,25 @@ def read_challenge_payout(img, search_zone):
 # ---------------------------------------------------------
 # OCR Engine 2: pure white background light blue text (RESULT settlement screen Coins)
 # ---------------------------------------------------------
-_SETTLEMENT_TRANS = str.maketrans({
-    'O': '0', 'o': '0', 'Q': '0', 'q': '0', 'D': '0',
-    'I': '1', 'i': '1', 'L': '1', 'l': '1',
-    'Z': '2', 'z': '2', 'S': '5', 's': '5',
-    'B': '8', 'b': '8'
-})
+_SETTLEMENT_TRANS = str.maketrans(
+    {
+        "O": "0",
+        "o": "0",
+        "Q": "0",
+        "q": "0",
+        "D": "0",
+        "I": "1",
+        "i": "1",
+        "L": "1",
+        "l": "1",
+        "Z": "2",
+        "z": "2",
+        "S": "5",
+        "s": "5",
+        "B": "8",
+        "b": "8",
+    }
+)
 
 
 _SETTLEMENT_GRAY_CACHE: dict[tuple[tuple[int, ...], bytes], str] = {}
@@ -748,7 +820,7 @@ def read_settlement_payout(img, search_zone, expected=None, base_prize=None):
         pass
 
     # Fallback pass: grayscale OCR extraction
-    roi = img[sy:sy + sh, sx:sx + sw]
+    roi = img[sy : sy + sh, sx : sx + sw]
     roi = cv2.resize(roi, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
@@ -757,18 +829,19 @@ def read_settlement_payout(img, search_zone, expected=None, base_prize=None):
     if cache_key is not None and cache_key in _SETTLEMENT_GRAY_CACHE:
         text = _SETTLEMENT_GRAY_CACHE[cache_key]
     else:
-        ok, img_bytes = cv2.imencode('.png', gray, _PNG_FAST_PARAMS)
+        ok, img_bytes = cv2.imencode(".png", gray, _PNG_FAST_PARAMS)
         if not ok or img_bytes is None:
             return 0
-        text = ocr.classification(img_bytes.tobytes())
+        raw_res = ocr.classification(img_bytes.tobytes())
+        text = str(raw_res) if isinstance(raw_res, str) else ""
         if cache_key is not None:
             if len(_SETTLEMENT_GRAY_CACHE) >= 16:
                 _SETTLEMENT_GRAY_CACHE.clear()
             _SETTLEMENT_GRAY_CACHE[cache_key] = text
 
-    text = re.sub(r'(?i)coins?|earned', '', text)
+    text = re.sub(r"(?i)coins?|earned", "", str(text))
     text = text.translate(_SETTLEMENT_TRANS)
-    digits = ''.join(filter(str.isdigit, text))
+    digits = "".join(filter(str.isdigit, text))
 
     # Priority 1: If expected cashout is known, check if it matches with at most 1 trailing noise digit
     if expected is not None and expected > 0:
@@ -794,43 +867,82 @@ def read_settlement_payout(img, search_zone, expected=None, base_prize=None):
 CONFIG_CATEGORIES = {
     # Daily Progress & Accounting
     "accounting": [
-        "date", "coins", "fails", "rounds", "pending_cashout", "pending_cashout_date",
+        "date",
+        "coins",
+        "fails",
+        "rounds",
+        "pending_cashout",
+        "pending_cashout_date",
     ],
     # General & Application Settings
     "general": [
-        "language", "hotkey", "hotkey_companion", "scan_mode", "target_limit", "ticket_cost", "debug_logging",
+        "language",
+        "hotkey",
+        "hotkey_companion",
+        "scan_mode",
+        "target_limit",
+        "ticket_cost",
+        "debug_logging",
     ],
     # UI Appearance & Layout
     "display": [
-        "theme_mode", "layout_mode", "background_index", "field_box_opacity", "show_log",
-        "modifiers_expanded", "mod_cat_cards_expanded", "mod_cat_bail_expanded", "mod_cat_prog_expanded",
+        "theme_mode",
+        "layout_mode",
+        "background_index",
+        "field_box_opacity",
+        "show_log",
+        "modifiers_expanded",
+        "mod_cat_cards_expanded",
+        "mod_cat_bail_expanded",
+        "mod_cat_prog_expanded",
     ],
     # Log Management
     "log": [
-        "log_retention_days", "log_max_size_mb",
+        "log_retention_days",
+        "log_max_size_mb",
     ],
     # Strategy & Parameters
     "strategy": [
-        "strategy_key", "strategy_index", "play_style",
-        "param_cushion_target", "param_sprint_target", "param_min_win_rate", "param_max_doubles", "param_drop_seven_eight",
+        "strategy_key",
+        "strategy_index",
+        "play_style",
+        "param_cushion_target",
+        "param_sprint_target",
+        "param_min_win_rate",
+        "param_max_doubles",
+        "param_drop_seven_eight",
     ],
     # Strategy Modifiers
     "modifiers": [
-        "mod_fast_build", "mod_free_roll", "mod_sprint_floor", "mod_mega_sprint",
-        "mod_force_19900", "mod_hunt_14k", "hunt_14k_attempts",
+        "mod_fast_build",
+        "mod_free_roll",
+        "mod_sprint_floor",
+        "mod_mega_sprint",
+        "mod_force_19900",
+        "mod_hunt_14k",
+        "hunt_14k_attempts",
     ],
     # Defensive Bailouts
     "defensive_bailouts": [
-        "mod_drop_6789", "mod_drop_78", "mod_drop_8",
+        "mod_drop_6789",
+        "mod_drop_78",
+        "mod_drop_8",
     ],
     # Card Overrides
     "card_overrides": [
         "opportunistic_double_mode",
-        "opp_a2", "opp_3k", "opp_4q", "opp_5j", "opp_610", "opp_79", "opp_8",
+        "opp_a2",
+        "opp_3k",
+        "opp_4q",
+        "opp_5j",
+        "opp_610",
+        "opp_79",
+        "opp_8",
     ],
     # Settlement & Recovery
     "settlement": [
-        "settlement_recovery_mode", "settlement_ocr_timeout",
+        "settlement_recovery_mode",
+        "settlement_ocr_timeout",
     ],
 }
 
@@ -878,7 +990,7 @@ def _write_config(updater_fn):
         temporary = DATA_FILE.parent / tmp_name
         try:
             temporary.parent.mkdir(parents=True, exist_ok=True)
-            with temporary.open('w', encoding='utf-8') as f:
+            with temporary.open("w", encoding="utf-8") as f:
                 json.dump(ordered_data, f, ensure_ascii=False, indent=2)
             os.replace(temporary, DATA_FILE)
             _config_cache = _flatten_config_dict(ordered_data)
@@ -900,6 +1012,7 @@ def save_pending_cashout(cash: int):
     def update(cfg):
         cfg["pending_cashout"] = cash
         cfg["pending_cashout_date"] = get_game_date()
+
     _write_config(update)
 
 
@@ -907,9 +1020,11 @@ def clear_pending_cashout():
     cached = load_config()
     if "pending_cashout" not in cached and "pending_cashout_date" not in cached:
         return
+
     def update(cfg):
         cfg.pop("pending_cashout", None)
         cfg.pop("pending_cashout_date", None)
+
     _write_config(update)
 
 
@@ -920,7 +1035,6 @@ def load_pending_cashout() -> int | None:
         if isinstance(val, int) and is_valid_settlement_amount(val):
             return val
     return None
-
 
 
 # ================= 3. Data & Main Loop =================
@@ -934,7 +1048,7 @@ def _load_config_unlocked() -> dict:
             mtime = DATA_FILE.stat().st_mtime
             if DATA_FILE == _config_file and mtime == _config_mtime and _config_cache:
                 return dict(_config_cache)
-            with DATA_FILE.open('r', encoding='utf-8') as f:
+            with DATA_FILE.open("r", encoding="utf-8") as f:
                 data = json.load(f)
                 if isinstance(data, dict):
                     flat_data = _flatten_config_dict(data)
@@ -951,6 +1065,7 @@ def _load_config_unlocked() -> dict:
                 corrupt_backup = DATA_FILE.parent / f"config.corrupt_{ts}.json"
                 if not corrupt_backup.exists() and DATA_FILE.stat().st_size > 0:
                     import shutil
+
                     shutil.copy2(DATA_FILE, corrupt_backup)
                 print(f"[Warning] Failed to parse config.json ({exc}). Backed up to {corrupt_backup.name}")
             except OSError:
@@ -960,7 +1075,13 @@ def _load_config_unlocked() -> dict:
     return dict(_config_cache) if _config_cache else {}
 
 
-def cfg_get_int(cfg: dict, key: str, default: int, min_val: int | None = None, max_val: int | None = None) -> int:
+def cfg_get_int(
+    cfg: dict,
+    key: str,
+    default: int,
+    min_val: int | None = None,
+    max_val: int | None = None,
+) -> int:
     val = cfg.get(key)
     try:
         if val is None or val == "":
@@ -987,7 +1108,13 @@ def cfg_get_str(cfg: dict, key: str, default: str = "") -> str:
     return default
 
 
-def cfg_get_float(cfg: dict, key: str, default: float, min_val: float | None = None, max_val: float | None = None) -> float:
+def cfg_get_float(
+    cfg: dict,
+    key: str,
+    default: float,
+    min_val: float | None = None,
+    max_val: float | None = None,
+) -> float:
     val = cfg.get(key)
     try:
         if val is None or val == "":
@@ -1048,26 +1175,31 @@ def save_daily_data(coins, fails, rounds: int | None = None, **settings):
         cfg.pop("phased_stage", None)
         old_date = cfg.get("date")
         cur_date = get_game_date()
-        date_changed = (old_date != cur_date)
-        cfg.update({
-            "coins": coins,
-            "fails": fails,
-            "date": cur_date,
-        })
+        date_changed = old_date != cur_date
+        cfg.update(
+            {
+                "coins": coins,
+                "fails": fails,
+                "date": cur_date,
+            }
+        )
         if rounds is not None:
             cfg["rounds"] = max(0, int(rounds))
         elif date_changed or "rounds" not in cfg:
             cfg["rounds"] = 0
         if settings:
             cfg.update(settings)
+
     _write_config(update)
 
 
 def save_settings_only(**settings):
     """Save user settings and toggles without overwriting active coins, fails, or rounds stats."""
+
     def update(cfg):
         if settings:
             cfg.update(settings)
+
     _write_config(update)
 
 
@@ -1171,7 +1303,11 @@ class BotSessionState:
     def has_frame_changed(self, frame: np.ndarray | None, threshold: float = 1.0) -> bool:
         if frame is None or frame.shape[0] < 400 or frame.shape[1] < 400:
             return True
-        thumb = cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (160, 90), interpolation=cv2.INTER_AREA)
+        thumb = cv2.resize(
+            cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY),
+            (160, 90),
+            interpolation=cv2.INTER_AREA,
+        )
         if self._last_frame_thumb is None or self._last_frame_thumb.shape != thumb.shape:
             self._last_frame_thumb = thumb
             return True
@@ -1236,7 +1372,11 @@ class BotSessionState:
                 return False
             if self.scan_mode and not self.has_logged_user_selected_hold and self.solved_hand_ids:
                 mask = sum(1 << i for i in self.target_held_indices)
-                strat = getattr(self, "poker_all_results", {}).get(mask) if getattr(self, "poker_all_results", None) else None
+                strat = (
+                    getattr(self, "poker_all_results", {}).get(mask)
+                    if getattr(self, "poker_all_results", None)
+                    else None
+                )
                 if strat is None:
                     try:
                         _, all_res = calculate_best(self.solved_hand_ids, "standard")
@@ -1250,14 +1390,27 @@ class BotSessionState:
                 card_labels = [card_text(cid) for cid in self.solved_hand_ids]
                 held_labels = [card_labels[i] for i in sorted(self.target_held_indices)]
                 held_str = " ".join(held_labels) if held_labels else tr("poker_hold_none")
-                print("  " + tr('poker_selected_hold', held=held_str, draw_count=draw_count, ev=ev, rate=rate))
+                print(
+                    "  "
+                    + tr(
+                        "poker_selected_hold",
+                        held=held_str,
+                        draw_count=draw_count,
+                        ev=ev,
+                        rate=rate,
+                    )
+                )
                 self.has_logged_user_selected_hold = True
             final_labels = [card_text(c.card_id) for c in post_cards]
             final_str = " ".join(final_labels)
             final_cat = _evaluate_category5(*(c.card_id for c in post_cards))
             final_cat_key = f"poker_cat_{final_cat}"
-            final_cat_name = tr(final_cat_key) if final_cat_key in localization.TRANSLATIONS.get(localization.get_lang(), {}) else CATEGORY_NAMES[final_cat]
-            print("  " + tr('poker_hand_final', cards=final_str, category=final_cat_name))
+            final_cat_name = (
+                tr(final_cat_key)
+                if final_cat_key in localization.TRANSLATIONS.get(localization.get_lang(), {})
+                else CATEGORY_NAMES[final_cat]
+            )
+            print("  " + tr("poker_hand_final", cards=final_str, category=final_cat_name))
             log_debug(f"[Poker Draw Final] Hand: {final_cat_name} | Cards: [{final_str}]")
             if 0 <= final_cat < len(RAW_PRIZES) and int(RAW_PRIZES[final_cat]) > 0:
                 self.hand_base_prize = int(RAW_PRIZES[final_cat])
@@ -1315,17 +1468,23 @@ class BotSessionState:
                             or getattr(reader, "candidate", None)
                             or getattr(reader, "last_valid_observed", 0)
                         )
-                        eff_base = self.hand_base_prize or (getattr(self.strategy, "base_cash", None) if self.strategy else None)
+                        eff_base = self.hand_base_prize or (
+                            getattr(self.strategy, "base_cash", None) if self.strategy else None
+                        )
                         if fallback_cash:
                             fb_int = int(fallback_cash)
                             if eff_base and not is_valid_hand_payout(fb_int, eff_base):
                                 corr, valid, _ = validate_and_correct_payout(
-                                    fb_int, eff_base, self.settlement_mgr.expected_cashout
+                                    fb_int,
+                                    eff_base,
+                                    self.settlement_mgr.expected_cashout,
                                 )
                                 if valid:
                                     fb_int = corr
                             if is_valid_settlement_amount(fb_int):
-                                log_debug(f"[Fast Click Recovery] User clicked through RESULT before stabilization; crediting {fb_int} coins")
+                                log_debug(
+                                    f"[Fast Click Recovery] User clicked through RESULT before stabilization; crediting {fb_int} coins"
+                                )
                                 self.daily_coins = self.settlement_mgr.credit_payout(
                                     earned=fb_int,
                                     daily_coins=self.daily_coins,
@@ -1356,7 +1515,7 @@ class BotSessionState:
             self.saw_result_screen = False
             self._last_frame_thumb = None
             clear_pending_cashout()
-        elif current_state in ('HIGH_LOW', 'FAIL', 'RESULT'):
+        elif current_state in ("HIGH_LOW", "FAIL", "RESULT"):
             self.reward_reader.reset_prompt()
             self.has_confirmed_success = False
             self.poker_deal_solved = False
@@ -1379,8 +1538,19 @@ class BotSessionState:
             self.step_count = 0
             self.in_round = True
             save_daily_data(self.daily_coins, self.daily_fails, rounds=self.round_count)
-            print("\n" + tr('round_header', round=self.round_count, coins=f"{self.daily_coins:,}", target=f"{self.target_limit:,}", fails=self.daily_fails))
-            log_debug(f"=== Starting Round #{self.round_count} (Coins: {self.daily_coins}, Fails: {self.daily_fails}, Net: {self.net_profit}) ===")
+            print(
+                "\n"
+                + tr(
+                    "round_header",
+                    round=self.round_count,
+                    coins=f"{self.daily_coins:,}",
+                    target=f"{self.target_limit:,}",
+                    fails=self.daily_fails,
+                )
+            )
+            log_debug(
+                f"=== Starting Round #{self.round_count} (Coins: {self.daily_coins}, Fails: {self.daily_fails}, Net: {self.net_profit}) ==="
+            )
             log_debug(f"[Poker Entry] Entry fee -{self.ticket_cost} coins applied for Round #{self.round_count}")
 
     def handle_unknown_state(self):
@@ -1391,14 +1561,20 @@ class BotSessionState:
         if self.unknown_frames_count == warn_threshold:
             _DETECTED_GAME_LANG = None
             _TEMPLATE_ROI_CACHE.clear()
-            log_debug(f"[State Warning] Unknown game state for {warn_threshold} consecutive frames (~5.0s). Waiting for recognized screen...")
+            log_debug(
+                f"[State Warning] Unknown game state for {warn_threshold} consecutive frames (~5.0s). Waiting for recognized screen..."
+            )
         elif self.unknown_frames_count > warn_threshold and self.unknown_frames_count % warn_threshold == 0:
-            log_debug(f"[State Warning] Still in UNKNOWN state ({self.unknown_frames_count} frames, ~{self.unknown_frames_count * step_sec:.1f}s)...")
+            log_debug(
+                f"[State Warning] Still in UNKNOWN state ({self.unknown_frames_count} frames, ~{self.unknown_frames_count * step_sec:.1f}s)..."
+            )
 
     def reset_unknown_state(self, new_state: str):
         warn_threshold = 100 if self.scan_mode else 35
         if self.unknown_frames_count >= warn_threshold:
-            log_debug(f"[State Transition] Recovered from UNKNOWN state after {self.unknown_frames_count} frames -> New state: {new_state}")
+            log_debug(
+                f"[State Transition] Recovered from UNKNOWN state after {self.unknown_frames_count} frames -> New state: {new_state}"
+            )
         self.unknown_frames_count = 0
 
 
@@ -1441,8 +1617,19 @@ def handle_start_bet(ctx: BotSessionState, img: np.ndarray, win_left: int, win_t
             ctx.step_count = 0
             ctx.in_round = True
             save_daily_data(ctx.daily_coins, ctx.daily_fails, rounds=ctx.round_count)
-            print("\n" + tr('round_header', round=ctx.round_count, coins=f"{ctx.daily_coins:,}", target=f"{ctx.target_limit:,}", fails=ctx.daily_fails))
-            log_debug(f"=== Starting Round #{ctx.round_count} (Coins: {ctx.daily_coins}, Fails: {ctx.daily_fails}, Net: {ctx.net_profit}) ===")
+            print(
+                "\n"
+                + tr(
+                    "round_header",
+                    round=ctx.round_count,
+                    coins=f"{ctx.daily_coins:,}",
+                    target=f"{ctx.target_limit:,}",
+                    fails=ctx.daily_fails,
+                )
+            )
+            log_debug(
+                f"=== Starting Round #{ctx.round_count} (Coins: {ctx.daily_coins}, Fails: {ctx.daily_fails}, Net: {ctx.net_profit}) ==="
+            )
             log_debug(f"[Poker Entry] Entry fee -{ctx.ticket_cost} coins applied for Round #{ctx.round_count}")
     else:
         log_debug("[Start Bet Warning] START_BET state active but start button icon template was below threshold")
@@ -1498,8 +1685,9 @@ def scan_user_selected_hand(
 
         mask = sum(1 << i for i in currently_held)
         strat = None
-        if getattr(ctx, "poker_all_results", None) and mask in ctx.poker_all_results:
-            strat = ctx.poker_all_results[mask]
+        results_map = getattr(ctx, "poker_all_results", None)
+        if isinstance(results_map, dict) and mask in results_map:
+            strat = results_map[mask]
         else:
             try:
                 _, all_res = calculate_best(ctx.solved_hand_ids, "standard")
@@ -1520,8 +1708,19 @@ def scan_user_selected_hand(
         held_labels = [card_labels[i] for i in sorted(currently_held)] if card_labels else []
         held_str = " ".join(held_labels) if held_labels else tr("poker_hold_none")
 
-        print("  " + tr('poker_selected_hold', held=held_str, draw_count=draw_count, ev=ev, rate=rate))
-        log_debug(f"[Poker Observer] User selected hold: mask={mask:#07b} slots={sorted(currently_held)} (Keep: {held_str}) | EV={ev:.2f} | WinProb={rate:.2%}")
+        print(
+            "  "
+            + tr(
+                "poker_selected_hold",
+                held=held_str,
+                draw_count=draw_count,
+                ev=ev,
+                rate=rate,
+            )
+        )
+        log_debug(
+            f"[Poker Observer] User selected hold: mask={mask:#07b} slots={sorted(currently_held)} (Keep: {held_str}) | EV={ev:.2f} | WinProb={rate:.2%}"
+        )
 
     return currently_held
 
@@ -1571,7 +1770,9 @@ def handle_hold_cards(ctx: BotSessionState, img: np.ndarray, win_left: int, win_
             ctx.deal_wait_start = 0.0
         else:
             card_diag = ", ".join(f"{card_text(c.card_id)}(conf={c.rank_score:.2f})" for c in recognized_cards)
-            log_debug(f"[Poker Deal Warning] Cards detected but settling: [{card_diag}]. Waiting for animation ({elapsed_wait:.2f}s)...")
+            log_debug(
+                f"[Poker Deal Warning] Cards detected but settling: [{card_diag}]. Waiting for animation ({elapsed_wait:.2f}s)..."
+            )
             time.sleep(0.04 if ctx.scan_mode else 0.12)
             return
     else:
@@ -1586,9 +1787,13 @@ def handle_hold_cards(ctx: BotSessionState, img: np.ndarray, win_left: int, win_
                     can_proceed = True
                     ctx.deal_wait_start = 0.0
                     card_diag = ", ".join(f"{card_text(c.card_id)}(conf={c.rank_score:.2f})" for c in recognized_cards)
-                    log_debug(f"[Poker Deal Fallback] Recovered 5 cards via fallback geometry ({elapsed_wait:.2f}s): [{card_diag}]")
+                    log_debug(
+                        f"[Poker Deal Fallback] Recovered 5 cards via fallback geometry ({elapsed_wait:.2f}s): [{card_diag}]"
+                    )
         if not can_proceed:
-            log_debug(f"[Poker Deal Warning] Detected {len(recognized_cards)}/5 cards in frame. Waiting for animation ({elapsed_wait:.2f}s)...")
+            log_debug(
+                f"[Poker Deal Warning] Detected {len(recognized_cards)}/5 cards in frame. Waiting for animation ({elapsed_wait:.2f}s)..."
+            )
             time.sleep(0.04 if ctx.scan_mode else 0.15)
             return
 
@@ -1597,7 +1802,9 @@ def handle_hold_cards(ctx: BotSessionState, img: np.ndarray, win_left: int, win_
         if not ctx.has_logged_final_hand and ctx.poker_deal_solved and hand_ids != ctx.solved_hand_ids:
             old_labels = " ".join(card_text(cid) for cid in ctx.solved_hand_ids)
             new_labels = " ".join(card_text(cid) for cid in hand_ids)
-            log_debug(f"[Poker Deal] Hand cards changed on screen (Was: [{old_labels}] -> Now: [{new_labels}]). Re-evaluating optimal hold.")
+            log_debug(
+                f"[Poker Deal] Hand cards changed on screen (Was: [{old_labels}] -> Now: [{new_labels}]). Re-evaluating optimal hold."
+            )
             ctx.counter.reset()
             ctx.poker_deal_solved = False
             ctx.has_done_initial_hold = False
@@ -1610,7 +1817,9 @@ def handle_hold_cards(ctx: BotSessionState, img: np.ndarray, win_left: int, win_
 
         if not ctx.poker_deal_solved:
             ctx.solved_hand_ids = list(hand_ids)
-            card_values = [v for c in recognized_cards if c.card_id != JOKER_ID if (v := get_card_point_value(c)) is not None]
+            card_values = [
+                v for c in recognized_cards if c.card_id != JOKER_ID if (v := get_card_point_value(c)) is not None
+            ]
             ctx.counter.remove_cards(card_values)
 
             cat_idx = _evaluate_category5(*(c.card_id for c in recognized_cards))
@@ -1622,7 +1831,11 @@ def handle_hold_cards(ctx: BotSessionState, img: np.ndarray, win_left: int, win_
                     ctx.last_known_cashout = ctx.hand_base_prize
                     ctx.last_known_next_reward = ctx.hand_base_prize * 2
             cat_trans_key = f"poker_cat_{cat_idx}"
-            cat_name = tr(cat_trans_key) if cat_trans_key in localization.TRANSLATIONS.get(localization.get_lang(), {}) else CATEGORY_NAMES[cat_idx]
+            cat_name = (
+                tr(cat_trans_key)
+                if cat_trans_key in localization.TRANSLATIONS.get(localization.get_lang(), {})
+                else CATEGORY_NAMES[cat_idx]
+            )
             card_labels = [card_text(c.card_id) for c in recognized_cards]
             cards_str = " ".join(card_labels)
 
@@ -1635,12 +1848,25 @@ def handle_hold_cards(ctx: BotSessionState, img: np.ndarray, win_left: int, win_
             held_str = " ".join(held_labels) if held_labels else tr("poker_hold_none")
             draw_count = 5 - len(best.held_indices)
 
-            print(tr('poker_hand_dealt', cards=cards_str, category=cat_name))
-            print("  " + tr('poker_optimal_hold', held=held_str, draw_count=draw_count, ev=best.expected_payout, rate=best.win_probability))
+            print(tr("poker_hand_dealt", cards=cards_str, category=cat_name))
+            print(
+                "  "
+                + tr(
+                    "poker_optimal_hold",
+                    held=held_str,
+                    draw_count=draw_count,
+                    ev=best.expected_payout,
+                    rate=best.win_probability,
+                )
+            )
 
-            card_diag = ", ".join(f"{card_text(c.card_id)}(conf={c.rank_score:.2f},margin={c.rank_margin:.2f})" for c in recognized_cards)
+            card_diag = ", ".join(
+                f"{card_text(c.card_id)}(conf={c.rank_score:.2f},margin={c.rank_margin:.2f})" for c in recognized_cards
+            )
             log_debug(f"[Poker Deal] 5 cards recognized: {card_diag}")
-            log_debug(f"[Poker Solver] Hand: {cat_name} | Best Hold: mask={best.mask:#07b} indices={best.held_indices} (Keep: {held_str}) | EV={best.expected_payout:.2f} | WinProb={best.win_probability:.2%}")
+            log_debug(
+                f"[Poker Solver] Hand: {cat_name} | Best Hold: mask={best.mask:#07b} indices={best.held_indices} (Keep: {held_str}) | EV={best.expected_payout:.2f} | WinProb={best.win_probability:.2%}"
+            )
             ctx.poker_deal_solved = True
             ctx.has_done_initial_hold = False
             ctx.last_replace_click_time = 0.0
@@ -1662,10 +1888,18 @@ def handle_hold_cards(ctx: BotSessionState, img: np.ndarray, win_left: int, win_
                 toggle_labels = " ".join(card_labels[i] for i in sorted(to_toggle))
                 log_debug(f"[Poker Hold] Selecting target cards: [{toggle_labels}] (slots {sorted(to_toggle)})")
             else:
-                current_held_str = " ".join(card_labels[i] for i in sorted(currently_held)) if currently_held else tr("poker_hold_none")
-                target_held_str = " ".join(card_labels[i] for i in sorted(ctx.target_held_indices)) if ctx.target_held_indices else tr("poker_hold_none")
+                current_held_str = (
+                    " ".join(card_labels[i] for i in sorted(currently_held))
+                    if currently_held
+                    else tr("poker_hold_none")
+                )
+                target_held_str = (
+                    " ".join(card_labels[i] for i in sorted(ctx.target_held_indices))
+                    if ctx.target_held_indices
+                    else tr("poker_hold_none")
+                )
                 toggled_str = " ".join(card_labels[i] for i in sorted(to_toggle))
-                print("  " + tr('poker_hold_resync', held=target_held_str, toggled=toggled_str))
+                print("  " + tr("poker_hold_resync", held=target_held_str, toggled=toggled_str))
                 log_debug(
                     f"[Poker Hold Sync] Selection mismatch! Currently held: [{current_held_str}] (slots {sorted(currently_held)}) | "
                     f"Target: [{target_held_str}] (slots {sorted(ctx.target_held_indices)}) -> Re-clicking: [{toggled_str}] (slots {sorted(to_toggle)})"
@@ -1679,13 +1913,16 @@ def handle_hold_cards(ctx: BotSessionState, img: np.ndarray, win_left: int, win_
             return
         else:
             ctx.has_done_initial_hold = True
-            held_cards_str = " ".join(card_labels[i] for i in sorted(ctx.target_held_indices)) if ctx.target_held_indices else tr("poker_hold_none")
-            log_debug(f"[Poker Hold Sync] Cards verified in desired hold state: [{held_cards_str}] (slots {sorted(ctx.target_held_indices)})")
+            held_cards_str = (
+                " ".join(card_labels[i] for i in sorted(ctx.target_held_indices))
+                if ctx.target_held_indices
+                else tr("poker_hold_none")
+            )
+            log_debug(
+                f"[Poker Hold Sync] Cards verified in desired hold state: [{held_cards_str}] (slots {sorted(ctx.target_held_indices)})"
+            )
 
-        can_click_replace = (
-            not ctx.has_logged_final_hand
-            and (time.monotonic() - ctx.last_replace_click_time >= 1.5)
-        )
+        can_click_replace = not ctx.has_logged_final_hand and (time.monotonic() - ctx.last_replace_click_time >= 1.5)
         if can_click_replace:
             fresh_img, f_left, f_top = capture_game_window()
             img_for_replace = fresh_img if fresh_img is not None else img
@@ -1708,7 +1945,9 @@ def handle_hold_cards(ctx: BotSessionState, img: np.ndarray, win_left: int, win_
                     if ctx.try_log_final_poker_hand(post_img):
                         break
             else:
-                log_debug("[Poker Hold] Replace / OK as is button click did not trigger or missed; will retry next frame")
+                log_debug(
+                    "[Poker Hold] Replace / OK as is button click did not trigger or missed; will retry next frame"
+                )
                 time.sleep(0.2)
         else:
             time.sleep(0.2)
@@ -1737,7 +1976,7 @@ def handle_ask_challenge(ctx: BotSessionState, img: np.ndarray, win_left: int, w
             if ctx.hand_base_prize > 0:
                 ctx.strategy.start_round(ctx.hand_base_prize, ctx.daily_coins)
             elif not ctx.scan_mode:
-                raise SafeStop('Currently mid-doubling, cannot recover win count. Please start from a fresh round.')
+                raise SafeStop("Currently mid-doubling, cannot recover win count. Please start from a fresh round.")
         if getattr(ctx.strategy, "base_cash", None) is None:
             real_reward = read_challenge_payout(img, REWARD_ZONE)
             next_reward = ctx.reward_reader.observe(real_reward, time.monotonic(), timeout=eff_ocr_timeout)
@@ -1751,7 +1990,9 @@ def handle_ask_challenge(ctx: BotSessionState, img: np.ndarray, win_left: int, w
                 ctx.hand_base_prize = current_cashout
                 if ctx.settlement_mgr:
                     ctx.settlement_mgr.base_prize = current_cashout
-            log_debug(f"[Challenge OCR] Initial payout confirmed: current_cashout={current_cashout}, next_reward={next_reward}")
+            log_debug(
+                f"[Challenge OCR] Initial payout confirmed: current_cashout={current_cashout}, next_reward={next_reward}"
+            )
         else:
             if not ctx.has_confirmed_success:
                 ctx.strategy.confirm_success()
@@ -1763,7 +2004,9 @@ def handle_ask_challenge(ctx: BotSessionState, img: np.ndarray, win_left: int, w
                 time.sleep(0.04 if ctx.scan_mode else 0.25)
                 return
             current_cashout = next_reward // 2
-            log_debug(f"[Challenge OCR] Ongoing payout confirmed: current_cashout={current_cashout}, next_reward={next_reward}")
+            log_debug(
+                f"[Challenge OCR] Ongoing payout confirmed: current_cashout={current_cashout}, next_reward={next_reward}"
+            )
     else:
         if is_success_prompt(img) and not ctx.has_confirmed_success:
             ctx.strategy.confirm_success()
@@ -1777,7 +2020,9 @@ def handle_ask_challenge(ctx: BotSessionState, img: np.ndarray, win_left: int, w
                 time.sleep(0.04 if ctx.scan_mode else 0.25)
                 return
             current_cashout = next_reward // 2
-            log_debug(f"[Challenge OCR] Ongoing payout confirmed: current_cashout={current_cashout}, next_reward={next_reward}")
+            log_debug(
+                f"[Challenge OCR] Ongoing payout confirmed: current_cashout={current_cashout}, next_reward={next_reward}"
+            )
         else:
             current_cashout = ctx.strategy.expected_cash or 0
             next_reward = current_cashout * 2
@@ -1802,16 +2047,18 @@ def handle_ask_challenge(ctx: BotSessionState, img: np.ndarray, win_left: int, w
                                 ctx.last_removed_card_x = right_rect[0]
                                 ctx.pre_removed_card_id = right_card.card_id
                             ctx.current_card_already_removed = True
-                            log_debug(f"[Companion] Recovered upcoming base card from table: {card_text(right_card.card_id)} ({rv}) at x={right_rect[0]}")
+                            log_debug(
+                                f"[Companion] Recovered upcoming base card from table: {card_text(right_card.card_id)} ({rv}) at x={right_rect[0]}"
+                            )
         except (AttributeError, ValueError, TypeError, cv2.error) as e:
             log_debug(f"[Companion Warning] Error reading upcoming card from table: {e}")
 
     if ctx.upcoming_card_val is not None:
         _, win_rate = ctx.counter.get_best_choice_and_rate(ctx.upcoming_card_val)
-        rate_text = tr('risk_prediction', rate=win_rate)
+        rate_text = tr("risk_prediction", rate=win_rate)
     else:
         win_rate = 1.0
-        rate_text = tr('risk_blind')
+        rate_text = tr("risk_blind")
 
     # Apply active strategy modifiers and card overrides from cached configuration
     runtime_config = ctx.get_config()
@@ -1845,7 +2092,11 @@ def handle_ask_challenge(ctx: BotSessionState, img: np.ndarray, win_left: int, w
     is_custom_parametric = getattr(ctx.strategy, "name", "") == "Custom Parametric"
     user_cushion = runtime_config.get("param_cushion_target") if is_custom_parametric else None
     strat_cushion = getattr(ctx.strategy, "cushion_target", 19800)
-    cushion_target = int(user_cushion) if user_cushion is not None else (int(strat_cushion) if isinstance(strat_cushion, (int, float)) else 19800)
+    cushion_target = (
+        int(user_cushion)
+        if user_cushion is not None
+        else (int(strat_cushion) if isinstance(strat_cushion, (int, float)) else 19800)
+    )
     if hasattr(ctx.strategy, "cushion_target"):
         ctx.strategy.cushion_target = cushion_target
 
@@ -1887,55 +2138,102 @@ def handle_ask_challenge(ctx: BotSessionState, img: np.ndarray, win_left: int, w
         return
     ctx.last_advised_challenge = chal_key
 
-    print(tr('challenge_current', cashout=f"{current_cashout:,}", reward=f"{next_reward:,}"))
+    print(
+        tr(
+            "challenge_current",
+            cashout=f"{current_cashout:,}",
+            reward=f"{next_reward:,}",
+        )
+    )
     print(f"  {rate_text}")
 
     if mod_reason:
-        if action == 'challenge' and hasattr(ctx.strategy, 'last_cashout'):
+        if action == "challenge" and hasattr(ctx.strategy, "last_cashout"):
             ctx.strategy.last_cashout = None
-        if hasattr(ctx.strategy, 'intent_to_fail'):
+        if hasattr(ctx.strategy, "intent_to_fail"):
             ctx.strategy.intent_to_fail = mod_reason.endswith("_fail")
 
-        if mod_reason == 'opportunistic_card':
-            rank_name = {2: "2", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8", 9: "9", 10: "10", 11: "J", 12: "Q", 13: "K", 14: "A"}.get(ctx.upcoming_card_val, str(ctx.upcoming_card_val))
-            print("  " + tr('opportunistic_double_msg', rank=rank_name, rate=win_rate, reward=next_reward, limit=ctx.target_limit))
-        elif mod_reason == 'mod_fast_build':
-            print("  " + tr('mod_fast_build_msg', reward=next_reward, cushion=cushion_target))
-        elif mod_reason == 'mod_free_roll':
-            print("  " + tr('mod_free_roll_msg', cashout=current_cashout))
-        elif mod_reason == 'mod_drop_6789':
+        if mod_reason == "opportunistic_card":
+            rank_name = (
+                {
+                    2: "2",
+                    3: "3",
+                    4: "4",
+                    5: "5",
+                    6: "6",
+                    7: "7",
+                    8: "8",
+                    9: "9",
+                    10: "10",
+                    11: "J",
+                    12: "Q",
+                    13: "K",
+                    14: "A",
+                }.get(ctx.upcoming_card_val, str(ctx.upcoming_card_val))
+                if ctx.upcoming_card_val is not None
+                else "Unknown"
+            )
+            print(
+                "  "
+                + tr(
+                    "opportunistic_double_msg",
+                    rank=rank_name,
+                    rate=win_rate,
+                    reward=next_reward,
+                    limit=ctx.target_limit,
+                )
+            )
+        elif mod_reason == "mod_fast_build":
+            print("  " + tr("mod_fast_build_msg", reward=next_reward, cushion=cushion_target))
+        elif mod_reason == "mod_free_roll":
+            print("  " + tr("mod_free_roll_msg", cashout=current_cashout))
+        elif mod_reason == "mod_drop_6789":
             rank_name = str(ctx.upcoming_card_val)
-            print("  " + tr('mod_drop_6789_msg', rank=rank_name, cashout=current_cashout))
-        elif mod_reason == 'mod_drop_78':
+            print("  " + tr("mod_drop_6789_msg", rank=rank_name, cashout=current_cashout))
+        elif mod_reason == "mod_drop_78":
             rank_name = str(ctx.upcoming_card_val)
-            print("  " + tr('mod_drop_78_msg', rank=rank_name, cashout=current_cashout))
-        elif mod_reason == 'mod_drop_8':
-            print("  " + tr('mod_drop_8_msg', cashout=current_cashout))
-        elif mod_reason == 'mod_mega_sprint':
-            print("  " + tr('mod_mega_sprint_msg', cashout=current_cashout))
-        elif mod_reason == 'mod_sprint_floor':
-            print("  " + tr('mod_sprint_floor_msg', cashout=current_cashout))
-        elif mod_reason in ('mod_hunt_14k', 'mod_hunt_14k_fail'):
-            print("  " + tr('mod_hunt_14k_msg', cashout=current_cashout, max_payout=get_max_round_payout(current_cashout)))
-        elif mod_reason in ('mod_force_19900', 'mod_force_19900_fail'):
-            print("  " + tr('mod_force_19900_msg', cashout=current_cashout, total=ctx.daily_coins + current_cashout))
+            print("  " + tr("mod_drop_78_msg", rank=rank_name, cashout=current_cashout))
+        elif mod_reason == "mod_drop_8":
+            print("  " + tr("mod_drop_8_msg", cashout=current_cashout))
+        elif mod_reason == "mod_mega_sprint":
+            print("  " + tr("mod_mega_sprint_msg", cashout=current_cashout))
+        elif mod_reason == "mod_sprint_floor":
+            print("  " + tr("mod_sprint_floor_msg", cashout=current_cashout))
+        elif mod_reason in ("mod_hunt_14k", "mod_hunt_14k_fail"):
+            print(
+                "  "
+                + tr(
+                    "mod_hunt_14k_msg",
+                    cashout=current_cashout,
+                    max_payout=get_max_round_payout(current_cashout),
+                )
+            )
+        elif mod_reason in ("mod_force_19900", "mod_force_19900_fail"):
+            print(
+                "  "
+                + tr(
+                    "mod_force_19900_msg",
+                    cashout=current_cashout,
+                    total=ctx.daily_coins + current_cashout,
+                )
+            )
 
     if getattr(ctx, "cap_override", False) and not ctx.scan_mode:
         if ctx.daily_coins < ctx.target_limit:
             ctx.cap_override = False
-        elif action == 'cashout' and current_cashout < 10000:
-            action = 'challenge'
-            mod_reason = tr('reason_cap_override_sprint')
-            if hasattr(ctx.strategy, 'intent_to_fail'):
+        elif action == "cashout" and current_cashout < 10000:
+            action = "challenge"
+            mod_reason = tr("reason_cap_override_sprint")
+            if hasattr(ctx.strategy, "intent_to_fail"):
                 ctx.strategy.intent_to_fail = False
 
-    if action == 'cashout' and hasattr(ctx.strategy, 'intent_to_fail'):
+    if action == "cashout" and hasattr(ctx.strategy, "intent_to_fail"):
         ctx.strategy.intent_to_fail = False
 
     effective_cash = ctx.strategy.expected_cash or current_cashout
     reason_str = mod_reason or ctx.strat_name
-    if action == 'cashout':
-        print("  " + tr('challenge_decision_cashout', reason=reason_str))
+    if action == "cashout":
+        print("  " + tr("challenge_decision_cashout", reason=reason_str))
         log_debug(f"[Decision] CASHOUT (effective_cash={effective_cash}, daily={ctx.daily_coins}, mod={mod_reason})")
         if not ctx.scan_mode:
             ctx.request_cashout(img, win_left, win_top, effective_cash)
@@ -1944,8 +2242,10 @@ def handle_ask_challenge(ctx: BotSessionState, img: np.ndarray, win_left: int, w
                 ctx.settlement_mgr.expected_cashout = effective_cash
             save_pending_cashout(effective_cash)
     else:
-        print("  " + tr('challenge_decision_double', reason=reason_str))
-        log_debug(f"[Decision] DOUBLE UP (next_reward={next_reward}, headroom={(cushion_target + 100) - (ctx.daily_coins + next_reward)}, mod={mod_reason}, intent_to_fail={getattr(ctx.strategy, 'intent_to_fail', False)})")
+        print("  " + tr("challenge_decision_double", reason=reason_str))
+        log_debug(
+            f"[Decision] DOUBLE UP (next_reward={next_reward}, headroom={(cushion_target + 100) - (ctx.daily_coins + next_reward)}, mod={mod_reason}, intent_to_fail={getattr(ctx.strategy, 'intent_to_fail', False)})"
+        )
         if not ctx.scan_mode:
             find_and_click_icon(img, TPL_CONFIRM_DOUBLE, win_left, win_top, threshold=0.55)
 
@@ -2007,8 +2307,18 @@ def handle_high_low(ctx: BotSessionState, img: np.ndarray, win_left: int, win_to
                                 ctx.strategy.notify_push()
                             ctx.hl_awaiting_challenge = False
 
-                        print("  " + tr('hl_card_flipped', card=flipped_label, cmp=cmp_txt, outcome=outcome))
-                        log_debug(f"[Companion Flip] Detected [{flipped_label}] (rank='{flipped_card.rank}', suit='{flipped_card.suit}', conf={flipped_card.rank_score:.2f}, box={current_rect}) -> {cmp_txt} [{outcome}]")
+                        print(
+                            "  "
+                            + tr(
+                                "hl_card_flipped",
+                                card=flipped_label,
+                                cmp=cmp_txt,
+                                outcome=outcome,
+                            )
+                        )
+                        log_debug(
+                            f"[Companion Flip] Detected [{flipped_label}] (rank='{flipped_card.rank}', suit='{flipped_card.suit}', conf={flipped_card.rank_score:.2f}, box={current_rect}) -> {cmp_txt} [{outcome}]"
+                        )
                         ctx.current_hl_step_outcome_logged = True
                 time.sleep(0.04)
                 return
@@ -2044,7 +2354,7 @@ def handle_high_low(ctx: BotSessionState, img: np.ndarray, win_left: int, win_to
                     if ctx.strategy is not None:
                         ctx.strategy.confirm_success()
 
-                was_pre_removed = (ctx.pre_removed_card_id == single_card.card_id)
+                was_pre_removed = ctx.pre_removed_card_id == single_card.card_id
                 if ctx.last_removed_card_x != current_rect[0]:
                     if was_pre_removed:
                         ctx.pre_removed_card_id = None
@@ -2072,19 +2382,55 @@ def handle_high_low(ctx: BotSessionState, img: np.ndarray, win_left: int, win_to
                     elif ctx.last_advised_hl_key is None or ctx.last_advised_hl_key[0] != single_card.card_id:
                         ctx.hl_step_from_pre_removed = False
                     ctx.upcoming_card_val = None
-                    print("\n" + tr('hl_step_header', step=ctx.step_count, card=card_label, remaining=ctx.counter.total_cards))
+                    print(
+                        "\n"
+                        + tr(
+                            "hl_step_header",
+                            step=ctx.step_count,
+                            card=card_label,
+                            remaining=ctx.counter.total_cards,
+                        )
+                    )
                     if getattr(ctx.strategy, "intent_to_fail", False):
-                        print("  " + tr('intentional_fail_msg', rank=card_label, choice=best_choice.upper(), rate=rate))
+                        print(
+                            "  "
+                            + tr(
+                                "intentional_fail_msg",
+                                rank=card_label,
+                                choice=best_choice.upper(),
+                                rate=rate,
+                            )
+                        )
                     else:
-                        print("  " + tr('visible_card_choice', rank=card_label, choice=best_choice.upper(), rate=rate))
+                        print(
+                            "  "
+                            + tr(
+                                "visible_card_choice",
+                                rank=card_label,
+                                choice=best_choice.upper(),
+                                rate=rate,
+                            )
+                        )
 
-                    high_cards = sum(ctx.counter._counts[current_card_val + 1:])
+                    high_cards = sum(ctx.counter._counts[current_card_val + 1 :])
                     low_cards = sum(ctx.counter._counts[2:current_card_val])
                     tie_cards = ctx.counter._counts[current_card_val]
                     tot = max(1, ctx.counter.total_cards)
-                    print("  " + tr('hl_push_odds', tie=tie_cards, total=tot, rate=tie_cards / tot))
-                    log_debug(f"[High-Low Step #{ctx.step_count}] Visible: {card_label} (rank='{single_card.rank}', suit='{single_card.suit}', conf={single_card.rank_score:.2f}, margin={single_card.rank_margin:.2f}, box={current_rect})")
-                    log_debug(f"[High-Low Deck] Remaining={tot} | HIGH={high_cards}/{tot} ({high_cards/tot:.1%}) | LOW={low_cards}/{tot} ({low_cards/tot:.1%}) | TIE={tie_cards}/{tot} ({tie_cards/tot:.1%}) -> Choice: {best_choice.upper()}")
+                    print(
+                        "  "
+                        + tr(
+                            "hl_push_odds",
+                            tie=tie_cards,
+                            total=tot,
+                            rate=tie_cards / tot,
+                        )
+                    )
+                    log_debug(
+                        f"[High-Low Step #{ctx.step_count}] Visible: {card_label} (rank='{single_card.rank}', suit='{single_card.suit}', conf={single_card.rank_score:.2f}, margin={single_card.rank_margin:.2f}, box={current_rect})"
+                    )
+                    log_debug(
+                        f"[High-Low Deck] Remaining={tot} | HIGH={high_cards}/{tot} ({high_cards / tot:.1%}) | LOW={low_cards}/{tot} ({low_cards / tot:.1%}) | TIE={tie_cards}/{tot} ({tie_cards / tot:.1%}) -> Choice: {best_choice.upper()}"
+                    )
                     ctx.last_advised_hl_key = hl_key
 
                 if ctx.scan_mode:
@@ -2108,7 +2454,11 @@ def handle_high_low(ctx: BotSessionState, img: np.ndarray, win_left: int, win_to
                 # Narrow horizontal search zone to right of previous card for faster contour detection
                 burst_x = max(HIGH_LOW_SEARCH_ZONE[0], old_right_x + 10)
                 burst_w = (HIGH_LOW_SEARCH_ZONE[0] + HIGH_LOW_SEARCH_ZONE[2]) - burst_x
-                burst_zone = (burst_x, HIGH_LOW_SEARCH_ZONE[1], burst_w, HIGH_LOW_SEARCH_ZONE[3]) if burst_w > 100 else HIGH_LOW_SEARCH_ZONE
+                burst_zone = (
+                    (burst_x, HIGH_LOW_SEARCH_ZONE[1], burst_w, HIGH_LOW_SEARCH_ZONE[3])
+                    if burst_w > 100
+                    else HIGH_LOW_SEARCH_ZONE
+                )
 
                 for i in range(25):
                     time.sleep(0.04)
@@ -2123,15 +2473,17 @@ def handle_high_low(ctx: BotSessionState, img: np.ndarray, win_left: int, win_to
 
                                 if newest_rect[0] > old_right_x + 50:
                                     newest_card = ctx.card_rec.recognize_card(flip_img, newest_rect)
-                                    if (newest_card.card_id != JOKER_ID
-                                            and getattr(newest_card, 'rank_score', 1.0) >= 0.65):
+                                    if (
+                                        newest_card.card_id != JOKER_ID
+                                        and getattr(newest_card, "rank_score", 1.0) >= 0.65
+                                    ):
                                         if candidate_card is not None and candidate_card.rank == newest_card.rank:
                                             stable_count += 1
                                         else:
                                             candidate_card = newest_card
                                             stable_count = 1
 
-                                        if stable_count >= 2 or getattr(newest_card, 'rank_score', 0) >= 0.80:
+                                        if stable_count >= 2 or getattr(newest_card, "rank_score", 0) >= 0.80:
                                             new_val = get_card_point_value(newest_card)
                                             if new_val is not None:
                                                 ctx.upcoming_card_val = new_val
@@ -2151,37 +2503,55 @@ def handle_high_low(ctx: BotSessionState, img: np.ndarray, win_left: int, win_to
                                                 else:
                                                     cmp_txt = f"{new_val} == {current_card_val}"
                                                     outcome = "TIE (Push)"
-                                                    if ctx.strategy is not None and hasattr(ctx.strategy, "notify_push"):
+                                                    if ctx.strategy is not None and hasattr(
+                                                        ctx.strategy, "notify_push"
+                                                    ):
                                                         ctx.strategy.notify_push()
 
-                                                print("  " + tr('hl_card_flipped', card=flipped_label, cmp=cmp_txt, outcome=outcome))
-                                                log_debug(f"[Burst Tracking] Frame {i + 1}: Detected [{flipped_label}] (rank='{newest_card.rank}', suit='{newest_card.suit}', conf={newest_card.rank_score:.2f}, margin={newest_card.rank_margin:.2f}, stable={stable_count}) -> {cmp_txt} [{outcome}]")
+                                                print(
+                                                    "  "
+                                                    + tr(
+                                                        "hl_card_flipped",
+                                                        card=flipped_label,
+                                                        cmp=cmp_txt,
+                                                        outcome=outcome,
+                                                    )
+                                                )
+                                                log_debug(
+                                                    f"[Burst Tracking] Frame {i + 1}: Detected [{flipped_label}] (rank='{newest_card.rank}', suit='{newest_card.suit}', conf={newest_card.rank_score:.2f}, margin={newest_card.rank_margin:.2f}, stable={stable_count}) -> {cmp_txt} [{outcome}]"
+                                                )
 
                                                 if ctx.debug_mode:
                                                     DEBUG_DIR.mkdir(exist_ok=True)
                                                     cx, cy, cw, ch = newest_rect
-                                                    cv2.imwrite(str(DEBUG_DIR / "2_next_card.png"),
-                                                                flip_img[max(0, cy - 40):cy + ch + 40,
-                                                                max(0, cx - 40):cx + cw + 40])
+                                                    cv2.imwrite(
+                                                        str(DEBUG_DIR / "2_next_card.png"),
+                                                        flip_img[
+                                                            max(0, cy - 40) : cy + ch + 40,
+                                                            max(0, cx - 40) : cx + cw + 40,
+                                                        ],
+                                                    )
                                                 break
                         except (AttributeError, ValueError, cv2.error):
                             log_debug("[Burst Tracking] Frame card extraction failed, skipping frame")
                             continue
 
                 if ctx.upcoming_card_val is None:
-                    print("  " + tr('hl_tracking_timeout_user'))
-                    log_debug("[Burst Tracking Warning] Frame tracking timed out after 25 frames. Unable to identify next card.")
+                    print("  " + tr("hl_tracking_timeout_user"))
+                    log_debug(
+                        "[Burst Tracking Warning] Frame tracking timed out after 25 frames. Unable to identify next card."
+                    )
 
                 time.sleep(0.15)
             else:
                 log_debug("[High-Low Warning] Unexpected Joker detected in High-Low visible card zone.")
                 time.sleep(0.05 if ctx.scan_mode else 0.20)
         else:
-            print(tr('warn_no_cards'))
+            print(tr("warn_no_cards"))
             log_debug(f"[High-Low Warning] No white face-up card contours found in {HIGH_LOW_SEARCH_ZONE}")
             time.sleep(0.05 if ctx.scan_mode else 0.20)
     except (RuntimeError, ValueError, TypeError, cv2.error) as e:
-        print(tr('err_high_low', error=e))
+        print(tr("err_high_low", error=e))
         log_debug(f"[High-Low Exception] {e}")
 
 
@@ -2193,8 +2563,10 @@ def handle_fail(ctx: BotSessionState, img: np.ndarray, win_left: int, win_top: i
         loss = ctx.daily_fails * ctx.ticket_cost
         ctx.net_profit = ctx.daily_coins - loss
         save_daily_data(ctx.daily_coins, ctx.daily_fails, rounds=ctx.round_count)
-        print("\n" + tr('fail_summary', fails=ctx.daily_fails, loss=loss, profit=ctx.net_profit))
-        log_debug(f"[Round #{ctx.round_count} BUST] Total fails: {ctx.daily_fails}, ticket loss: {loss}, net profit: {ctx.net_profit}")
+        print("\n" + tr("fail_summary", fails=ctx.daily_fails, loss=loss, profit=ctx.net_profit))
+        log_debug(
+            f"[Round #{ctx.round_count} BUST] Total fails: {ctx.daily_fails}, ticket loss: {loss}, net profit: {ctx.net_profit}"
+        )
         if ctx.on_stats_update:
             ctx.on_stats_update(ctx.daily_coins, ctx.daily_fails, ctx.net_profit)
         if ctx.strategy is not None:
@@ -2267,7 +2639,7 @@ STATE_HANDLERS: dict[str, Callable[[BotSessionState, np.ndarray, int, int], None
 
 
 def auto_play_loop(
-    mode='max_profit',
+    mode="max_profit",
     on_stats_update=None,
     lang=None,
     on_prompt_settlement=None,
@@ -2289,7 +2661,7 @@ def auto_play_loop(
     ocr_timeout = cfg_get_float(config, "settlement_ocr_timeout", 8.0, min_val=1.0)
 
     strategy = get_strategy(mode, **strategy_kwargs_from_config(mode, config))
-    strategy.target_limit = target_limit
+    strategy.target_limit = target_limit  # type: ignore[attr-defined]
     counter = HighLowCounter()
     card_rec = CardRecognizer(TEMPLATE_DIR)
     daily_coins, daily_fails = load_daily_data()
@@ -2306,7 +2678,7 @@ def auto_play_loop(
     user_cushion = config.get("param_cushion_target") if is_custom_parametric else None
     cushion_val = int(user_cushion) if user_cushion is not None else getattr(strategy, "cushion_target", 19800)
     if hasattr(strategy, "cushion_target"):
-        strategy.cushion_target = cushion_val
+        strategy.cushion_target = cushion_val  # type: ignore[attr-defined]
     mod_fast_build = config.get("mod_fast_build", False)
     mod_drop_78 = config.get("mod_drop_78", config.get("param_drop_seven_eight", False))
     mod_drop_6789 = config.get("mod_drop_6789", False)
@@ -2328,43 +2700,58 @@ def auto_play_loop(
     debug_mode = config.get("debug_logging", False)
 
     print("=" * 52)
-    print(tr('banner_title', time=time.strftime('%Y-%m-%d %H:%M:%S')))
-    print(tr('banner_strategy', name=strat_display))
+    print(tr("banner_title", time=time.strftime("%Y-%m-%d %H:%M:%S")))
+    print(tr("banner_strategy", name=strat_display))
     style_key = f"chk_style_{play_style_val.lower()}" if play_style_val else "chk_style_default"
     style_display = tr(style_key)
     if style_display == style_key:
         style_display = play_style_val.capitalize()
-    print(tr('banner_play_style', style=style_display))
-    print(tr('banner_targets', target=f"{target_limit:,}", cushion=f"{cushion_val:,}", ticket=ticket_cost))
+    print(tr("banner_play_style", style=style_display))
+    print(
+        tr(
+            "banner_targets",
+            target=f"{target_limit:,}",
+            cushion=f"{cushion_val:,}",
+            ticket=ticket_cost,
+        )
+    )
     rounds_str = f" | {tr('banner_rounds', rounds=round_count)}" if round_count > 0 else ""
-    print(tr('banner_stats', coins=f"{daily_coins:,}", fails=daily_fails, rounds=rounds_str, profit=f"{net_profit:,}"))
-    print(tr('banner_modifiers_header'))
+    print(
+        tr(
+            "banner_stats",
+            coins=f"{daily_coins:,}",
+            fails=daily_fails,
+            rounds=rounds_str,
+            profit=f"{net_profit:,}",
+        )
+    )
+    print(tr("banner_modifiers_header"))
 
     prog_items = []
     if mod_fast_build:
-        prog_items.append(tr('mod_name_fast_build'))
+        prog_items.append(tr("mod_name_fast_build"))
     if mod_free_roll:
-        prog_items.append(tr('mod_name_free_roll'))
+        prog_items.append(tr("mod_name_free_roll"))
     if mod_force_19900:
-        prog_items.append(tr('mod_name_force_19900'))
+        prog_items.append(tr("mod_name_force_19900"))
     if mod_sprint_floor:
-        prog_items.append(tr('mod_name_sprint_floor'))
+        prog_items.append(tr("mod_name_sprint_floor"))
     if mod_mega_sprint:
-        prog_items.append(tr('mod_name_mega_sprint'))
+        prog_items.append(tr("mod_name_mega_sprint"))
     if mod_hunt_14k:
         if hunt_14k_attempts > 0:
-            prog_items.append(tr('mod_name_hunt_14k_att', attempts=hunt_14k_attempts))
+            prog_items.append(tr("mod_name_hunt_14k_att", attempts=hunt_14k_attempts))
         else:
-            prog_items.append(tr('mod_name_hunt_14k'))
+            prog_items.append(tr("mod_name_hunt_14k"))
 
     bail_items = []
     if not mod_fast_build:
         if mod_drop_6789:
-            bail_items.append(tr('mod_name_bail_6789'))
+            bail_items.append(tr("mod_name_bail_6789"))
         if mod_drop_78:
-            bail_items.append(tr('mod_name_bail_78'))
+            bail_items.append(tr("mod_name_bail_78"))
         if mod_drop_8:
-            bail_items.append(tr('mod_name_bail_8'))
+            bail_items.append(tr("mod_name_bail_8"))
 
     over_items = []
     if not mod_fast_build:
@@ -2385,25 +2772,36 @@ def auto_play_loop(
 
     has_active_mods = bool(prog_items or bail_items or over_items)
     if not has_active_mods:
-        print(tr('banner_mod_none'))
+        print(tr("banner_mod_none"))
     else:
         if prog_items:
-            print(tr('banner_mod_prog', items=", ".join(prog_items)))
+            print(tr("banner_mod_prog", items=", ".join(prog_items)))
         if bail_items:
-            print(tr('banner_mod_bail', items=", ".join(bail_items)))
+            print(tr("banner_mod_bail", items=", ".join(bail_items)))
         if over_items:
-            print(tr('banner_mod_over', items=", ".join(over_items)))
+            print(tr("banner_mod_over", items=", ".join(over_items)))
 
-    print(tr('banner_debug_log', status=tr('state_enabled') if debug_mode else tr('state_disabled')))
+    print(
+        tr(
+            "banner_debug_log",
+            status=tr("state_enabled") if debug_mode else tr("state_disabled"),
+        )
+    )
     print("=" * 52 + "\n")
-    print(tr('start_bot', coins=daily_coins, fails=daily_fails, profit=net_profit))
+    print(tr("start_bot", coins=daily_coins, fails=daily_fails, profit=net_profit))
     preload_templates()
 
     log_debug("=" * 52)
     log_debug(f"Bot session started: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    log_debug(f"Strategy: {strat_name}, Play Style: {play_style_val}, Mode: {mode}, Target: {target_limit}, Cushion: {cushion_val}")
-    log_debug(f"Modifiers: fast_build={mod_fast_build}, free_roll={mod_free_roll}, drop_6789={mod_drop_6789}, drop_78={mod_drop_78}, drop_8={mod_drop_8}, sprint_floor={mod_sprint_floor}, mega_sprint={mod_mega_sprint}, force_19900={mod_force_19900}, hunt_14k={mod_hunt_14k} (attempts={hunt_14k_attempts})")
-    log_debug(f"Card overrides: a2={opp_a2}, 3k={opp_3k}, 4q={opp_4q}, 5j={opp_5j}, 610={opp_610}, 79={opp_79}, 8={opp_8}")
+    log_debug(
+        f"Strategy: {strat_name}, Play Style: {play_style_val}, Mode: {mode}, Target: {target_limit}, Cushion: {cushion_val}"
+    )
+    log_debug(
+        f"Modifiers: fast_build={mod_fast_build}, free_roll={mod_free_roll}, drop_6789={mod_drop_6789}, drop_78={mod_drop_78}, drop_8={mod_drop_8}, sprint_floor={mod_sprint_floor}, mega_sprint={mod_mega_sprint}, force_19900={mod_force_19900}, hunt_14k={mod_hunt_14k} (attempts={hunt_14k_attempts})"
+    )
+    log_debug(
+        f"Card overrides: a2={opp_a2}, 3k={opp_3k}, 4q={opp_4q}, 5j={opp_5j}, 610={opp_610}, 79={opp_79}, 8={opp_8}"
+    )
     log_debug("=" * 52)
     if on_stats_update:
         on_stats_update(daily_coins, daily_fails, net_profit)
@@ -2446,14 +2844,22 @@ def auto_play_loop(
         settlement_mgr.expected_cashout = pending_cash
     ctx.settlement_mgr = settlement_mgr
 
-    cap_override = (ctx.daily_coins >= ctx.target_limit)
+    cap_override = ctx.daily_coins >= ctx.target_limit
     ctx.cap_override = cap_override
     if cap_override and bot_running:
-        print(tr('state_full_override', coins=ctx.daily_coins, target=ctx.target_limit))
+        print(tr("state_full_override", coins=ctx.daily_coins, target=ctx.target_limit))
         if not ctx.scan_mode:
-            print(tr('warn_cap_override_sprint', coins=ctx.daily_coins, target=ctx.target_limit))
-            print(tr('tip_cap_override', target=f"{ctx.target_limit:,}"))
-        log_debug(f"[System] Daily coin cap ({ctx.daily_coins}/{ctx.target_limit}) override active at session start; continuing.")
+            print(
+                tr(
+                    "warn_cap_override_sprint",
+                    coins=ctx.daily_coins,
+                    target=ctx.target_limit,
+                )
+            )
+            print(tr("tip_cap_override", target=f"{ctx.target_limit:,}"))
+        log_debug(
+            f"[System] Daily coin cap ({ctx.daily_coins}/{ctx.target_limit}) override active at session start; continuing."
+        )
 
     try:
         while (ctx.daily_coins < ctx.target_limit or cap_override or ctx.scan_mode) and bot_running:
@@ -2462,15 +2868,13 @@ def auto_play_loop(
                 ctx.cap_override = False
             img, win_left, win_top = capture_game_window()
             if img is None:
-                print(tr('window_not_found'))
+                print(tr("window_not_found"))
                 time.sleep(1)
                 continue
 
             expected_next = STATE_TRANSITIONS.get(ctx.last_state) if ctx.last_state else None
             current_state = (
-                detect_game_state(img, expected_state=expected_next)
-                if expected_next
-                else detect_game_state(img)
+                detect_game_state(img, expected_state=expected_next) if expected_next else detect_game_state(img)
             )
             ctx.update_state_flicker_guards(current_state)
 
@@ -2491,7 +2895,7 @@ def auto_play_loop(
         _active_session_ctx = None
 
     if ctx.daily_coins >= ctx.target_limit and not cap_override and not ctx.scan_mode:
-        print(tr('state_full', coins=ctx.daily_coins, target=ctx.target_limit))
+        print(tr("state_full", coins=ctx.daily_coins, target=ctx.target_limit))
 
 
 if __name__ == "__main__":

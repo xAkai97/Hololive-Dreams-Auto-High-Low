@@ -49,6 +49,9 @@ An advanced automated assistant, card-counting engine, and simulation suite for 
 ├── build.bat                  # 1-click automated Command Prompt packaging script
 ├── requirements.txt           # Core runtime dependencies
 ├── requirements-build.txt     # Packaging & PyInstaller dependencies
+├── requirements-dev.txt       # Development, testing, coverage, lint & pre-commit dependencies
+├── pyproject.toml             # Unified Ruff, Pyright, and Coverage configuration
+├── .pre-commit-config.yaml    # Automated Git pre-commit hooks (Ruff, line endings, locale parity)
 ├── LICENSE                    # MIT License
 ├── THIRD_PARTY_NOTICES.md     # Upstream open-source attribution
 ├── Hololive Dreams-Auto.spec  # PyInstaller packaging configuration
@@ -84,7 +87,7 @@ An advanced automated assistant, card-counting engine, and simulation suite for 
 ├── docs/                      # Documentation and detailed technical guides
 │   ├── strategies.md          # Comprehensive 7-strategy guide, play styles & modifiers
 │   └── ALGORITHMS.md          # Mathematical formulas, probability models & Numba solver
-└── tests/                     # 20 unit, integration & fuzz test files (219 tests)
+└── tests/                     # 24 unit, integration & fuzz test files (242 tests)
 ```
 
 ---
@@ -115,6 +118,16 @@ python -m venv .venv
 pip install -r requirements.txt
 python main_ui.py
 ```
+
+### Developer & IDE Setup (Optional)
+To install linting, type-checking, test coverage, and pre-commit hooks:
+```powershell
+pip install -r requirements-dev.txt
+pre-commit install
+```
+
+> [!NOTE]
+> **VS Code / Pylance Import Resolution**: Because `.vscode/` is gitignored so each developer can use their own virtual environment path, if Pylance shows `reportMissingImports` for modules inside `src/` (e.g. `import auto_bot`), add `"python.analysis.extraPaths": ["${workspaceFolder}/src"]` to your local `.vscode/settings.json`. Avoid adding `[tool.pyright]` to `pyproject.toml` or creating `pyrightconfig.json` when using an external virtualenv path, as Pylance will disable `.vscode/settings.json` overrides (`settingsNotOverridable`).
 
 ---
 

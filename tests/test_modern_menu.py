@@ -1,5 +1,6 @@
-import unittest
 import tkinter as tk
+import unittest
+
 from src.ui.widgets import ModernMenu
 
 
@@ -42,7 +43,7 @@ class TestModernMenu(unittest.TestCase):
         menu = ModernMenu(self.root, tearoff=0)
         invoked = []
         menu.add_command(label="Action", command=lambda: invoked.append(True))
-        
+
         menu.post(50, 50)
         self.assertIsNotNone(menu._popup_window)
         self.assertIn(menu._popup_window, ModernMenu._active_popups)
@@ -54,6 +55,7 @@ class TestModernMenu(unittest.TestCase):
 
     def test_modern_menu_multimonitor_work_area_clamping(self):
         from unittest.mock import patch
+
         menu = ModernMenu(self.root, tearoff=0)
         menu.add_command(label="Multi-Monitor Item")
 
@@ -73,6 +75,7 @@ class TestModernMenu(unittest.TestCase):
 
     def test_get_monitor_work_area_query(self):
         from src.ui.platform import get_monitor_work_area
+
         area = get_monitor_work_area(100, 100)
         self.assertIsNotNone(area)
         self.assertEqual(len(area), 4)
@@ -115,8 +118,18 @@ class TestModernMenu(unittest.TestCase):
         menu = ModernMenu(self.root, tearoff=0)
         var = tk.StringVar(value="opt1")
         invoked_values = []
-        menu.add_radiobutton(label="Opt 1", variable=var, value="opt1", command=lambda: invoked_values.append(var.get()))
-        menu.add_radiobutton(label="Opt 2", variable=var, value="opt2", command=lambda: invoked_values.append(var.get()))
+        menu.add_radiobutton(
+            label="Opt 1",
+            variable=var,
+            value="opt1",
+            command=lambda: invoked_values.append(var.get()),
+        )
+        menu.add_radiobutton(
+            label="Opt 2",
+            variable=var,
+            value="opt2",
+            command=lambda: invoked_values.append(var.get()),
+        )
 
         menu.post(50, 50)
         popup = menu._popup_window

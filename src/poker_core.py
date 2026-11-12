@@ -129,7 +129,12 @@ def _evaluate_category5(c0: int, c1: int, c2: int, c3: int, c4: int) -> int:
                     break
 
     royal_mask = (1 << 10) | (1 << 11) | (1 << 12) | (1 << 13) | (1 << 14)
-    if flush_possible and unique_ranks == ordinary_count and unique_ranks + jokers == 5 and rank_mask & ~royal_mask == 0:
+    if (
+        flush_possible
+        and unique_ranks == ordinary_count
+        and unique_ranks + jokers == 5
+        and rank_mask & ~royal_mask == 0
+    ):
         return 9
 
     if jokers > 0 and max_count + jokers >= 5:
@@ -326,17 +331,28 @@ def calculate_best(cards: Sequence[int], draw_mode: str = "standard") -> tuple[S
     return results[0], results
 
 
-
 def verify_engine() -> None:
     """Fail fast if the optimizer is stale or returns a non-maximal strategy."""
     tests = [
         (
-            [card_id("2", "S"), card_id("7", "S"), card_id("9", "D"), card_id("6", "D"), card_id("9", "S")],
+            [
+                card_id("2", "S"),
+                card_id("7", "S"),
+                card_id("9", "D"),
+                card_id("6", "D"),
+                card_id("9", "S"),
+            ],
             (2, 4),
             84.78839037927844,
         ),
         (
-            [card_id("10", "S"), card_id("5", "D"), card_id("2", "S"), card_id("Q", "C"), card_id("A", "C")],
+            [
+                card_id("10", "S"),
+                card_id("5", "D"),
+                card_id("2", "S"),
+                card_id("Q", "C"),
+                card_id("A", "C"),
+            ],
             (3, 4),
             29.914431082331173,
         ),
@@ -348,7 +364,9 @@ def verify_engine() -> None:
             key=lambda r: (r.expected_payout, r.win_probability, -len(r.held_indices)),
         )
         if best != independently_best:
-            raise RuntimeError("Strategy sorting self-check failed: result does not have the highest mathematical expectation.")
+            raise RuntimeError(
+                "Strategy sorting self-check failed: result does not have the highest mathematical expectation."
+            )
         if best.held_indices != expected_hold:
             raise RuntimeError(
                 f"Strategy engine self-check failed: {tuple(card_text(c) for c in cards)} "
@@ -364,8 +382,11 @@ def verify_engine() -> None:
     # present and evaluated. Standard draw excludes the original five cards,
     # so it must enumerate C(48, 5) = 1,712,304 possible replacement hands.
     audit_hand = [
-        card_id("2", "S"), card_id("5", "H"), card_id("8", "D"),
-        card_id("J", "C"), card_id("A", "S"),
+        card_id("2", "S"),
+        card_id("5", "H"),
+        card_id("8", "D"),
+        card_id("J", "C"),
+        card_id("A", "S"),
     ]
     _, audit_results = calculate_best(audit_hand, "standard")
     all_change = next((r for r in audit_results if r.mask == 0), None)
@@ -382,5 +403,13 @@ def verify_engine() -> None:
 
 def warm_up() -> None:
     # JIT-compile the poker solver in memory and run verification self-tests on startup.
-    calculate_best([card_id("2", "S"), card_id("5", "H"), card_id("8", "D"), card_id("J", "C"), card_id("A", "S")])
+    calculate_best(
+        [
+            card_id("2", "S"),
+            card_id("5", "H"),
+            card_id("8", "D"),
+            card_id("J", "C"),
+            card_id("A", "S"),
+        ]
+    )
     verify_engine()

@@ -1,0 +1,25 @@
+[tool.coverage.run]
+source = ["src", "main_ui"]
+omit = [
+    "tests/*",
+    "scratch/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
+show_missing = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+ignore = [
+    "E402",  # Module level import not at top of file (sys.path manipulation required before internal imports)
+]

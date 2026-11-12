@@ -1,23 +1,23 @@
 import sys
-from pathlib import Path
 import unittest
+from pathlib import Path
 
-SRC_DIR = Path(__file__).resolve().parents[1] / 'src'
+SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from strategies import (
     STRATEGY_REGISTRY,
-    get_strategy,
-    MaxProfitStrategy,
-    TrueMaxProfitStrategy,
-    TrueMaxCoinsStrategy,
-    FastestClearStrategy,
-    BalancedStrategy,
-    AggressiveBalancedStrategy,
     AdaptiveRushStrategy,
-    GrinderStrategy,
+    AggressiveBalancedStrategy,
+    BalancedStrategy,
     CustomParametricStrategy,
+    FastestClearStrategy,
+    GrinderStrategy,
+    MaxProfitStrategy,
+    TrueMaxCoinsStrategy,
+    TrueMaxProfitStrategy,
+    get_strategy,
 )
 
 
@@ -33,7 +33,7 @@ class TestStrategyRegistry(unittest.TestCase):
             "true_max_coins",
         }
         self.assertEqual(set(STRATEGY_REGISTRY.keys()), expected_keys)
-        self.assertEqual(list(STRATEGY_REGISTRY.keys())[0], "balanced")
+        self.assertEqual(next(iter(STRATEGY_REGISTRY.keys())), "balanced")
 
     def test_factory_instantiation(self):
         for key in STRATEGY_REGISTRY:

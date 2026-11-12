@@ -1,18 +1,19 @@
 """Edge-case, mutation, and fuzzing test fixtures for core pure functions and parsers."""
-import sys
-from pathlib import Path
-import unittest
 
-SRC_DIR = Path(__file__).resolve().parents[2] / 'src'
+import sys
+import unittest
+from pathlib import Path
+
+SRC_DIR = Path(__file__).resolve().parents[2] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 import auto_bot
-from poker_core import card_id, _evaluate_category5, calculate_best, JOKER_ID
+from poker_core import JOKER_ID, _evaluate_category5, card_id
 from reward_vision import _DIGIT_TRANSLATE_TABLE
 from settlement import is_valid_settlement_amount
-from strategies.base import get_max_round_payout
 from strategies import STRATEGY_REGISTRY, get_strategy
+from strategies.base import get_max_round_payout
 
 
 class TestConfigParserFuzz(unittest.TestCase):
@@ -110,8 +111,21 @@ class TestMaxPayoutAndSettlementFuzz(unittest.TestCase):
     def test_is_valid_settlement_amount_fuzz(self):
         valid = [50, 100, 200, 700, 12800, 14000, 20000, 33900, 60000]
         invalid = [
-            -50, 0, 25, 49, 51, 60050, 100000,
-            True, False, 200.0, "200", None, [], {}, float("nan")
+            -50,
+            0,
+            25,
+            49,
+            51,
+            60050,
+            100000,
+            True,
+            False,
+            200.0,
+            "200",
+            None,
+            [],
+            {},
+            float("nan"),
         ]
         for v in valid:
             self.assertTrue(is_valid_settlement_amount(v), f"Expected {v} to be valid")
@@ -142,17 +156,35 @@ class TestPokerEvaluatorFuzz(unittest.TestCase):
 
     def test_5card_combinations_with_jokers(self):
         # 4 Aces + Joker = Five of a Kind (category index 8)
-        c_aces = [card_id("A", "S"), card_id("A", "H"), card_id("A", "D"), card_id("A", "C"), JOKER_ID]
+        c_aces = [
+            card_id("A", "S"),
+            card_id("A", "H"),
+            card_id("A", "D"),
+            card_id("A", "C"),
+            JOKER_ID,
+        ]
         cat = _evaluate_category5(c_aces[0], c_aces[1], c_aces[2], c_aces[3], c_aces[4])
         self.assertEqual(cat, 8)  # 8 = Five of a Kind
 
         # 4 Kings without Joker = Four of a Kind (category index 6)
-        c_kings = [card_id("K", "S"), card_id("K", "H"), card_id("K", "D"), card_id("K", "C"), card_id("2", "S")]
+        c_kings = [
+            card_id("K", "S"),
+            card_id("K", "H"),
+            card_id("K", "D"),
+            card_id("K", "C"),
+            card_id("2", "S"),
+        ]
         cat = _evaluate_category5(c_kings[0], c_kings[1], c_kings[2], c_kings[3], c_kings[4])
         self.assertEqual(cat, 6)  # 6 = Four of a Kind
 
         # Royal Flush with Joker: 10, J, Q, K of Spades + Joker (category index 9)
-        c_royal = [card_id("10", "S"), card_id("J", "S"), card_id("Q", "S"), card_id("K", "S"), JOKER_ID]
+        c_royal = [
+            card_id("10", "S"),
+            card_id("J", "S"),
+            card_id("Q", "S"),
+            card_id("K", "S"),
+            JOKER_ID,
+        ]
         cat = _evaluate_category5(c_royal[0], c_royal[1], c_royal[2], c_royal[3], c_royal[4])
         self.assertEqual(cat, 9)  # 9 = Royal Flush
 
@@ -180,7 +212,7 @@ class TestStrategyDecideFuzz(unittest.TestCase):
                         daily_coins=daily,
                     )
                     self.assertIn(action, ("cashout", "challenge", "stop"))
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     self.fail(f"Strategy {key} crashed on input ({current}, {next_r}, {win_rate}, {daily}): {e}")
 
 

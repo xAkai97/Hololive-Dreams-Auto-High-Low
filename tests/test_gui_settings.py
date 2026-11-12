@@ -1,16 +1,17 @@
-import sys
-import os
-import json
+import contextlib
 import csv
+import json
+import os
+import sys
 import tempfile
 import time
-from pathlib import Path
-import unittest
-from unittest.mock import patch, MagicMock
 import tkinter as tk
+import unittest
+from pathlib import Path
 from tkinter import ttk
+from unittest.mock import MagicMock, patch
 
-SRC_DIR = Path(__file__).resolve().parents[1] / 'src'
+SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 ROOT_DIR = Path(__file__).resolve().parents[1]
 for p in (str(SRC_DIR), str(ROOT_DIR)):
     if p not in sys.path:
@@ -19,13 +20,14 @@ for p in (str(SRC_DIR), str(ROOT_DIR)):
 try:
     import auto_bot
     import localization
-    from main_ui import HololiveBotUI, STRATEGY_KEYS
+    from main_ui import STRATEGY_KEYS, HololiveBotUI
+
     HAVE_GUI = True
-except (ImportError, Exception):
+except (ImportError, Exception):  # noqa: BLE001
     HAVE_GUI = False
 
 
-@unittest.skipUnless(HAVE_GUI, 'GUI dependencies (Pillow, cv2, numpy, keyboard) not installed')
+@unittest.skipUnless(HAVE_GUI, "GUI dependencies (Pillow, cv2, numpy, keyboard) not installed")
 class TestGUISettingsAndMenus(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -46,10 +48,11 @@ class TestGUISettingsAndMenus(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         try:
-            with patch("auto_bot.save_daily_data"):
+            with (
+                contextlib.suppress(Exception),
+                patch("auto_bot.save_daily_data"),
+            ):
                 cls.app.destroy()
-        except Exception:
-            pass
         finally:
             auto_bot.APP_DIR = cls._orig_app_dir
             auto_bot.DATA_FILE = cls._orig_data_file
@@ -65,15 +68,24 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         # Test switching to all 3 tabs and invalid tab guard
         self.app.switch_tab("sim")
         self.assertEqual(self.app.current_tab, "sim")
-        self.assertEqual(self.app.canvas.itemcget(self.app.btn_toggle_modifiers_win, "state"), "normal")
+        self.assertEqual(
+            self.app.canvas.itemcget(self.app.btn_toggle_modifiers_win, "state"),
+            "normal",
+        )
 
         self.app.switch_tab("settings")
         self.assertEqual(self.app.current_tab, "settings")
-        self.assertEqual(self.app.canvas.itemcget(self.app.btn_toggle_modifiers_win, "state"), "hidden")
+        self.assertEqual(
+            self.app.canvas.itemcget(self.app.btn_toggle_modifiers_win, "state"),
+            "hidden",
+        )
 
         self.app.switch_tab("bot")
         self.assertEqual(self.app.current_tab, "bot")
-        self.assertEqual(self.app.canvas.itemcget(self.app.btn_toggle_modifiers_win, "state"), "normal")
+        self.assertEqual(
+            self.app.canvas.itemcget(self.app.btn_toggle_modifiers_win, "state"),
+            "normal",
+        )
 
         # Invalid tab should be ignored
         self.app.switch_tab("nonexistent")
@@ -122,7 +134,7 @@ class TestGUISettingsAndMenus(unittest.TestCase):
             mock_save.assert_called_once()
 
     def test_open_custom_parametric_dialog(self):
-        with patch.object(self.app, "save_settings") as mock_save:
+        with patch.object(self.app, "save_settings"):
             # Call dialog generator and test dialog interaction
             with patch("tkinter.Toplevel.grab_set"):
                 self.app.open_custom_parametric_dialog()
@@ -147,9 +159,11 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         self.app.current_profit = 14750
 
         try:
-            with patch("tkinter.messagebox.askyesno", return_value=True), \
-                 patch.object(self.app, "save_settings") as mock_save, \
-                 patch.object(self.app, "update_stats_display") as mock_update:
+            with (
+                patch("tkinter.messagebox.askyesno", return_value=True),
+                patch.object(self.app, "save_settings") as mock_save,
+                patch.object(self.app, "update_stats_display") as mock_update,
+            ):
                 self.app.menu_reset_stats()
                 self.assertEqual(self.app.current_coins, 0)
                 self.assertEqual(self.app.current_fails, 0)
@@ -163,8 +177,10 @@ class TestGUISettingsAndMenus(unittest.TestCase):
 
     def test_menu_reset_stats_cancelled(self):
         self.app.current_coins = 9000
-        with patch("tkinter.messagebox.askyesno", return_value=False), \
-             patch.object(self.app, "save_settings") as mock_save:
+        with (
+            patch("tkinter.messagebox.askyesno", return_value=False),
+            patch.object(self.app, "save_settings") as mock_save,
+        ):
             self.app.menu_reset_stats()
             self.assertEqual(self.app.current_coins, 9000)
             mock_save.assert_not_called()
@@ -175,8 +191,10 @@ class TestGUISettingsAndMenus(unittest.TestCase):
             self.app.current_coins = 24800
             self.app.target_limit = 20000
             self.app.var_scan_mode.set(False)
-            with patch("tkinter.messagebox.askyesno", return_value=False) as mock_prompt, \
-                 patch("threading.Thread") as mock_thread:
+            with (
+                patch("tkinter.messagebox.askyesno", return_value=False) as mock_prompt,
+                patch("threading.Thread") as mock_thread,
+            ):
                 self.app.start_bot()
                 mock_prompt.assert_called_once()
                 self.assertFalse(self.app.is_running)
@@ -190,10 +208,12 @@ class TestGUISettingsAndMenus(unittest.TestCase):
             self.app.current_coins = 24800
             self.app.target_limit = 20000
             self.app.var_scan_mode.set(False)
-            with patch("tkinter.messagebox.askyesno", return_value=True) as mock_prompt, \
-                 patch.object(self.app, "save_settings"), \
-                 patch.object(self.app, "refresh_texts"), \
-                 patch("threading.Thread") as mock_thread:
+            with (
+                patch("tkinter.messagebox.askyesno", return_value=True) as mock_prompt,
+                patch.object(self.app, "save_settings"),
+                patch.object(self.app, "refresh_texts"),
+                patch("threading.Thread") as mock_thread,
+            ):
                 mock_thread.return_value.start = MagicMock()
                 self.app.start_bot()
                 mock_prompt.assert_called_once()
@@ -223,8 +243,10 @@ class TestGUISettingsAndMenus(unittest.TestCase):
             json_path = Path(tmpdir) / "test_benchmark.json"
 
             # Test CSV Export
-            with patch("tkinter.filedialog.asksaveasfilename", return_value=str(csv_path)), \
-                 patch("tkinter.messagebox.showinfo"):
+            with (
+                patch("tkinter.filedialog.asksaveasfilename", return_value=str(csv_path)),
+                patch("tkinter.messagebox.showinfo"),
+            ):
                 self.app.export_benchmark_csv()
 
             self.assertTrue(csv_path.exists())
@@ -235,8 +257,10 @@ class TestGUISettingsAndMenus(unittest.TestCase):
                 self.assertEqual(float(reader[0]["MeanCoins"]), 31900.0)
 
             # Test JSON Export
-            with patch("tkinter.filedialog.asksaveasfilename", return_value=str(json_path)), \
-                 patch("tkinter.messagebox.showinfo"):
+            with (
+                patch("tkinter.filedialog.asksaveasfilename", return_value=str(json_path)),
+                patch("tkinter.messagebox.showinfo"),
+            ):
                 self.app.export_benchmark_json()
 
             self.assertTrue(json_path.exists())
@@ -309,19 +333,28 @@ class TestGUISettingsAndMenus(unittest.TestCase):
             max_profit_idx = STRATEGY_KEYS.index("max_profit")
             self.app.combo_strategy.current(max_profit_idx)
             self.app.on_strategy_change()
-            self.assertEqual(self.app.canvas.itemcget(self.app.btn_config_strat_win, "state"), "hidden")
+            self.assertEqual(
+                self.app.canvas.itemcget(self.app.btn_config_strat_win, "state"),
+                "hidden",
+            )
 
             # Select custom_parametric
             custom_idx = STRATEGY_KEYS.index("custom_parametric")
             self.app.combo_strategy.current(custom_idx)
             self.app.on_strategy_change()
-            self.assertEqual(self.app.canvas.itemcget(self.app.btn_config_strat_win, "state"), "normal")
+            self.assertEqual(
+                self.app.canvas.itemcget(self.app.btn_config_strat_win, "state"),
+                "normal",
+            )
 
             # Select back to fastest_clear
             fast_idx = STRATEGY_KEYS.index("fastest_clear")
             self.app.combo_strategy.current(fast_idx)
             self.app.on_strategy_change()
-            self.assertEqual(self.app.canvas.itemcget(self.app.btn_config_strat_win, "state"), "hidden")
+            self.assertEqual(
+                self.app.canvas.itemcget(self.app.btn_config_strat_win, "state"),
+                "hidden",
+            )
 
     def test_strategy_persistence_save_and_reload(self):
         with patch("auto_bot.save_daily_data") as mock_save:
@@ -396,35 +429,63 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         self.assertIn(localization.tr("menu_layout_header", self.app.current_lang), menubar_labels)
         self.assertIn(localization.tr("menu_help", self.app.current_lang), menubar_labels)
 
-        file_menu_labels = [self.app.file_menu.entrycget(i, "label") for i in range(self.app.file_menu.index("end") + 1)
-                            if self.app.file_menu.type(i) != "separator"]
+        file_menu_labels = [
+            self.app.file_menu.entrycget(i, "label")
+            for i in range(self.app.file_menu.index("end") + 1)
+            if self.app.file_menu.type(i) != "separator"
+        ]
         self.assertIn(localization.tr("menu_reset_stats", self.app.current_lang), file_menu_labels)
-        self.assertIn(localization.tr("menu_open_folders", self.app.current_lang), file_menu_labels)
+        self.assertIn(
+            localization.tr("menu_open_folders", self.app.current_lang),
+            file_menu_labels,
+        )
 
-        logs_menu_labels = [self.app.logs_menu.entrycget(i, "label") for i in range(self.app.logs_menu.index("end") + 1)
-                            if self.app.logs_menu.type(i) != "separator"]
+        logs_menu_labels = [
+            self.app.logs_menu.entrycget(i, "label")
+            for i in range(self.app.logs_menu.index("end") + 1)
+            if self.app.logs_menu.type(i) != "separator"
+        ]
         self.assertIn(localization.tr("menu_clear_logs", self.app.current_lang), logs_menu_labels)
         self.assertIn(localization.tr("menu_save_logs", self.app.current_lang), logs_menu_labels)
-        self.assertIn(localization.tr("menu_clean_old_logs", self.app.current_lang), logs_menu_labels)
+        self.assertIn(
+            localization.tr("menu_clean_old_logs", self.app.current_lang),
+            logs_menu_labels,
+        )
 
-        folder_labels = [self.app.open_folders_menu.entrycget(i, "label") for i in range(self.app.open_folders_menu.index("end") + 1)]
-        self.assertIn(localization.tr("menu_open_config_dir", self.app.current_lang), folder_labels)
+        folder_labels = [
+            self.app.open_folders_menu.entrycget(i, "label") for i in range(self.app.open_folders_menu.index("end") + 1)
+        ]
+        self.assertIn(
+            localization.tr("menu_open_config_dir", self.app.current_lang),
+            folder_labels,
+        )
         self.assertIn(localization.tr("menu_open_logs_dir", self.app.current_lang), folder_labels)
 
-        bg_menu_labels = [self.app.bg_menu.entrycget(i, "label") for i in range(self.app.bg_menu.index("end") + 1)
-                          if self.app.bg_menu.type(i) != "separator"]
+        bg_menu_labels = [
+            self.app.bg_menu.entrycget(i, "label")
+            for i in range(self.app.bg_menu.index("end") + 1)
+            if self.app.bg_menu.type(i) != "separator"
+        ]
         self.assertNotIn(localization.tr("menu_layout", self.app.current_lang), bg_menu_labels)
 
-        help_menu_labels = [self.app.help_menu.entrycget(i, "label") for i in range(self.app.help_menu.index("end") + 1)
-                            if self.app.help_menu.type(i) != "separator"]
+        help_menu_labels = [
+            self.app.help_menu.entrycget(i, "label")
+            for i in range(self.app.help_menu.index("end") + 1)
+            if self.app.help_menu.type(i) != "separator"
+        ]
         self.assertIn(localization.tr("menu_rules_guide", self.app.current_lang), help_menu_labels)
-        self.assertIn(localization.tr("menu_strategy_guide", self.app.current_lang), help_menu_labels)
+        self.assertIn(
+            localization.tr("menu_strategy_guide", self.app.current_lang),
+            help_menu_labels,
+        )
         self.assertIn(localization.tr("menu_online_docs", self.app.current_lang), help_menu_labels)
         self.assertIn(localization.tr("menu_about", self.app.current_lang), help_menu_labels)
 
     def test_open_settings_dialog(self):
-        with patch.object(self.app, "save_user_settings") as mock_save, \
-             patch("tkinter.Toplevel.grab_set"):
+        with (
+            patch.object(self.app, "save_user_settings"),
+            patch("tkinter.Toplevel.grab_set"),
+        ):
             self.app.open_settings_dialog()
             # Find the opened Toplevel child
             toplevel = None
@@ -439,21 +500,31 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         # In bot tab, clear logs and custom dialog launcher must be hidden
         self.app.switch_tab("bot")
         self.assertEqual(self.app.canvas.itemcget(self.app.btn_clear_logs_win, "state"), "hidden")
-        self.assertEqual(self.app.canvas.itemcget(self.app.btn_open_custom_dialog_win, "state"), "hidden")
+        self.assertEqual(
+            self.app.canvas.itemcget(self.app.btn_open_custom_dialog_win, "state"),
+            "hidden",
+        )
 
         # In simulation tab, clear logs button should be hidden
         self.app.switch_tab("sim")
         self.assertEqual(self.app.canvas.itemcget(self.app.btn_clear_logs_win, "state"), "hidden")
-        self.assertEqual(self.app.canvas.itemcget(self.app.btn_open_custom_dialog_win, "state"), "hidden")
+        self.assertEqual(
+            self.app.canvas.itemcget(self.app.btn_open_custom_dialog_win, "state"),
+            "hidden",
+        )
 
         # In settings tab, background and language combo widgets should be present and normal
         self.app.switch_tab("settings")
         self.assertEqual(self.app.canvas.itemcget(self.app.combo_window, "state"), "normal")
         self.assertEqual(self.app.canvas.itemcget(self.app.combo_bg_win, "state"), "normal")
-        self.assertEqual(self.app.canvas.itemcget(self.app.btn_open_custom_dialog_win, "state"), "hidden")
+        self.assertEqual(
+            self.app.canvas.itemcget(self.app.btn_open_custom_dialog_win, "state"),
+            "hidden",
+        )
 
     def test_selectable_log_widget(self):
         import tkinter as tk
+
         self.assertIsInstance(self.app.log_text, tk.Text)
         self.assertEqual(self.app.log_text.cget("state"), "disabled")
 
@@ -503,19 +574,27 @@ class TestGUISettingsAndMenus(unittest.TestCase):
 
     def test_rotate_previous_log(self):
         from main_ui import rotate_previous_log
+
         with tempfile.TemporaryDirectory() as tmpdir:
             tmppath = Path(tmpdir)
-            with patch("auto_bot.APP_DIR", tmppath), patch("auto_bot.LOGS_DIR", tmppath / "logs"):
+            with (
+                patch("auto_bot.APP_DIR", tmppath),
+                patch("auto_bot.LOGS_DIR", tmppath / "logs"),
+            ):
                 test_log = tmppath / "log.txt"
                 test_log.write_text("Previous session log content\n", encoding="utf-8")
                 rotate_previous_log()
                 self.assertFalse(test_log.exists())
                 archived = list((tmppath / "logs").glob("log_*.txt"))
                 self.assertEqual(len(archived), 1)
-                self.assertIn("Previous session log content", archived[0].read_text(encoding="utf-8"))
+                self.assertIn(
+                    "Previous session log content",
+                    archived[0].read_text(encoding="utf-8"),
+                )
 
     def test_clean_old_logs_by_age(self):
         from main_ui import clean_old_logs
+
         with tempfile.TemporaryDirectory() as tmpdir:
             tmppath = Path(tmpdir)
             logs_dir = tmppath / "logs"
@@ -542,6 +621,7 @@ class TestGUISettingsAndMenus(unittest.TestCase):
 
     def test_clean_old_logs_by_size(self):
         from main_ui import clean_old_logs
+
         with tempfile.TemporaryDirectory() as tmpdir:
             logs_dir = Path(tmpdir) / "logs"
             logs_dir.mkdir(parents=True, exist_ok=True)
@@ -555,7 +635,7 @@ class TestGUISettingsAndMenus(unittest.TestCase):
                     os.utime(f, (mtime, mtime))
 
                 # Limit to 1.5 MB -> should delete oldest files until <= 1.5MB (deletes 2 files)
-                deleted, freed_mb = clean_old_logs(max_days=0, max_size_mb=1)
+                deleted, _freed_mb = clean_old_logs(max_days=0, max_size_mb=1)
                 self.assertEqual(deleted, 2)
                 remaining = list(logs_dir.glob("log_*.txt"))
                 self.assertEqual(len(remaining), 1)
@@ -564,7 +644,10 @@ class TestGUISettingsAndMenus(unittest.TestCase):
     def test_daily_rounds_persistence(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmppath = Path(tmpdir)
-            with patch("auto_bot.APP_DIR", tmppath), patch("auto_bot.DATA_FILE", tmppath / "config.json"):
+            with (
+                patch("auto_bot.APP_DIR", tmppath),
+                patch("auto_bot.DATA_FILE", tmppath / "config.json"),
+            ):
                 self.assertEqual(auto_bot.load_daily_rounds(), 0)
                 auto_bot.save_daily_data(500, 2, rounds=15)
                 self.assertEqual(auto_bot.load_daily_rounds(), 15)
@@ -584,7 +667,10 @@ class TestGUISettingsAndMenus(unittest.TestCase):
     def test_categorized_config_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg_file = Path(tmpdir) / "config.json"
-            with patch("auto_bot.APP_DIR", Path(tmpdir)), patch("auto_bot.DATA_FILE", cfg_file):
+            with (
+                patch("auto_bot.APP_DIR", Path(tmpdir)),
+                patch("auto_bot.DATA_FILE", cfg_file),
+            ):
                 auto_bot.save_daily_data(300, 1, rounds=5, theme_mode="window_black", hotkey="F8")
                 self.assertTrue(cfg_file.exists())
                 with cfg_file.open("r", encoding="utf-8") as f:
@@ -610,11 +696,14 @@ class TestGUISettingsAndMenus(unittest.TestCase):
                 "coins": 1200,
                 "fails": 3,
                 "theme_mode": "window_white",
-                "custom_unknown_key": "test_val"
+                "custom_unknown_key": "test_val",
             }
             with cfg_file.open("w", encoding="utf-8") as f:
                 json.dump(legacy_data, f)
-            with patch("auto_bot.APP_DIR", Path(tmpdir)), patch("auto_bot.DATA_FILE", cfg_file):
+            with (
+                patch("auto_bot.APP_DIR", Path(tmpdir)),
+                patch("auto_bot.DATA_FILE", cfg_file),
+            ):
                 loaded = auto_bot.load_config()
                 self.assertEqual(loaded.get("coins"), 1200)
                 self.assertEqual(loaded.get("theme_mode"), "window_white")
@@ -775,9 +864,15 @@ class TestGUISettingsAndMenus(unittest.TestCase):
 
         # Both Stop Hotkey and Observer Hotkey buttons & labels above them should be visible on Bot tab
         self.assertEqual(self.app.canvas.itemcget(self.app.hotkey_window, "state"), "normal")
-        self.assertEqual(self.app.canvas.itemcget(self.app.companion_hotkey_window, "state"), "normal")
+        self.assertEqual(
+            self.app.canvas.itemcget(self.app.companion_hotkey_window, "state"),
+            "normal",
+        )
         self.assertEqual(self.app.canvas.itemcget(self.app.hotkey_label_id, "state"), "normal")
-        self.assertEqual(self.app.canvas.itemcget(self.app.companion_hotkey_label_id, "state"), "normal")
+        self.assertEqual(
+            self.app.canvas.itemcget(self.app.companion_hotkey_label_id, "state"),
+            "normal",
+        )
 
         hk1_coords = self.app.canvas.coords(self.app.hotkey_window)
         hk2_coords = self.app.canvas.coords(self.app.companion_hotkey_window)
@@ -792,6 +887,7 @@ class TestGUISettingsAndMenus(unittest.TestCase):
 
     def test_start_stop_button_states_auto_and_observer_modes(self):
         import auto_bot
+
         self.app.switch_tab("bot")
         self.app.current_lang = "en"
 
@@ -904,8 +1000,10 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         self.app.var_opp_a2.set(False)
 
         # Trigger reset
-        with patch.object(self.app, "save_settings") as mock_save, \
-             patch.object(self.app, "draw_ui") as mock_draw:
+        with (
+            patch.object(self.app, "save_settings") as mock_save,
+            patch.object(self.app, "draw_ui") as mock_draw,
+        ):
             self.app.reset_strategy_modifiers()
             mock_save.assert_called_once()
             mock_draw.assert_called_once()
@@ -951,7 +1049,10 @@ class TestGUISettingsAndMenus(unittest.TestCase):
             self.assertTrue(any("Play Style" in m and "Aggressive" in m for m in logs))
 
             self.app.var_mod_fast_build.set(not self.app.mod_fast_build)
-            with patch.object(self.app, "save_settings"), patch.object(self.app, "draw_ui"):
+            with (
+                patch.object(self.app, "save_settings"),
+                patch.object(self.app, "draw_ui"),
+            ):
                 self.app.on_modifier_toggle()
 
             mod_logs = []
@@ -961,7 +1062,10 @@ class TestGUISettingsAndMenus(unittest.TestCase):
                     mod_logs.append(item[1])
             self.assertTrue(any("Modifier" in m and "Fast Build" in m for m in mod_logs))
 
-            with patch.object(self.app, "save_settings"), patch.object(self.app, "draw_ui"):
+            with (
+                patch.object(self.app, "save_settings"),
+                patch.object(self.app, "draw_ui"),
+            ):
                 self.app.reset_strategy_modifiers()
 
             reset_logs = []
@@ -973,9 +1077,8 @@ class TestGUISettingsAndMenus(unittest.TestCase):
         finally:
             self.app.is_running = False
 
-
     def test_segmented_pill_and_toggle_switch_widgets(self):
-        from src.ui.widgets import CanvasSegmentedPill, CanvasCheckbutton, SegmentProxy
+        from src.ui.widgets import CanvasCheckbutton, CanvasSegmentedPill, SegmentProxy
 
         # Verify CanvasSegmentedPill attributes on main_ui
         self.assertIsInstance(self.app.pill_play_style, CanvasSegmentedPill)
@@ -1070,13 +1173,22 @@ class TestGUISettingsAndMenus(unittest.TestCase):
 
             # Direct Layout Toggle Button functionality
             self.app.set_layout_mode("single", resize_window=False)
-            self.assertEqual(self.app.btn_menubar_layout.cget("text"), localization.tr("btn_switch_to_2col", self.app.current_lang))
+            self.assertEqual(
+                self.app.btn_menubar_layout.cget("text"),
+                localization.tr("btn_switch_to_2col", self.app.current_lang),
+            )
             self.app.toggle_layout_mode()
             self.assertEqual(self.app.layout_mode, "two_col")
-            self.assertEqual(self.app.btn_menubar_layout.cget("text"), localization.tr("btn_switch_to_1col", self.app.current_lang))
+            self.assertEqual(
+                self.app.btn_menubar_layout.cget("text"),
+                localization.tr("btn_switch_to_1col", self.app.current_lang),
+            )
             self.app.toggle_layout_mode()
             self.assertEqual(self.app.layout_mode, "single")
-            self.assertEqual(self.app.btn_menubar_layout.cget("text"), localization.tr("btn_switch_to_2col", self.app.current_lang))
+            self.assertEqual(
+                self.app.btn_menubar_layout.cget("text"),
+                localization.tr("btn_switch_to_2col", self.app.current_lang),
+            )
 
             # Verify single-column log toggling adjusts window height
             self.app.set_layout_mode("single", resize_window=False)
@@ -1121,42 +1233,45 @@ class TestGUISettingsAndMenus(unittest.TestCase):
             self.app.switch_tab("bot")
 
 
-@unittest.skipUnless(HAVE_GUI, 'GUI dependencies not installed')
+@unittest.skipUnless(HAVE_GUI, "GUI dependencies not installed")
 class TestAppDirResolution(unittest.TestCase):
     def test_resolve_app_dir_writable(self):
         import auto_bot
+
         # Under normal conditions, workspace is writable
         res = auto_bot._resolve_app_dir()
         self.assertTrue(res.exists())
 
     def test_resolve_app_dir_fallback_on_permission_error(self):
         import auto_bot
-        with tempfile.TemporaryDirectory() as fake_appdata:
-            with patch.dict(os.environ, {"APPDATA": fake_appdata}):
-                with patch.object(Path, "touch", side_effect=PermissionError("Read-only")):
-                    res = auto_bot._resolve_app_dir()
-                    self.assertEqual(res, Path(fake_appdata) / "HololiveDreamsAuto")
-                    self.assertTrue(res.exists())
+
+        with (
+            tempfile.TemporaryDirectory() as fake_appdata,
+            patch.dict(os.environ, {"APPDATA": fake_appdata}),
+            patch.object(Path, "touch", side_effect=PermissionError("Read-only")),
+        ):
+            res = auto_bot._resolve_app_dir()
+            self.assertEqual(res, Path(fake_appdata) / "HololiveDreamsAuto")
+            self.assertTrue(res.exists())
 
 
-@unittest.skipUnless(HAVE_GUI, 'GUI dependencies not installed')
+@unittest.skipUnless(HAVE_GUI, "GUI dependencies not installed")
 class TestToolTip(unittest.TestCase):
     def setUp(self):
         try:
             self.root = tk.Tk()
             self.root.withdraw()
-        except Exception:
+        except Exception:  # noqa: BLE001
             self.skipTest("Tkinter display not available")
 
     def tearDown(self):
         if hasattr(self, "root"):
-            try:
+            with contextlib.suppress(Exception):
                 self.root.destroy()
-            except Exception:
-                pass
 
     def test_tooltip_lifecycle(self):
         from main_ui import ToolTip
+
         btn = ttk.Button(self.root, text="Test")
         btn.pack()
         tip = ToolTip(btn, text="Initial Tooltip", delay_ms=10)
@@ -1181,7 +1296,3 @@ class TestToolTip(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-
-

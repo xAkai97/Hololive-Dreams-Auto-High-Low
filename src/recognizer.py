@@ -29,12 +29,12 @@ class CardRecognizer:
 
     def __init__(self, template_dir: str | Path):
         template_dir = Path(template_dir)
-        self.rank_templates: dict[str, list[list[np.ndarray]]] = {}
+        self.rank_templates: dict[str, list[list[tuple[np.ndarray, int]]]] = {}
         for path in sorted((template_dir / "ranks").glob("*.png")):
             label = path.stem.split("_")[0]
             mask = self._load_mask(path)
             self.rank_templates.setdefault(label, []).append(self._precompute_shifts(mask))
-        self.suit_templates: dict[str, list[list[np.ndarray]]] = {}
+        self.suit_templates: dict[str, list[list[tuple[np.ndarray, int]]]] = {}
         for path in sorted((template_dir / "suits").glob("*.png")):
             label = path.stem[0]
             mask = self._load_mask(path)
@@ -82,7 +82,7 @@ class CardRecognizer:
         only small components touching both edges are discarded.
         """
         binary = (mask > 0).astype(np.uint8)
-        count, labels, stats, _ = cv2.connectedComponentsWithStats(binary, 8)
+        count, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
         if count <= 1:
             return mask
 
@@ -97,7 +97,7 @@ class CardRecognizer:
     @staticmethod
     def _normalize(mask: np.ndarray, size: int = 64, largest_only: bool = False) -> np.ndarray:
         if largest_only:
-            count, labels, stats, _ = cv2.connectedComponentsWithStats((mask > 0).astype(np.uint8), 8)
+            count, labels, stats, _ = cv2.connectedComponentsWithStats((mask > 0).astype(np.uint8), connectivity=8)
             if count > 1:
                 component = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
                 mask = (labels == component).astype(np.uint8) * 255
@@ -126,7 +126,7 @@ class CardRecognizer:
         shifts = []
         for dy in range(-3, 4):
             for dx in range(-3, 4):
-                transform = np.float32([[1, 0, dx], [0, 1, dy]])
+                transform = np.array([[1.0, 0.0, float(dx)], [0.0, 1.0, float(dy)]], dtype=np.float32)
                 shifted = cv2.warpAffine(template, transform, (w, h), borderValue=0) > 0
                 shifts.append((shifted, int(shifted.sum())))
         return shifts
@@ -176,7 +176,12 @@ class CardRecognizer:
         # Normalized coordinates measured from the 2560x1440 gameplay screen.
         starts = (0.0752, 0.2524, 0.4297, 0.6069, 0.7837)
         return [
-            (round(xn * width), round(0.3162 * height), round(0.1426 * width), round(0.3606 * height))
+            (
+                round(xn * width),
+                round(0.3162 * height),
+                round(0.1426 * width),
+                round(0.3606 * height),
+            )
             for xn in starts
         ]
 
@@ -241,7 +246,9 @@ class CardRecognizer:
         return valid, average, scores
 
     @staticmethod
-    def selection_phase_score(screen: np.ndarray) -> tuple[bool, float, tuple[float, float, float, float]]:
+    def selection_phase_score(
+        screen: np.ndarray,
+    ) -> tuple[bool, float, tuple[float, float, float, float]]:
         """Detect the purple outlined action button used on the hold-selection screen.
 
         This is intentionally visual and language-independent. The result / payout
@@ -265,7 +272,7 @@ class CardRecognizer:
         white = cv2.morphologyEx(white, cv2.MORPH_CLOSE, kernel)
 
         def best_component(mask: np.ndarray) -> tuple[float, float, float]:
-            count, _, stats, _ = cv2.connectedComponentsWithStats(mask, 8)
+            count, _, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
             best = (0.0, 0.0, 0.0)
             rh, rw = mask.shape
             for i in range(1, count):
@@ -281,7 +288,10 @@ class CardRecognizer:
         # The actual button forms one wide purple component and one wide white
         # border component. Result screens contain only small text/coin shapes.
         valid = p_w >= 0.66 and p_h >= 0.48 and p_a >= 0.22 and w_w >= 0.66 and w_h >= 0.45
-        score = min(1.0, 0.30 * p_w + 0.20 * p_h + 0.25 * min(1.0, p_a / 0.45) + 0.15 * w_w + 0.10 * w_h)
+        score = min(
+            1.0,
+            0.30 * p_w + 0.20 * p_h + 0.25 * min(1.0, p_a / 0.45) + 0.15 * w_w + 0.10 * w_h,
+        )
         return valid, float(score), (float(p_w), float(p_h), float(w_w), float(w_h))
 
     def find_card_rects(self, screen: np.ndarray) -> list[tuple[int, int, int, int]]:

@@ -1,4 +1,5 @@
 """Base class and common interface for all doubling strategies."""
+
 from abc import ABC, abstractmethod
 
 
@@ -15,7 +16,7 @@ def get_max_round_payout(cashout: int, cap: int = 10000) -> int:
 
 
 EARLY_MAX_PAYOUT_BENCHMARK = 32600  # Minimum total daily coins to justify early sprint under cushion
-TRUE_MAX_EARLY_BENCHMARK = 33600    # Minimum total daily coins to justify early Five of a Kind in True Max
+TRUE_MAX_EARLY_BENCHMARK = 33600  # Minimum total daily coins to justify early Five of a Kind in True Max
 VALID_PLAY_STYLES = ("aggressive", "default", "conservative")
 
 
@@ -67,9 +68,14 @@ class BaseStrategy(ABC):
         """
         if target_limit is None:
             target_limit = getattr(self, "target_limit", 20000)
+        if target_limit is None:
+            target_limit = 20000
         strict_odd = force_19900 or (cushion == 19900 and not getattr(self, "force_adaptive_sprint", False))
         max_possible_cushion = max(1000, target_limit - 100)
-        cushion_cap = min(max_possible_cushion, 19900 if strict_odd else (cushion if cushion >= max_possible_cushion else cushion + 100))
+        cushion_cap = min(
+            max_possible_cushion,
+            19900 if strict_odd else (cushion if cushion >= max_possible_cushion else cushion + 100),
+        )
 
         if strict_odd:
             # 19,900 is an odd hundred ((val // 100) % 2 == 1).
@@ -108,7 +114,9 @@ class BaseStrategy(ABC):
             return "cashout"
         if daily_coins + current_cashout > cushion_cap:
             near_cap = (daily_coins + current_cashout >= target_limit) or (cushion >= target_limit - 500)
-            if current_cashout >= sprint_floor and (not near_cap or daily_coins + current_cashout >= EARLY_MAX_PAYOUT_BENCHMARK):
+            if current_cashout >= sprint_floor and (
+                not near_cap or daily_coins + current_cashout >= EARLY_MAX_PAYOUT_BENCHMARK
+            ):
                 return "cashout"
             # Only trigger intent_to_fail if cashing out would lockout the target limit (>= target_limit)
             # or if cushion is near target_limit (>= target_limit - 500)

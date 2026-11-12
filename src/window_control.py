@@ -1,13 +1,14 @@
 """Window detection, frame capture, DPI scaling, and input projection utilities."""
+
 from __future__ import annotations
 
 import atexit
 import ctypes
-from ctypes import wintypes
 import random
-import time
 import threading
-from typing import Optional
+import time
+from ctypes import wintypes
+
 import cv2
 import mss
 import numpy as np
@@ -25,7 +26,7 @@ def init_dpi_awareness() -> None:
     """Align Win32 coordinates, PrintWindow output, and SendInput coordinates."""
     try:
         ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
-    except Exception:
+    except (AttributeError, OSError):
         pass
 
 
@@ -33,7 +34,7 @@ init_dpi_awareness()
 
 _user32 = ctypes.windll.user32
 _gdi32 = ctypes.windll.gdi32
-_capture_context: Optional[dict] = None
+_capture_context: dict | None = None
 _thread_local = threading.local()
 
 
@@ -50,7 +51,7 @@ def _reset_mss_instance() -> None:
     if sct is not None:
         try:
             sct.close()
-        except Exception:
+        except (AttributeError, OSError, mss.exception.ScreenShotError):  # type: ignore[attr-defined]
             pass
         _thread_local.sct_instance = None
 
@@ -75,8 +76,15 @@ _user32.SetForegroundWindow.argtypes = [wintypes.HWND]
 _user32.GetForegroundWindow.argtypes = []
 _user32.GetForegroundWindow.restype = wintypes.HWND
 _user32.BringWindowToTop.argtypes = [wintypes.HWND]
-_user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
-                                 ctypes.c_int, ctypes.c_int, wintypes.UINT]
+_user32.SetWindowPos.argtypes = [
+    wintypes.HWND,
+    wintypes.HWND,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_int,
+    wintypes.UINT,
+]
 
 _gdi32.CreateCompatibleDC.argtypes = [wintypes.HDC]
 _gdi32.CreateCompatibleDC.restype = wintypes.HDC
@@ -90,12 +98,11 @@ _gdi32.DeleteObject.argtypes = [wintypes.HGDIOBJ]
 _gdi32.DeleteDC.argtypes = [wintypes.HDC]
 
 
-def find_game_window(game_title: str = GAME_TITLE) -> Optional[gw.Win32Window]:
+def find_game_window(game_title: str = GAME_TITLE) -> gw.Win32Window | None:
     """Return the real game window using an exact title match."""
     expected = game_title.casefold().strip()
     matches = [
-        win for win in gw.getAllWindows()
-        if win.title.casefold().strip() == expected and getattr(win, "_hWnd", None)
+        win for win in gw.getAllWindows() if win.title.casefold().strip() == expected and getattr(win, "_hWnd", None)
     ]
     if not matches:
         return None
@@ -169,7 +176,7 @@ def capture_game_window(
     ref_width: int = REFERENCE_WIDTH,
     ref_height: int = REFERENCE_HEIGHT,
     allow_foreground_fallback: bool = True,
-) -> tuple[Optional[np.ndarray], int, int]:
+) -> tuple[np.ndarray | None, int, int]:
     """Capture and normalize the game window client area to the reference size."""
     global _capture_context
     win = find_game_window(game_title)
@@ -197,14 +204,14 @@ def capture_game_window(
             try:
                 monitor = {"top": top, "left": left, "width": width, "height": height}
                 img = cv2.cvtColor(np.array(_get_mss_instance().grab(monitor)), cv2.COLOR_BGRA2BGR)
-            except Exception:
+            except (mss.exception.ScreenShotError, OSError, cv2.error):  # type: ignore[attr-defined]
                 _reset_mss_instance()
                 img = None
 
         if img is None:
             img = _capture_client_with_printwindow(hwnd, width, height)
-    except Exception as exc:
-        print(tr('warn_background_capture_fail', error=exc))
+    except (RuntimeError, OSError, cv2.error) as exc:
+        print(tr("warn_background_capture_fail", error=exc))
         if not allow_foreground_fallback:
             _reset_mss_instance()
             _capture_context = None
@@ -217,7 +224,7 @@ def capture_game_window(
                 raise RuntimeError(f"Unexpected game client area size: {width}x{height}")
             monitor = {"top": top, "left": left, "width": width, "height": height}
             img = cv2.cvtColor(np.array(_get_mss_instance().grab(monitor)), cv2.COLOR_BGRA2BGR)
-        except Exception:
+        except (mss.exception.ScreenShotError, RuntimeError, OSError, cv2.error):  # type: ignore[attr-defined]
             _reset_mss_instance()
             _capture_context = None
             return None, 0, 0
@@ -246,23 +253,23 @@ def safe_click(
 ) -> bool:
     """Project normalized coordinates to client window and trigger humanized click."""
     if not _capture_context:
-        print(tr('warn_no_window'))
+        print(tr("warn_no_window"))
         return False
 
     hwnd = _capture_context["hwnd"]
     if not _bring_game_to_front(hwnd):
-        print(tr('warn_window_lost'))
+        print(tr("warn_window_lost"))
         return False
 
     fg_hwnd = _user32.GetForegroundWindow()
     if not fg_hwnd or fg_hwnd != hwnd:
-        print(tr('warn_window_lost'))
+        print(tr("warn_window_lost"))
         return False
 
     try:
         client_left, client_top, client_width, client_height = _get_client_geometry(hwnd)
-    except Exception as exc:
-        print(tr('warn_cannot_read_coords', error=exc))
+    except (RuntimeError, OSError) as exc:
+        print(tr("warn_cannot_read_coords", error=exc))
         return False
 
     offset_x = random.randint(-4, 4)

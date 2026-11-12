@@ -1,23 +1,24 @@
 import unittest
 from unittest.mock import MagicMock, patch
+
 import numpy as np
 
 import auto_bot
 from auto_bot import (
     BotSessionState,
+    HighLowCounter,
+    find_and_click_icon,
+    get_scan_mode,
+    handle_ask_challenge,
+    handle_fail,
+    handle_high_low,
+    handle_hold_cards,
+    handle_result,
+    handle_start_bet,
+    handle_tap_to_proceed,
+    safe_click,
     set_scan_mode,
     toggle_scan_mode,
-    get_scan_mode,
-    safe_click,
-    find_and_click_icon,
-    handle_start_bet,
-    handle_hold_cards,
-    handle_tap_to_proceed,
-    handle_ask_challenge,
-    handle_high_low,
-    handle_fail,
-    handle_result,
-    HighLowCounter,
 )
 from challenge_reward import ChallengeRewardReader
 from settlement import SettlementManager, SettlementReader
@@ -185,10 +186,12 @@ class TestCompanionMode(unittest.TestCase):
             mock_icon_click.assert_not_called()
             self.assertEqual(ctx.daily_fails, 3)
 
-        with patch("auto_bot.find_and_click_icon") as mock_icon_click:
-            with patch("auto_bot.read_settlement_payout", return_value=200):
-                handle_result(ctx, dummy_img, 0, 0)
-                mock_icon_click.assert_not_called()
+        with (
+            patch("auto_bot.find_and_click_icon") as mock_icon_click,
+            patch("auto_bot.read_settlement_payout", return_value=200),
+        ):
+            handle_result(ctx, dummy_img, 0, 0)
+            mock_icon_click.assert_not_called()
 
     def test_seamless_mode_switch_preserves_session_state(self):
         set_scan_mode(True)
@@ -260,19 +263,23 @@ class TestCompanionMode(unittest.TestCase):
         dummy_img = np.zeros((100, 100, 3), dtype=np.uint8)
 
         # In scan mode, handle_ask_challenge passes timeout=None to observe
-        with patch("auto_bot.is_success_prompt", return_value=False):
-            with patch("auto_bot.read_challenge_payout", return_value=400):
-                ctx.strategy.base_cash = None
-                handle_ask_challenge(ctx, dummy_img, 0, 0)
-                ctx.reward_reader.observe.assert_called_with(400, unittest.mock.ANY, timeout=None)
+        with (
+            patch("auto_bot.is_success_prompt", return_value=False),
+            patch("auto_bot.read_challenge_payout", return_value=400),
+        ):
+            ctx.strategy.base_cash = None
+            handle_ask_challenge(ctx, dummy_img, 0, 0)
+            ctx.reward_reader.observe.assert_called_with(400, unittest.mock.ANY, timeout=None)
 
         # Switch to auto bot (clicks enabled): timeout is now 6.5s
         ctx.scan_mode = False
-        with patch("auto_bot.is_success_prompt", return_value=False):
-            with patch("auto_bot.read_challenge_payout", return_value=400):
-                ctx.strategy.base_cash = None
-                handle_ask_challenge(ctx, dummy_img, 0, 0)
-                ctx.reward_reader.observe.assert_called_with(400, unittest.mock.ANY, timeout=6.5)
+        with (
+            patch("auto_bot.is_success_prompt", return_value=False),
+            patch("auto_bot.read_challenge_payout", return_value=400),
+        ):
+            ctx.strategy.base_cash = None
+            handle_ask_challenge(ctx, dummy_img, 0, 0)
+            ctx.reward_reader.observe.assert_called_with(400, unittest.mock.ANY, timeout=6.5)
 
     def test_advisor_deduplication_in_companion_mode(self):
         mock_rec = MagicMock()
@@ -304,19 +311,22 @@ class TestCompanionMode(unittest.TestCase):
         ctx.upcoming_card_val = 8
         dummy_img = np.zeros((100, 100, 3), dtype=np.uint8)
 
-        with patch("auto_bot.read_challenge_payout", return_value=800):
-            with patch("auto_bot.print") as mock_print:
-                ctx.reward_reader.observe.return_value = 800
-                handle_ask_challenge(ctx, dummy_img, 0, 0)
-                first_call_count = mock_print.call_count
-                self.assertGreater(first_call_count, 0)
+        with (
+            patch("auto_bot.read_challenge_payout", return_value=800),
+            patch("auto_bot.print") as mock_print,
+        ):
+            ctx.reward_reader.observe.return_value = 800
+            handle_ask_challenge(ctx, dummy_img, 0, 0)
+            first_call_count = mock_print.call_count
+            self.assertGreater(first_call_count, 0)
 
-                # Subsequent call with the exact same challenge state should be deduplicated
-                handle_ask_challenge(ctx, dummy_img, 0, 0)
-                self.assertEqual(mock_print.call_count, first_call_count)
+            # Subsequent call with the exact same challenge state should be deduplicated
+            handle_ask_challenge(ctx, dummy_img, 0, 0)
+            self.assertEqual(mock_print.call_count, first_call_count)
 
     def test_companion_mode_consecutive_doubles_deplete_deck(self):
         from types import SimpleNamespace
+
         counter = HighLowCounter()
         self.assertEqual(counter.total_cards, 52)
 
@@ -371,19 +381,21 @@ class TestCompanionMode(unittest.TestCase):
         # 2. Challenge prompt after winning: new card 7 at x=420
         rect_7 = (420, 100, 80, 120)
         ctx.upcoming_card_val = None
-        with patch("auto_bot.find_all_card_rects", return_value=[rect_k, rect_7]):
-            mock_rec.recognize_card.return_value = card_7
-            with patch("auto_bot.get_card_point_value", return_value=7):
-                with patch("auto_bot.read_challenge_payout", return_value=800):
-                    ctx.reward_reader.observe.return_value = 800
-                    handle_ask_challenge(ctx, dummy_img, 0, 0)
-                    self.assertEqual(ctx.counter.total_cards, 50)
-                    self.assertEqual(ctx.last_removed_card_x, 420)
-                    self.assertEqual(ctx.upcoming_card_val, 7)
+        mock_rec.recognize_card.return_value = card_7
+        with (
+            patch("auto_bot.find_all_card_rects", return_value=[rect_k, rect_7]),
+            patch("auto_bot.get_card_point_value", return_value=7),
+            patch("auto_bot.read_challenge_payout", return_value=800),
+        ):
+            ctx.reward_reader.observe.return_value = 800
+            handle_ask_challenge(ctx, dummy_img, 0, 0)
+            self.assertEqual(ctx.counter.total_cards, 50)
+            self.assertEqual(ctx.last_removed_card_x, 420)
+            self.assertEqual(ctx.upcoming_card_val, 7)
 
-                    # Repeated frames in ASK_CHALLENGE do not double-remove
-                    handle_ask_challenge(ctx, dummy_img, 0, 0)
-                    self.assertEqual(ctx.counter.total_cards, 50)
+            # Repeated frames in ASK_CHALLENGE do not double-remove
+            handle_ask_challenge(ctx, dummy_img, 0, 0)
+            self.assertEqual(ctx.counter.total_cards, 50)
 
         # 3. Next double in HIGH_LOW with 7 at x=420 as base card
         with patch("auto_bot.find_all_card_rects", return_value=[rect_k, rect_7]):
@@ -397,15 +409,17 @@ class TestCompanionMode(unittest.TestCase):
         # 4. Next double wins, Ace at x=540 revealed
         rect_a = (540, 100, 80, 120)
         ctx.upcoming_card_val = None
-        with patch("auto_bot.find_all_card_rects", return_value=[rect_k, rect_7, rect_a]):
-            mock_rec.recognize_card.return_value = card_a
-            with patch("auto_bot.get_card_point_value", return_value=14):
-                with patch("auto_bot.read_challenge_payout", return_value=1600):
-                    ctx.reward_reader.observe.return_value = 1600
-                    handle_ask_challenge(ctx, dummy_img, 0, 0)
-                    self.assertEqual(ctx.counter.total_cards, 49)
-                    self.assertEqual(ctx.last_removed_card_x, 540)
-                    self.assertEqual(ctx.upcoming_card_val, 14)
+        mock_rec.recognize_card.return_value = card_a
+        with (
+            patch("auto_bot.find_all_card_rects", return_value=[rect_k, rect_7, rect_a]),
+            patch("auto_bot.get_card_point_value", return_value=14),
+            patch("auto_bot.read_challenge_payout", return_value=1600),
+        ):
+            ctx.reward_reader.observe.return_value = 1600
+            handle_ask_challenge(ctx, dummy_img, 0, 0)
+            self.assertEqual(ctx.counter.total_cards, 49)
+            self.assertEqual(ctx.last_removed_card_x, 540)
+            self.assertEqual(ctx.upcoming_card_val, 14)
 
     def test_challenge_reward_power_of_two_skip_and_fast_mode(self):
         reader = ChallengeRewardReader()
@@ -457,21 +471,26 @@ class TestCompanionMode(unittest.TestCase):
         # 1. Initial ASK_CHALLENGE at 1500 -> 3000
         ctx.update_state_flicker_guards("ASK_CHALLENGE")
         ctx.last_state = "ASK_CHALLENGE"
-        with patch("auto_bot.is_success_prompt", return_value=False), \
-             patch("auto_bot.read_challenge_payout", return_value=3000):
+        with (
+            patch("auto_bot.is_success_prompt", return_value=False),
+            patch("auto_bot.read_challenge_payout", return_value=3000),
+        ):
             handle_ask_challenge(ctx, dummy_img, 0, 0)
         self.assertEqual(ctx.last_known_cashout, 1500)
         self.assertEqual(ctx.last_known_next_reward, 3000)
 
         # 2. Ongoing ASK_CHALLENGE at 3000 -> 6000 where strategy advises CASHOUT (3000)
         ctx.update_state_flicker_guards("ASK_CHALLENGE")
-        with patch("auto_bot.is_success_prompt", return_value=True), \
-             patch("auto_bot.read_challenge_payout", return_value=6000):
+        with (
+            patch("auto_bot.is_success_prompt", return_value=True),
+            patch("auto_bot.read_challenge_payout", return_value=6000),
+        ):
             handle_ask_challenge(ctx, dummy_img, 0, 0)
         self.assertEqual(ctx.settlement_mgr.expected_cashout, 3000)
 
         # 3. User ignores CASHOUT and clicks Double Up into HIGH_LOW (Spade 2)
         from types import SimpleNamespace
+
         card_2 = SimpleNamespace(card_id=0, rank="2", suit="♠", rank_score=0.90, rank_margin=0.25)
         ctx.update_state_flicker_guards("HIGH_LOW")
         ctx.last_state = "HIGH_LOW"
@@ -514,7 +533,12 @@ class TestCompanionMode(unittest.TestCase):
             daily_fails=0,
             round_count=1,
             net_profit=3600,
-            strategy=MagicMock(base_cash=None, cushion_target=19800, expected_cash=200, decide=MagicMock(return_value="challenge")),
+            strategy=MagicMock(
+                base_cash=None,
+                cushion_target=19800,
+                expected_cash=200,
+                decide=MagicMock(return_value="challenge"),
+            ),
             counter=HighLowCounter(),
             card_rec=mock_rec,
             reward_reader=ChallengeRewardReader(),
@@ -526,9 +550,11 @@ class TestCompanionMode(unittest.TestCase):
         frame_1080p = np.zeros((1080, 1920, 3), dtype=np.uint8)
 
         # Step 0 ASK_CHALLENGE with a single dialog contour at x=261 must NOT recover phantom King
-        with patch("auto_bot.is_success_prompt", return_value=False), \
-             patch("auto_bot.read_challenge_payout", return_value=400), \
-             patch("auto_bot.find_all_card_rects", return_value=[(261, 365, 275, 390)]):
+        with (
+            patch("auto_bot.is_success_prompt", return_value=False),
+            patch("auto_bot.read_challenge_payout", return_value=400),
+            patch("auto_bot.find_all_card_rects", return_value=[(261, 365, 275, 390)]),
+        ):
             mock_rec.recognize_card.return_value = card_k
             handle_ask_challenge(ctx, frame_1080p, 0, 0)
         self.assertIsNone(ctx.upcoming_card_val)
@@ -546,7 +572,10 @@ class TestCompanionMode(unittest.TestCase):
         # Right-hand card flips at x=381 (>= 54 + 200) before ASK_CHALLENGE:
         # Must record upcoming_card_val=8 and remove from deck once, WITHOUT incrementing step_count
         frame_1080p[10:200, 10:200] = 255
-        with patch("auto_bot.find_all_card_rects", return_value=[(54, 365, 276, 390), (381, 365, 274, 390)]):
+        with patch(
+            "auto_bot.find_all_card_rects",
+            return_value=[(54, 365, 276, 390), (381, 365, 274, 390)],
+        ):
             mock_rec.recognize_card.return_value = card_8
             with patch("auto_bot.get_card_point_value", return_value=8):
                 handle_high_low(ctx, frame_1080p, 0, 0)
@@ -625,7 +654,7 @@ class TestCompanionMode(unittest.TestCase):
         tpl_en[4:20, 4:28] = 255
         tpl_replace = np.zeros((24, 32), dtype=np.uint8)
         tpl_replace[2:22, 8:24] = 200
-        screen[80:80 + 24, 120:120 + 32, :] = tpl_en[:, :, None]
+        screen[80 : 80 + 24, 120 : 120 + 32, :] = tpl_en[:, :, None]
 
         fake_lang_map = {
             "en": [("FAIL", "fake_fail_en.png")],
@@ -640,8 +669,10 @@ class TestCompanionMode(unittest.TestCase):
                 return tpl_replace
             return np.zeros((24, 32), dtype=np.uint8)
 
-        with patch.object(auto_bot, "_LANG_TEMPLATES", fake_lang_map), \
-             patch.object(auto_bot, "get_template", side_effect=fake_get_tpl):
+        with (
+            patch.object(auto_bot, "_LANG_TEMPLATES", fake_lang_map),
+            patch.object(auto_bot, "get_template", side_effect=fake_get_tpl),
+        ):
             state1 = auto_bot.detect_game_state(screen)
             self.assertEqual(state1, "FAIL")
             self.assertEqual(auto_bot._DETECTED_GAME_LANG, "en")
@@ -650,7 +681,7 @@ class TestCompanionMode(unittest.TestCase):
             # Universal template in 'other' (HOLD_CARDS) must still be detected immediately when pinned to 'en',
             # and must NOT overwrite _DETECTED_GAME_LANG to 'other'
             screen_hold = np.zeros((200, 300, 3), dtype=np.uint8)
-            screen_hold[40:40 + 24, 60:60 + 32, :] = tpl_replace[:, :, None]
+            screen_hold[40 : 40 + 24, 60 : 60 + 32, :] = tpl_replace[:, :, None]
             state2 = auto_bot.detect_game_state(screen_hold)
             self.assertEqual(state2, "HOLD_CARDS")
             self.assertEqual(auto_bot._DETECTED_GAME_LANG, "en")
@@ -659,9 +690,9 @@ class TestCompanionMode(unittest.TestCase):
         auto_bot._DETECTED_GAME_LANG = None
 
     def test_scan_user_selected_hand_tracks_selection_and_logs(self):
-        from types import SimpleNamespace
-        import io
         import contextlib
+        import io
+        from types import SimpleNamespace
 
         mock_rec = MagicMock()
         ctx = BotSessionState(
@@ -701,47 +732,55 @@ class TestCompanionMode(unittest.TestCase):
         ]
 
         # 1. Initially all unheld: first scan with 0 held does not prematurely log
-        with patch("auto_bot.get_currently_held_indices", return_value=set()):
-            with contextlib.redirect_stdout(io.StringIO()) as buf:
-                held = auto_bot.scan_user_selected_hand(ctx, dummy_img, rects, cards)
-                self.assertEqual(held, set())
-                self.assertEqual(ctx.target_held_indices, set())
-                self.assertFalse(ctx.has_logged_user_selected_hold)
-                self.assertEqual(buf.getvalue(), "")
+        with (
+            patch("auto_bot.get_currently_held_indices", return_value=set()),
+            contextlib.redirect_stdout(io.StringIO()) as buf,
+        ):
+            held = auto_bot.scan_user_selected_hand(ctx, dummy_img, rects, cards)
+            self.assertEqual(held, set())
+            self.assertEqual(ctx.target_held_indices, set())
+            self.assertFalse(ctx.has_logged_user_selected_hold)
+            self.assertEqual(buf.getvalue(), "")
 
         # 2. User selects cards at slots 0 and 1
-        with patch("auto_bot.get_currently_held_indices", return_value={0, 1}):
-            with contextlib.redirect_stdout(io.StringIO()) as buf:
-                held = auto_bot.scan_user_selected_hand(ctx, dummy_img, rects, cards)
-                self.assertEqual(held, {0, 1})
-                self.assertEqual(ctx.target_held_indices, {0, 1})
-                self.assertTrue(ctx.has_logged_user_selected_hold)
-                output = buf.getvalue()
-                self.assertIn("Selected Hold", output)
-                self.assertIn("♠2", output)
-                self.assertIn("♠3", output)
+        with (
+            patch("auto_bot.get_currently_held_indices", return_value={0, 1}),
+            contextlib.redirect_stdout(io.StringIO()) as buf,
+        ):
+            held = auto_bot.scan_user_selected_hand(ctx, dummy_img, rects, cards)
+            self.assertEqual(held, {0, 1})
+            self.assertEqual(ctx.target_held_indices, {0, 1})
+            self.assertTrue(ctx.has_logged_user_selected_hold)
+            output = buf.getvalue()
+            self.assertIn("Selected Hold", output)
+            self.assertIn("♠2", output)
+            self.assertIn("♠3", output)
 
         # 3. Same hold in next frame: deduplicated, no duplicate logging
-        with patch("auto_bot.get_currently_held_indices", return_value={0, 1}):
-            with contextlib.redirect_stdout(io.StringIO()) as buf:
-                held = auto_bot.scan_user_selected_hand(ctx, dummy_img, rects, cards)
-                self.assertEqual(held, {0, 1})
-                self.assertEqual(buf.getvalue(), "")
+        with (
+            patch("auto_bot.get_currently_held_indices", return_value={0, 1}),
+            contextlib.redirect_stdout(io.StringIO()) as buf,
+        ):
+            held = auto_bot.scan_user_selected_hand(ctx, dummy_img, rects, cards)
+            self.assertEqual(held, {0, 1})
+            self.assertEqual(buf.getvalue(), "")
 
         # 4. User changes selection to slot 2 only
-        with patch("auto_bot.get_currently_held_indices", return_value={2}):
-            with contextlib.redirect_stdout(io.StringIO()) as buf:
-                held = auto_bot.scan_user_selected_hand(ctx, dummy_img, rects, cards)
-                self.assertEqual(held, {2})
-                self.assertEqual(ctx.target_held_indices, {2})
-                output = buf.getvalue()
-                self.assertIn("Selected Hold", output)
-                self.assertIn("♠4", output)
+        with (
+            patch("auto_bot.get_currently_held_indices", return_value={2}),
+            contextlib.redirect_stdout(io.StringIO()) as buf,
+        ):
+            held = auto_bot.scan_user_selected_hand(ctx, dummy_img, rects, cards)
+            self.assertEqual(held, {2})
+            self.assertEqual(ctx.target_held_indices, {2})
+            output = buf.getvalue()
+            self.assertIn("Selected Hold", output)
+            self.assertIn("♠4", output)
 
     def test_handle_hold_cards_observer_mode_scans_and_zero_clicks(self):
-        from types import SimpleNamespace
-        import io
         import contextlib
+        import io
+        from types import SimpleNamespace
 
         mock_rec = MagicMock()
         cards = [
@@ -775,9 +814,11 @@ class TestCompanionMode(unittest.TestCase):
         )
         dummy_img = np.zeros((1080, 1920, 3), dtype=np.uint8)
 
-        with patch("auto_bot.safe_click") as mock_safe_click, \
-             patch("auto_bot.find_and_click_icon") as mock_find_click, \
-             patch("auto_bot.get_currently_held_indices", return_value={0, 1}):
+        with (
+            patch("auto_bot.safe_click") as mock_safe_click,
+            patch("auto_bot.find_and_click_icon") as mock_find_click,
+            patch("auto_bot.get_currently_held_indices", return_value={0, 1}),
+        ):
             with contextlib.redirect_stdout(io.StringIO()) as buf:
                 handle_hold_cards(ctx, dummy_img, 0, 0)
 

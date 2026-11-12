@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
-SRC_DIR = Path(__file__).resolve().parents[1] / 'src'
+
+SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
@@ -9,12 +10,11 @@ import io
 import unittest
 
 from settlement import (
-    SettlementReader,
     SettlementManager,
-    is_valid_settlement_amount,
+    SettlementReader,
     is_valid_hand_payout,
+    is_valid_settlement_amount,
     validate_and_correct_payout,
-    SettlementTimeoutError,
 )
 
 
@@ -30,9 +30,9 @@ class SettlementTests(unittest.TestCase):
 
         with contextlib.redirect_stdout(io.StringIO()):
             for current_state, now, amount in frames:
-                if current_state in ('START_BET', 'HOLD_CARDS'):
+                if current_state in ("START_BET", "HOLD_CARDS"):
                     mgr.reset_round()
-                elif current_state == 'RESULT':
+                elif current_state == "RESULT":
                     daily_coins, can_proceed = mgr.process_result(
                         amount=amount,
                         now=now,
@@ -45,26 +45,28 @@ class SettlementTests(unittest.TestCase):
         return daily_coins, writes, clicks
 
     def test_count_up_then_stable_400(self):
-        frames = [('RESULT', i * .25, amount) for i, amount in enumerate(
-            [20, 60, 280, 40, 400, 400, 400, 400, 400, 400, 400])]
+        frames = [
+            ("RESULT", i * 0.25, amount)
+            for i, amount in enumerate([20, 60, 280, 40, 400, 400, 400, 400, 400, 400, 400])
+        ]
         coins, writes, _ = self.replay(frames)
         self.assertEqual((coins, writes), (760, [760]))
 
     def test_zero_is_retried_and_not_clicked_away(self):
-        self.assertEqual(self.replay([('RESULT', 0, 0)])[:], (360, [], []))
-        frames = [('RESULT', i * .25, 0 if i < 7 else 400) for i in range(12)]
+        self.assertEqual(self.replay([("RESULT", 0, 0)])[:], (360, [], []))
+        frames = [("RESULT", i * 0.25, 0 if i < 7 else 400) for i in range(12)]
         self.assertEqual(self.replay(frames)[:2], (760, [760]))
 
     def test_unknown_does_not_duplicate_credit(self):
-        frames = [('RESULT', i * .25, 400) for i in range(11)]
-        frames += [('UNKNOWN', 3, 0), ('RESULT', 3.25, 400)]
+        frames = [("RESULT", i * 0.25, 400) for i in range(11)]
+        frames += [("UNKNOWN", 3, 0), ("RESULT", 3.25, 400)]
         self.assertEqual(self.replay(frames)[:2], (760, [760]))
 
     def test_next_round_can_credit_again(self):
-        for state in ('START_BET', 'HOLD_CARDS'):
-            frames = [('RESULT', i * .25, 400) for i in range(11)]
+        for state in ("START_BET", "HOLD_CARDS"):
+            frames = [("RESULT", i * 0.25, 400) for i in range(11)]
             frames += [(state, 3, 0)]
-            frames += [('RESULT', 4 + i * .25, 200) for i in range(11)]
+            frames += [("RESULT", 4 + i * 0.25, 200) for i in range(11)]
             self.assertEqual(self.replay(frames)[:2], (960, [760, 960]))
 
     def test_timeout_for_zero_or_unstable_values(self):
@@ -72,12 +74,12 @@ class SettlementTests(unittest.TestCase):
             reader = SettlementReader()
             with self.assertRaises(RuntimeError):
                 for i, amount in enumerate(values):
-                    self.assertIsNone(reader.observe(amount, i * .25))
+                    self.assertIsNone(reader.observe(amount, i * 0.25))
 
     def test_animation_samples_cannot_satisfy_stability(self):
         reader = SettlementReader()
         for i in range(8):
-            self.assertIsNone(reader.observe(200, i * .25))
+            self.assertIsNone(reader.observe(200, i * 0.25))
         for now in (2, 2.25, 2.5):
             self.assertIsNone(reader.observe(400, now))
         self.assertEqual(reader.observe(400, 2.75), 400)
@@ -100,10 +102,11 @@ class SettlementTests(unittest.TestCase):
 
     def test_max_payout_auto_settle_after_challenge_credits_without_error(self):
         from strategies.max_profit import MaxProfitStrategy
+
         strat = MaxProfitStrategy()
         # Strategy decides to challenge 6000 -> 12000
         decision = strat.decide(current_cashout=6000, next_reward=12000, win_rate=0.75, daily_coins=4200)
-        self.assertEqual(decision, 'challenge')
+        self.assertEqual(decision, "challenge")
         self.assertIsNone(strat.expected_cash)
 
         # Game hits max payout and lands directly on RESULT with 12000
@@ -277,6 +280,5 @@ class SettlementTests(unittest.TestCase):
         self.assertIn("Corrected payout", out.getvalue())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
-
