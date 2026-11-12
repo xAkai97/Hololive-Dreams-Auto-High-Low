@@ -2,6 +2,7 @@
 import datetime
 import re
 import time
+
 import auto_bot
 import localization
 
@@ -53,8 +54,8 @@ def clean_old_logs(max_days: int = 14, max_size_mb: int = 20, lang: str = "en") 
                         f.unlink()
                         deleted_count += 1
                         freed_bytes += sz
-            except Exception:
-                pass
+            except OSError as err:
+                auto_bot.log_debug(f"[LogCleanup] Skipping unreadable log file {f.name}: {err}")
 
     log_files = [f for f in auto_bot.LOGS_DIR.iterdir() if f.is_file() and f.suffix.lower() in (".txt", ".log")]
 
@@ -73,7 +74,8 @@ def clean_old_logs(max_days: int = 14, max_size_mb: int = 20, lang: str = "en") 
                     freed_bytes += size
                 else:
                     surviving_files.append(f)
-            except Exception:
+            except OSError as err:
+                auto_bot.log_debug(f"[LogCleanup] Age prune error on {f.name}: {err}")
                 surviving_files.append(f)
         log_files = surviving_files
 
@@ -85,8 +87,8 @@ def clean_old_logs(max_days: int = 14, max_size_mb: int = 20, lang: str = "en") 
             try:
                 st = f.stat()
                 file_stats.append((st.st_mtime, st.st_size, f))
-            except Exception:
-                pass
+            except OSError as err:
+                auto_bot.log_debug(f"[LogCleanup] Stat failed for {f.name}: {err}")
 
         file_stats.sort(key=lambda x: x[0])  # oldest first
         total_size = sum(item[1] for item in file_stats)
@@ -99,8 +101,8 @@ def clean_old_logs(max_days: int = 14, max_size_mb: int = 20, lang: str = "en") 
                 deleted_count += 1
                 freed_bytes += size
                 total_size -= size
-            except Exception:
-                pass
+            except OSError as err:
+                auto_bot.log_debug(f"[LogCleanup] Unlink failed for {f.name}: {err}")
 
     freed_mb = freed_bytes / (1024 * 1024)
     if deleted_count > 0:
@@ -118,21 +120,21 @@ def rotate_previous_log(max_days: int = 14, max_size_mb: int = 20, lang: str = "
             if is_trivial_log_content(content):
                 try:
                     log_file.unlink()
-                except Exception:
-                    pass
+                except OSError as err:
+                    auto_bot.log_debug(f"[LogRotate] Failed to delete trivial log.txt: {err}")
             else:
                 m = re.search(r"=== UI Session Started:\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2}):(\d{2})", content)
                 if m:
                     try:
                         session_dt = datetime.datetime.strptime(f"{m.group(1)} {m.group(2)}:{m.group(3)}:{m.group(4)}", "%Y-%m-%d %H:%M:%S").astimezone()
-                        log_game_date = auto_bot.get_game_date(session_dt.astimezone(datetime.timezone.utc))
-                    except Exception:
+                        log_game_date = auto_bot.get_game_date(session_dt.astimezone(datetime.UTC))
+                    except (ValueError, OSError):
                         log_game_date = m.group(1)
 
                     current_date = auto_bot.get_game_date()
                     config = auto_bot.load_config()
-                    coins = int(config.get("coins", 0))
-                    target = int(config.get("target_limit", 20000))
+                    coins = auto_bot.cfg_get_int(config, "coins", 0)
+                    target = auto_bot.cfg_get_int(config, "target_limit", 20000)
                     is_same_day_in_progress = (log_game_date == current_date and coins < target)
                 else:
                     log_game_date = None
@@ -157,23 +159,23 @@ def rotate_previous_log(max_days: int = 14, max_size_mb: int = 20, lang: str = "
             if is_trivial_log_content(debug_content):
                 try:
                     debug_file.unlink()
-                except Exception:
-                    pass
+                except OSError as err:
+                    auto_bot.log_debug(f"[LogRotate] Failed to delete trivial debug_log.txt: {err}")
             else:
                 m = re.search(r"=== Hololive Dreams Debug Log \((.*?)\) ===", debug_content)
                 if m:
                     try:
                         session_dt = datetime.datetime.strptime(m.group(1).strip(), "%Y-%m-%d %H:%M:%S").astimezone()
-                        log_game_date = auto_bot.get_game_date(session_dt.astimezone(datetime.timezone.utc))
-                    except Exception:
+                        log_game_date = auto_bot.get_game_date(session_dt.astimezone(datetime.UTC))
+                    except (ValueError, OSError):
                         log_game_date = None
                 else:
                     log_game_date = None
 
                 current_date = auto_bot.get_game_date()
                 config = auto_bot.load_config()
-                coins = int(config.get("coins", 0))
-                target = int(config.get("target_limit", 20000))
+                coins = auto_bot.cfg_get_int(config, "coins", 0)
+                target = auto_bot.cfg_get_int(config, "target_limit", 20000)
                 is_same_day_in_progress = (log_game_date == current_date and coins < target) if log_game_date else False
 
                 if force or not is_same_day_in_progress:
@@ -186,10 +188,10 @@ def rotate_previous_log(max_days: int = 14, max_size_mb: int = 20, lang: str = "
                         target_debug = auto_bot.LOGS_DIR / f"debug_log_{archive_date}_{counter}.txt"
                         counter += 1
                     debug_file.replace(target_debug)
-    except Exception as e:
+    except (OSError, ValueError, TypeError) as e:
         print(f"[Warning] Failed to rotate log file: {e}")
 
     try:
         clean_old_logs(max_days=max_days, max_size_mb=max_size_mb, lang=lang)
-    except Exception as e:
+    except (OSError, ValueError, TypeError) as e:
         print(f"[Warning] Failed to clean old logs: {e}")

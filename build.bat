@@ -38,7 +38,7 @@ if %ERRORLEVEL% neq 0 (
 
 echo [3/3] Synchronizing release files to dist\Hololive-Dreams-Auto\...
 if not exist "dist" mkdir "dist"
-robocopy "%TEMP%\pyi_dist\Hololive-Dreams-Auto" "dist\Hololive-Dreams-Auto" /MIR /XF config.json log.txt debug_log.txt /XD logs debug /R:2 /W:1 >nul
+robocopy "%TEMP%\pyi_dist\Hololive-Dreams-Auto" "dist\Hololive-Dreams-Auto" /MIR /XF config.json config.*.json *.bak *.log log.txt debug_log.txt todo.md completed.md /XD logs debug private /R:2 /W:1 >nul
 
 :: Robocopy returns codes 0-7 on success
 if %ERRORLEVEL% leq 7 (

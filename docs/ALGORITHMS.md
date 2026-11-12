@@ -160,3 +160,29 @@ To evaluate and tune strategy parameters without risking in-game coins, `simulat
    - **Bust Rate (% of days $< 20,000$)**: Measures bankroll volatility and failure frequency.
    - **Sprint Success Rate**: Percentage of days that successfully reach $\ge 30,000$ coins.
    - **Standard Deviation & Value at Risk (VaR)**: Measures consistency across varying seed distributions.
+
+---
+
+## 5. Vision Pipeline, State Machine & Window Control
+
+### 5.1 Multi-Resolution Capture & Foreground Click Projection (`src/window_control.py`)
+- **Normalized `1920x1080` Coordinate Space**:
+  - `capture_game_window()` captures the `hololive-Dreams` client area and normalizes frames to `1920x1080` (`INTER_AREA` when downsampling from 1440p/4K, `INTER_LINEAR` when upsampling from 720p/900p).
+  - When `hololive-Dreams` is the active foreground window, frames are grabbed directly via `mss` for zero-flicker, low-latency capture. When covered by another window, it falls back to Win32 `PrintWindow(PW_CLIENTONLY | PW_RENDERFULLCONTENT)` so vision and OCR continue working in the background.
+- **Foreground Focus Verification (`safe_click`)**:
+  - Hardware mouse simulation via `pydirectinput` (`SendInput`) requires the game window to be in the foreground.
+  - `_bring_game_to_front()` restores and raises the window with a `50ms` settle delay, and `safe_click()` verifies that `GetForegroundWindow()` is non-null (`!= 0`) and matches the target `hwnd` before dispatching any click.
+  - `find_and_click_icon()` propagates the boolean return value of `safe_click()` so blocked clicks (e.g., when another game is in Exclusive Fullscreen) never trigger false state transitions or inflate round counters on consecutive `START_BET` frames.
+
+### 5.2 Predictive & Self-Healing State Detection (`src/auto_bot.py`)
+`detect_game_state()` identifies the current game screen (`START_BET`, `HOLD_CARDS`, `TAP_TO_PROCEED`, `ASK_CHALLENGE`, `HIGH_LOW`, `FAIL`, `RESULT`) using a 4-stage pipeline:
+1. **Predictive Fast Path**: Checks the expected next state from `STATE_TRANSITIONS` first using cached template ROIs (`_TEMPLATE_ROI_CACHE`, `±120px` margin).
+2. **Primary Language + Universal Path**: Checks remaining templates for the pinned/active language and universal icons (`tpl_high.png`) within cached ROIs.
+3. **Full-Frame ROI Recovery Pass**: If all cached ROIs miss (for example, if a template's ROI was cached while a dialog was sliding in during an entry animation), re-scans the full `1920x1080` frame (`roi_only_on_miss=False`) and refreshes `_TEMPLATE_ROI_CACHE` with the settled coordinates. `_TEMPLATE_ROI_CACHE` is also cleared on session start and upon `UNKNOWN` state timeouts.
+4. **Universal Result Header Coin-Icon Fallback**: On the English `RESULT` screen, the middle `"Winning Hand"` row (`result_en.png`) only fades in after the initial ~1s coin count-up animation, whereas the top-left 3D coin stack icon (`🪙` in the Result card header at `x=46%..62%, y=18%..34%`) is rendered immediately from Frame 1 across all languages. Checking this header icon prevents false `UNKNOWN` states during Result count-up animations.
+
+### 5.3 Observer Mode Manual Hold Tracking (`scan_user_selected_hand`)
+In **Observer Mode** (`scan_mode=True`), the bot never clicks cards on the `HOLD_CARDS` screen:
+- ` handle_hold_cards()` computes all $2^5 = 32$ hold masks via `calculate_best()` and logs the solver's recommendation (`poker_optimal_hold`), caching the 32-mask lookup table in `ctx.poker_all_results`.
+- `scan_user_selected_hand()` (aliased as `scan_user_selected_hold()`) continuously monitors which card slots the player has manually held using `get_currently_held_indices()` (combining multi-scale `tpl_card_lock.png` badge matching with vertical card displacement).
+- Whenever the player's held selection changes (or when the final draw hand is logged in `try_log_final_poker_hand()`), it looks up the exact bitmask $M = \sum_{i \in \text{held}} 2^i$ in `ctx.poker_all_results` and logs the player's actual selection (`poker_selected_hold`) with its exact Expected Value ($\mathbb{E}[M]$) and Win Probability.

@@ -4,7 +4,6 @@ The lowest risk strategy. Takes the first safe cashout opportunity in every
 round, never voluntarily doubles more than needed. Grinds slowly toward
 19,800, then does one final max double-up attempt.
 """
-from typing import Optional
 
 from strategies.base import BaseStrategy, normalize_play_style
 
@@ -30,8 +29,8 @@ class GrinderStrategy(BaseStrategy):
         self.reset_round()
 
     def reset_round(self) -> None:
-        self.base_cash: Optional[int] = None
-        self.last_cashout: Optional[int] = None
+        self.base_cash: int | None = None
+        self.last_cashout: int | None = None
         self.intent_to_fail: bool = False
         self._doubles_this_round = 0
 
@@ -40,7 +39,7 @@ class GrinderStrategy(BaseStrategy):
         self._doubles_this_round = 0
 
     @property
-    def expected_cash(self) -> Optional[int]:
+    def expected_cash(self) -> int | None:
         return self.last_cashout
 
     def guess_clicked(self) -> None:
@@ -52,10 +51,10 @@ class GrinderStrategy(BaseStrategy):
 
     def decide(
         self,
-        current_cashout: Optional[int] = None,
-        next_reward: Optional[int] = None,
-        win_rate: Optional[float] = None,
-        daily_coins: Optional[int] = None,
+        current_cashout: int | None = None,
+        next_reward: int | None = None,
+        win_rate: float | None = None,
+        daily_coins: int | None = None,
     ) -> str:
         current_cashout = current_cashout or 0
         next_reward = next_reward or (current_cashout * 2)

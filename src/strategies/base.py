@@ -1,6 +1,5 @@
 """Base class and common interface for all doubling strategies."""
 from abc import ABC, abstractmethod
-from typing import Optional
 
 
 def get_max_round_payout(cashout: int, cap: int = 10000) -> int:
@@ -20,7 +19,7 @@ TRUE_MAX_EARLY_BENCHMARK = 33600    # Minimum total daily coins to justify early
 VALID_PLAY_STYLES = ("aggressive", "default", "conservative")
 
 
-def normalize_play_style(play_style: Optional[str]) -> str:
+def normalize_play_style(play_style: str | None) -> str:
     """Normalize a play style string to 'aggressive', 'default', or 'conservative'."""
     if not play_style:
         return "default"
@@ -34,8 +33,8 @@ class BaseStrategy(ABC):
     name: str = "Base Strategy"
     play_style: str = "default"
 
-    base_cash: Optional[int] = None
-    last_cashout: Optional[int] = None
+    base_cash: int | None = None
+    last_cashout: int | None = None
     intent_to_fail: bool = False
     force_adaptive_sprint: bool = False
 
@@ -57,8 +56,8 @@ class BaseStrategy(ABC):
         cushion: int = 19800,
         sprint_floor: int = 10000,
         force_19900: bool = False,
-        target_limit: int = 20000,
-    ) -> Optional[str]:
+        target_limit: int | None = None,
+    ) -> str | None:
         """Shared cushion boundary and early-overshoot evaluation for strategies.
 
         Returns:
@@ -66,6 +65,8 @@ class BaseStrategy(ABC):
             'challenge' if payout overshoots the ceiling (setting self.intent_to_fail when max_payout < benchmark),
             None if normal strategy phase rules should proceed.
         """
+        if target_limit is None:
+            target_limit = getattr(self, "target_limit", 20000)
         strict_odd = force_19900 or (cushion == 19900 and not getattr(self, "force_adaptive_sprint", False))
         max_possible_cushion = max(1000, target_limit - 100)
         cushion_cap = min(max_possible_cushion, 19900 if strict_odd else (cushion if cushion >= max_possible_cushion else cushion + 100))
@@ -121,40 +122,33 @@ class BaseStrategy(ABC):
     @abstractmethod
     def decide(
         self,
-        current_cashout: Optional[int] = None,
-        next_reward: Optional[int] = None,
-        win_rate: Optional[float] = None,
-        daily_coins: Optional[int] = None,
+        current_cashout: int | None = None,
+        next_reward: int | None = None,
+        win_rate: float | None = None,
+        daily_coins: int | None = None,
     ) -> str:
         """Decide next action. Returns 'cashout', 'challenge', or 'stop'."""
-        pass
 
     def guess_clicked(self) -> None:
         """Hook called when a High or Low guess icon is clicked."""
-        pass
 
     def notify_push(self) -> None:
         """Hook called when a High-Low tie (push) occurs."""
-        pass
 
     def confirm_success(self) -> None:
         """Hook called when a success/win transition is detected."""
-        pass
 
     def begin_settlement(self, cashout_requested: bool) -> None:
         """Hook called when transitioning to RESULT state."""
-        pass
 
     def notify_win(self) -> None:
         """Hook called when a round completes with a win/cashout."""
-        pass
 
     def notify_fail(self) -> None:
         """Hook called when a round ends in a fail/bust."""
-        pass
 
     @property
-    def expected_cash(self) -> Optional[int]:
+    def expected_cash(self) -> int | None:
         """Expected payout amount for this round, or None if uncalculated."""
         return self.last_cashout
 

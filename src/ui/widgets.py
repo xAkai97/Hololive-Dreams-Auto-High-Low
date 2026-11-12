@@ -1,7 +1,8 @@
 """Reusable canvas-backed widgets, tooltips, and I/O redirection."""
-import tkinter as tk
 import time
-from typing import Callable
+import tkinter as tk
+from collections.abc import Callable
+from typing import ClassVar
 
 try:
     from PIL import Image, ImageDraw, ImageTk
@@ -215,38 +216,32 @@ class CanvasCheckbutton:
                 track_border = "#1E3A2F" if is_checked else "#27272A"
                 track_fill = "#164E2E" if is_checked else "#18181B"
                 knob_fill = "#6B7280" if is_checked else "#3F3F46"
-                knob_border = "#374151" if is_checked else "#27272A"
                 text_fill = "#52525B"
             elif is_checked:
                 track_border = "#16A34A"
                 track_fill = "#22C55E"
                 knob_fill = "#FFFFFF"
-                knob_border = "#DCFCE7"
                 text_fill = "#F1F5F9"
             else:
                 track_border = "#52525B"
                 track_fill = "#3F3F46"
                 knob_fill = "#E4E4E7"
-                knob_border = "#A1A1AA"
                 text_fill = "#E2E8F0"
         else:
             if is_disabled:
                 track_border = "#86EFAC" if is_checked else "#E2E8F0"
                 track_fill = "#BBF7D0" if is_checked else "#F1F5F9"
                 knob_fill = "#E2E8F0" if is_checked else "#CBD5E1"
-                knob_border = "#CBD5E1" if is_checked else "#E2E8F0"
                 text_fill = "#94A3B8"
             elif is_checked:
                 track_border = "#16A34A"
                 track_fill = "#22C55E"
                 knob_fill = "#FFFFFF"
-                knob_border = "#DCFCE7"
                 text_fill = "#0F172A"
             else:
                 track_border = "#CBD5E1"
                 track_fill = "#E2E8F0"
                 knob_fill = "#FFFFFF"
-                knob_border = "#CBD5E1"
                 text_fill = "#1E293B"
 
         photo = _get_toggle_image(self.theme_mode, is_checked, is_disabled)
@@ -538,10 +533,7 @@ class SegmentProxy:
 
     @text.setter
     def text(self, val):
-        val_str = str(val)
-        if val_str.startswith("● "):
-            val_str = val_str[2:]
-        self._text = val_str
+        self._text = str(val).removeprefix("● ")
         self.pill.update_segment_text(self.key, self._text)
 
     def cget(self, key):
@@ -553,10 +545,7 @@ class SegmentProxy:
 
     def configure(self, **kwargs):
         if "text" in kwargs:
-            raw_text = str(kwargs["text"])
-            if raw_text.startswith("● "):
-                raw_text = raw_text[2:]
-            self.text = raw_text
+            self.text = str(kwargs["text"]).removeprefix("● ")
         if "font" in kwargs:
             self.pill.font = kwargs["font"]
             self.pill.redraw()
@@ -627,7 +616,7 @@ class ToolTip:
         if self._after_id and self.widget:
             try:
                 self.widget.after_cancel(self._after_id)
-            except Exception:
+            except tk.TclError:
                 pass
             self._after_id = None
 
@@ -644,7 +633,7 @@ class ToolTip:
             tw.wm_geometry(f"+{x}+{y}")
             try:
                 tw.wm_attributes("-topmost", True)
-            except Exception:
+            except tk.TclError:
                 pass
             frame = tk.Frame(tw, background="#334155", borderwidth=1, relief="solid")
             frame.pack()
@@ -660,14 +649,14 @@ class ToolTip:
                 wraplength=320,
             )
             lbl.pack()
-        except Exception:
+        except (tk.TclError, RuntimeError):
             self._hide()
 
     def _hide(self):
         if self._tip_window:
             try:
                 self._tip_window.destroy()
-            except Exception:
+            except tk.TclError:
                 pass
             self._tip_window = None
 
@@ -712,15 +701,15 @@ class RedirectText:
 
 class ModernMenu(tk.Menu):
     """Modern theme-aware popup menu with custom borders and hover states."""
-    _active_popups: list[tk.Toplevel] = []
+    _active_popups: ClassVar[list[tk.Toplevel]] = []
     _is_bound: bool = False
     _open_time: float = 0.0
 
     def __init__(self, master=None, **kwargs):
         super().__init__(master, **kwargs)
         self._popup_window: tk.Toplevel | None = None
-        self._child_popup: "ModernMenu | None" = None
-        self._parent_menu: "ModernMenu | None" = None
+        self._child_popup: ModernMenu | None = None
+        self._parent_menu: ModernMenu | None = None
 
     @classmethod
     def close_all(cls):
@@ -728,21 +717,20 @@ class ModernMenu(tk.Menu):
             popup = cls._active_popups.pop()
             try:
                 popup.destroy()
-            except Exception:
+            except tk.TclError:
                 pass
         try:
             import tkinter as _tk
-            if hasattr(_tk, "_default_root") and _tk._default_root:
-                if hasattr(_tk._default_root, "_active_menu_key"):
-                    _tk._default_root._active_menu_key = None
-        except Exception:
+            if hasattr(_tk, "_default_root") and _tk._default_root and hasattr(_tk._default_root, "_active_menu_key"):
+                _tk._default_root._active_menu_key = None
+        except (AttributeError, tk.TclError):
             pass
 
     def unpost(self):
         if self._child_popup:
             try:
                 self._child_popup.unpost()
-            except Exception:
+            except tk.TclError:
                 pass
             self._child_popup = None
         if self._popup_window:
@@ -750,7 +738,7 @@ class ModernMenu(tk.Menu):
                 if self._popup_window in ModernMenu._active_popups:
                     ModernMenu._active_popups.remove(self._popup_window)
                 self._popup_window.destroy()
-            except Exception:
+            except tk.TclError:
                 pass
             self._popup_window = None
 
@@ -764,7 +752,7 @@ class ModernMenu(tk.Menu):
         ModernMenu._open_time = time.time()
         try:
             root = self.nametowidget(".")
-        except Exception:
+        except (tk.TclError, KeyError):
             root = self.winfo_toplevel()
 
         is_dark = True
@@ -814,7 +802,7 @@ class ModernMenu(tk.Menu):
                         if w == root.menubar_frame:
                             return
                         w = getattr(w, "master", None)
-            except Exception:
+            except (AttributeError, tk.TclError):
                 pass
             for p in list(ModernMenu._active_popups):
                 try:
@@ -826,7 +814,7 @@ class ModernMenu(tk.Menu):
                     ph = p.winfo_height()
                     if px <= event.x_root <= px + pw and py <= event.y_root <= py + ph:
                         return
-                except Exception:
+                except (AttributeError, tk.TclError):
                     pass
             ModernMenu.close_all()
 
@@ -853,7 +841,7 @@ class ModernMenu(tk.Menu):
                     curr = root.getvar(var_name) if var_name else None
                     if str(curr) == str(val):
                         indicator = "●"
-                except Exception:
+                except (AttributeError, tk.TclError, KeyError):
                     pass
             elif item_type == "checkbutton":
                 try:
@@ -861,14 +849,14 @@ class ModernMenu(tk.Menu):
                     curr = root.getvar(var_name) if var_name else None
                     if curr in (1, "1", True, "true"):
                         indicator = "✓"
-                except Exception:
+                except (AttributeError, tk.TclError, KeyError):
                     pass
 
             accel = ""
             try:
                 if "accelerator" in self.entryconfig(i):
                     accel = self.entrycget(i, "accelerator") or ""
-            except Exception:
+            except (AttributeError, tk.TclError, KeyError):
                 pass
             if not accel and "(" in lbl_text and lbl_text.endswith(")"):
                 parts = lbl_text.rsplit("(", 1)
@@ -929,7 +917,7 @@ class ModernMenu(tk.Menu):
                                 sub_x = popup.winfo_rootx() + popup.winfo_width() - 2
                                 sub_y = f.winfo_rooty() - 3
                                 submenu.post(sub_x, sub_y)
-                    except Exception:
+                    except (AttributeError, tk.TclError, KeyError):
                         pass
                 else:
                     if self._child_popup:
@@ -947,7 +935,7 @@ class ModernMenu(tk.Menu):
                 ModernMenu.close_all()
                 try:
                     self.invoke(idx)
-                except Exception:
+                except (AttributeError, tk.TclError):
                     pass
 
             for w in all_widgets:

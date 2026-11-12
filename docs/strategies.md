@@ -38,12 +38,15 @@ The bot provides two distinct operational modes controlled via a 2-column action
 | Mode | Trigger | Control | Behavior |
 |:---|:---:|:---:|:---|
 | **Auto Bot** | `▶ START BOT` button | Clicks enabled | Fully autonomous gameplay: evaluates initial hands with Numba combinatorial poker solver, corrects hold selections, tracks cards in real time, and executes High-Low doubling according to the chosen strategy. |
-| **Observer Mode** | `👁 OBSERVER MODE` or `F9` | Zero clicks | Manual play assistant: tracks revealed cards, calculates remaining deck odds, and logs optimal hold combinations and doubling decisions to guide human play without sending any mouse inputs. |
+| **Observer Mode** | `👁 OBSERVER MODE` or `F9` | Zero clicks | Manual play assistant: tracks revealed cards, calculates remaining deck odds, logs both the solver's **Optimal Hold** and your manually toggled **Selected Hold** (with real-time EV & win probability), and advises doubling decisions without sending any mouse inputs. |
 
 - **Hotkeys**:
   - `Stop Hotkey` (default `INSERT`): Instantly commands the active session (Auto Bot or Observer Mode) to wait for current screen animations and safely exit.
   - `Observer Hotkey` (default `F9`): When idle, starts Observer Mode. When already running, seamlessly toggles live between Auto Bot (clicks enabled) and Observer Mode (clicks disabled).
 - **Tooltips**: Hovering over either mode button in the UI surfaces full functional descriptions and current hotkey shortcuts.
+- **Fullscreen Games & Window Focus**:
+  - **Vision / OCR** works in the background via Win32 `PrintWindow` as long as `hololive-Dreams` is not minimized.
+  - **Auto Bot Clicks** (`safe_click`) use hardware mouse input (`pydirectinput`) and require bringing `hololive-Dreams` to the foreground. Avoid running another game in Exclusive Fullscreen while using **Auto Bot** mode (or use **Observer Mode** for zero-click background tracking).
 
 ---
 

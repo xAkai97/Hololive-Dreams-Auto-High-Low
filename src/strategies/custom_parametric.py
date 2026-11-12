@@ -4,7 +4,6 @@ All parameters are exposed through the config and can be set via the GUI.
 This lets users define their own strategy by tuning thresholds, targets,
 and behavior switches.
 """
-from typing import Optional
 
 from strategies.base import BaseStrategy, normalize_play_style
 
@@ -49,8 +48,8 @@ class CustomParametricStrategy(BaseStrategy):
         self.reset_round()
 
     def reset_round(self) -> None:
-        self.base_cash: Optional[int] = None
-        self.last_cashout: Optional[int] = None
+        self.base_cash: int | None = None
+        self.last_cashout: int | None = None
         self.intent_to_fail: bool = False
         self._doubles_this_round = 0
 
@@ -59,7 +58,7 @@ class CustomParametricStrategy(BaseStrategy):
         self._doubles_this_round = 0
 
     @property
-    def expected_cash(self) -> Optional[int]:
+    def expected_cash(self) -> int | None:
         return self.last_cashout
 
     def guess_clicked(self) -> None:
@@ -71,10 +70,10 @@ class CustomParametricStrategy(BaseStrategy):
 
     def decide(
         self,
-        current_cashout: Optional[int] = None,
-        next_reward: Optional[int] = None,
-        win_rate: Optional[float] = None,
-        daily_coins: Optional[int] = None,
+        current_cashout: int | None = None,
+        next_reward: int | None = None,
+        win_rate: float | None = None,
+        daily_coins: int | None = None,
     ) -> str:
         current_cashout = current_cashout or 0
         next_reward = next_reward or (current_cashout * 2)
@@ -99,13 +98,7 @@ class CustomParametricStrategy(BaseStrategy):
                 action = guard
             elif self._in_safety_mode:
                 action = 'cashout' if current_cashout >= 200 else 'challenge'
-            elif self.max_doubles > 0 and self._doubles_this_round >= self.max_doubles:
-                action = 'cashout'
-            elif self.drop_on_seven_eight and win_rate <= 0.52:
-                action = 'cashout'
-            elif win_rate < self.min_win_rate:
-                action = 'cashout'
-            elif current_cashout >= self.cashout_target:
+            elif self.max_doubles > 0 and self._doubles_this_round >= self.max_doubles or self.drop_on_seven_eight and win_rate <= 0.52 or win_rate < self.min_win_rate or current_cashout >= self.cashout_target:
                 action = 'cashout'
             else:
                 action = 'challenge'

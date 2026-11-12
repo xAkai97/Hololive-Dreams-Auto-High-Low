@@ -1,5 +1,8 @@
 """Platform-specific utilities, theming, and font detection."""
+from __future__ import annotations
+
 import ctypes
+import tkinter as tk
 
 
 def is_windows_dark_mode() -> bool:
@@ -8,7 +11,7 @@ def is_windows_dark_mode() -> bool:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as key:
             val, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
             return val == 0
-    except Exception:
+    except (OSError, ValueError, TypeError):
         return False
 
 
@@ -31,9 +34,9 @@ def set_window_dark_titlebar(window, dark: bool):
             ctypes.windll.uxtheme[133](ctypes.c_void_p(hwnd), ctypes.c_bool(dark))
             ctypes.windll.uxtheme[135](2 if dark else 3)
             ctypes.windll.uxtheme[136]()
-        except Exception:
+        except (AttributeError, IndexError, OSError):
             pass
-    except Exception:
+    except (tk.TclError, AttributeError, OSError):
         pass
 
 
@@ -43,14 +46,14 @@ def get_locale_font_family(lang: str = "en") -> str:
     try:
         from tkinter import font as tkfont
         available = set(tkfont.families())
-    except Exception:
+    except (tk.TclError, RuntimeError):
         available = set()
 
     if code.startswith("ja"):
         for cand in ("Yu Gothic UI", "Meiryo UI", "Segoe UI"):
             if cand in available:
                 return cand
-    elif code.startswith("zh") or code.startswith("tw"):
+    elif code.startswith(("zh", "tw")):
         for cand in ("Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI"):
             if cand in available:
                 return cand
@@ -67,7 +70,7 @@ def get_available_ui_font_families() -> list[str]:
     try:
         from tkinter import font as tkfont
         raw_families = sorted(set(tkfont.families()))
-    except Exception:
+    except (tk.TclError, RuntimeError):
         raw_families = []
 
     priority = [
@@ -223,6 +226,6 @@ def get_monitor_work_area(x: int, y: int) -> tuple[int, int, int, int] | None:
                     int(mi.rcWork.right),
                     int(mi.rcWork.bottom),
                 )
-    except Exception:
+    except (AttributeError, OSError, TypeError, ValueError):
         pass
     return None

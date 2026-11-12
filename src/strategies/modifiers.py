@@ -21,14 +21,13 @@ Provides modular overrides that can be applied to any doubling strategy:
    - Mega Sprint Floor >= 12,800 (mod_mega_sprint): Pushes for 32k+ cap.
    - Sprint Floor >= 11,200 (mod_sprint_floor): Pushes past 10,000 to guarantee >= 30,000 daily total.
 """
-from typing import Optional, Tuple
 
-from strategies.base import get_max_round_payout, EARLY_MAX_PAYOUT_BENCHMARK
+from strategies.base import EARLY_MAX_PAYOUT_BENCHMARK, get_max_round_payout
 
 
 def apply_strategy_modifiers(
     decision: str,
-    card_val: Optional[int],
+    card_val: int | None,
     current_cashout: int,
     next_reward: int,
     daily_coins: int,
@@ -53,8 +52,8 @@ def apply_strategy_modifiers(
     hunt_14k_attempts: int = 0,
     sprint_attempts: int = 0,
     force_adaptive_sprint: bool = False,
-    win_rate: Optional[float] = None,
-) -> Tuple[str, Optional[str]]:
+    win_rate: float | None = None,
+) -> tuple[str, str | None]:
     """Applies active modifiers to a strategy decision.
 
     Returns:

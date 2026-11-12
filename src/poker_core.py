@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 import numpy as np
 from numba import njit
@@ -97,8 +97,7 @@ def _evaluate_category5(c0: int, c1: int, c2: int, c3: int, c4: int) -> int:
         count = int(rank_counts[r])
         if count:
             unique_ranks += 1
-            if count > max_count:
-                max_count = count
+            max_count = max(max_count, count)
             if count >= 2:
                 pair_ranks += 1
             if count == 1:
@@ -130,9 +129,8 @@ def _evaluate_category5(c0: int, c1: int, c2: int, c3: int, c4: int) -> int:
                     break
 
     royal_mask = (1 << 10) | (1 << 11) | (1 << 12) | (1 << 13) | (1 << 14)
-    if flush_possible and unique_ranks == ordinary_count and unique_ranks + jokers == 5:
-        if rank_mask & ~royal_mask == 0:
-            return 9
+    if flush_possible and unique_ranks == ordinary_count and unique_ranks + jokers == 5 and rank_mask & ~royal_mask == 0:
+        return 9
 
     if jokers > 0 and max_count + jokers >= 5:
         return 8

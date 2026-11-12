@@ -247,6 +247,78 @@ class TestStateMachineHandlers(unittest.TestCase):
         self.assertIn("Daily coin cap (25000 / 20000) reached", out)
         self.assertIn("override active", out)
 
+    def test_detect_game_state_recovers_from_stale_roi_cache(self):
+        import cv2
+        import os
+
+        en_result_paths = [p for p in auto_bot.ICON_TEMPLATES["RESULT"] if "result_en" in os.path.basename(p)]
+        if not en_result_paths:
+            self.skipTest("result_en.png template not available")
+        tpl_path = en_result_paths[0]
+        tpl_gray = auto_bot.get_template(tpl_path)
+        self.assertIsNotNone(tpl_gray)
+
+        screen = np.full((1080, 1920, 3), 235, dtype=np.uint8)
+        th, tw = tpl_gray.shape[:2]
+        screen[450:450 + th, 980:980 + tw] = cv2.cvtColor(tpl_gray, cv2.COLOR_GRAY2BGR)
+
+        # Poison ROI cache at a completely different location (e.g. mid-animation / wrong coordinates)
+        cache_key = (os.fspath(tpl_path), 1080, 1920)
+        auto_bot._TEMPLATE_ROI_CACHE[cache_key] = (50, 50, 50 + tw + 48, 50 + th + 48)
+        try:
+            state = auto_bot.detect_game_state(screen, lang="en")
+            self.assertEqual(state, "RESULT")
+            # Cache should be updated to cover the settled location (980, 450)
+            rx0, ry0, rx1, ry1 = auto_bot._TEMPLATE_ROI_CACHE[cache_key]
+            self.assertLessEqual(rx0, 980)
+            self.assertGreaterEqual(rx1, 980 + tw)
+        finally:
+            auto_bot._TEMPLATE_ROI_CACHE.clear()
+
+    def test_detect_game_state_recognizes_result_via_universal_header_coin_icon(self):
+        import cv2
+        from pathlib import Path
+
+        fixture_path = Path(__file__).resolve().parent / "fixtures" / "result-animation-80.png"
+        if not fixture_path.exists():
+            self.skipTest("result-animation-80.png fixture not found")
+        img = cv2.imread(str(fixture_path))
+        self.assertIsNotNone(img)
+        # Even when pinned to English (where 'Winning Hand' isn't drawn yet during count-up animation),
+        # universal Result header coin icon fallback should identify RESULT
+        state = auto_bot.detect_game_state(img, lang="en")
+        self.assertEqual(state, "RESULT")
+
+    def test_start_bet_does_not_inflate_round_count_on_consecutive_frames_or_failed_click(self):
+        mock_img = np.zeros((720, 1280, 3), dtype=np.uint8)
+        self.ctx.in_round = False
+        self.ctx.last_state = None
+        initial_rounds = self.ctx.round_count
+
+        # 1. If find_and_click_icon returns False (e.g. safe_click blocked by another fullscreen game), round_count must not increment
+        with patch("auto_bot.find_and_click_icon", return_value=False), \
+             patch("auto_bot.time.sleep"), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.ctx.update_state_flicker_guards("START_BET")
+            self.ctx.last_state = "START_BET"
+            handle_start_bet(self.ctx, mock_img, win_left=0, win_top=0)
+        self.assertEqual(self.ctx.round_count, initial_rounds)
+        self.assertFalse(self.ctx.in_round)
+
+        # 2. First successful click increments round_count once; consecutive START_BET frame must not increment again
+        with patch("auto_bot.find_and_click_icon", return_value=True), \
+             patch("auto_bot.time.sleep"), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.ctx.update_state_flicker_guards("START_BET")
+            self.ctx.last_state = "START_BET"
+            handle_start_bet(self.ctx, mock_img, win_left=0, win_top=0)
+            self.assertEqual(self.ctx.round_count, initial_rounds + 1)
+
+            # Consecutive frame still on START_BET
+            self.ctx.update_state_flicker_guards("START_BET")
+            self.ctx.last_state = "START_BET"
+            handle_start_bet(self.ctx, mock_img, win_left=0, win_top=0)
+            self.assertEqual(self.ctx.round_count, initial_rounds + 1)
 
 
 if __name__ == "__main__":

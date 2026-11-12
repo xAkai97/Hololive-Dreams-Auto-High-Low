@@ -1185,8 +1185,10 @@ class HololiveBotUI(tk.Tk):
 
     def _on_companion_hotkey_pressed(self):
         if self.is_running:
-            new_mode = auto_bot.toggle_scan_mode()
-            self.ui_queue.put(("callback", lambda: self._on_scan_mode_changed(new_mode)))
+            def _toggle_mode_on_main():
+                new_mode = auto_bot.toggle_scan_mode()
+                self._on_scan_mode_changed(new_mode)
+            self.ui_queue.put(("callback", _toggle_mode_on_main))
         else:
             self.ui_queue.put(("callback", self.toggle_companion_bot))
 
@@ -3436,7 +3438,7 @@ class HololiveBotUI(tk.Tk):
 
             print(f"\n[Benchmark] Comparing all {len(STRATEGY_KEYS)} strategies ({days} days each)...")
             results = sim.run_comparison(days=days, target_limit=target_limit, strategy_kwargs=strat_kwargs)
-            self.last_benchmark_results = [
+            bench_results = [
                 {
                     "Strategy": r.strategy_name,
                     "Days": r.days,
@@ -3456,13 +3458,17 @@ class HololiveBotUI(tk.Tk):
             print(f"{'=' * 56}")
             print(f"{'Rank':<5} {'Strategy':<26} {'Avg Coins':>11} {'Cap%':>7}")
             print(f"{'-' * 56}")
-            sorted_res = sorted(self.last_benchmark_results, key=lambda x: x['MeanCoins'], reverse=True)
+            sorted_res = sorted(bench_results, key=lambda x: x['MeanCoins'], reverse=True)
             for rank, r in enumerate(sorted_res, 1):
                 clean_name = re.sub(r'^[^\w\s]+\s*', '', r['Strategy'])
                 print(f"#{rank:<4} {clean_name[:25]:<26} {r['MeanCoins']:>11,.0f} {r['HitCapPct']:>6.1f}%")
             print(f"{'=' * 56}\n")
 
-            self.ui_queue.put(("callback", lambda: self.show_benchmark_results_dialog(self.last_benchmark_results)))
+            def _show_results():
+                self.last_benchmark_results = bench_results
+                self.show_benchmark_results_dialog(self.last_benchmark_results)
+
+            self.ui_queue.put(("callback", _show_results))
         except Exception as e:
             print(f"[Benchmark Error] {e}")
         finally:
@@ -4454,7 +4460,7 @@ class HololiveBotUI(tk.Tk):
             }) or None
             res = sim.run_monte_carlo(strat, strategy_kwargs=strat_kwargs, days=days, target_limit=target_limit)
 
-            self.last_benchmark_results = [{
+            bench_results = [{
                 "Strategy": res.strategy_name,
                 "Days": res.days,
                 "MeanCoins": res.mean_coins,
@@ -4465,6 +4471,7 @@ class HololiveBotUI(tk.Tk):
                 "Overflow40kPct": res.pct_overflow_40k,
                 "MaxCoins": res.max_coins,
             }]
+            self.ui_queue.put(("callback", lambda: setattr(self, "last_benchmark_results", bench_results)))
 
             print(localization.tr("sim_header", current_lang, name=strat_name))
             print(localization.tr("sim_metric_coins", current_lang, mean=res.mean_coins, std=res.std_coins, max=res.max_coins))
@@ -4761,8 +4768,12 @@ class HololiveBotUI(tk.Tk):
         self._update_start_stop_button_state()
 
     def _on_bot_crashed(self, err_msg):
+        self.is_running = False
+        auto_bot.force_adaptive_sprint = False
+        self._set_sim_buttons_state("normal")
         self._update_status_chip("crashed")
         self._update_start_stop_button_state()
+        self.refresh_texts()
 
     def _on_bot_finished(self):
         self.is_running = False
@@ -4795,6 +4806,7 @@ class HololiveBotUI(tk.Tk):
             res_queue.put(None)
 
     def run_bot(self):
+        crashed = False
         try:
             is_scan = bool(getattr(self, "var_scan_mode", None) and self.var_scan_mode.get())
             auto_bot.auto_play_loop(
@@ -4808,14 +4820,15 @@ class HololiveBotUI(tk.Tk):
         except auto_bot.SafeStop as e:
             err_msg = str(e)
             print(f"[{localization.tr('status_stopped', self.current_lang)}] {err_msg}")
-            self.ui_queue.put(("callback", self._on_bot_finished))
         except Exception as e:
+            crashed = True
             err_msg = localization.format_error(e, self.current_lang)
             print(localization.tr("system_crash", self.current_lang, error=err_msg))
             self.ui_queue.put(("callback", lambda msg=err_msg: self._on_bot_crashed(msg)))
         finally:
             auto_bot.bot_running = False
-            self.ui_queue.put(("callback", self._on_bot_finished))
+            if not crashed:
+                self.ui_queue.put(("callback", self._on_bot_finished))
             print(localization.tr("system_stopped", self.current_lang))
 
     def destroy(self):

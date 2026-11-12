@@ -4,7 +4,6 @@ Begins like Fastest Clear (max double-up every round) but automatically
 switches to safe cushion mode if too many fails accumulate or if progress
 is too slow. Once in cushion mode, it stays there (no switching back).
 """
-from typing import Optional
 
 from strategies.base import BaseStrategy, normalize_play_style
 
@@ -38,15 +37,15 @@ class AdaptiveRushStrategy(BaseStrategy):
         self._consecutive_fails = 0
 
     def reset_round(self) -> None:
-        self.base_cash: Optional[int] = None
-        self.last_cashout: Optional[int] = None
+        self.base_cash: int | None = None
+        self.last_cashout: int | None = None
         self.intent_to_fail: bool = False
 
     def start_round(self, base_cash: int, coins: int) -> None:
         self.base_cash = base_cash
 
     @property
-    def expected_cash(self) -> Optional[int]:
+    def expected_cash(self) -> int | None:
         return self.last_cashout
 
     def _check_auto_adjust(self, daily_coins: int, daily_fails: int, ticket_cost: int = 50) -> None:
@@ -61,10 +60,10 @@ class AdaptiveRushStrategy(BaseStrategy):
 
     def decide(
         self,
-        current_cashout: Optional[int] = None,
-        next_reward: Optional[int] = None,
-        win_rate: Optional[float] = None,
-        daily_coins: Optional[int] = None,
+        current_cashout: int | None = None,
+        next_reward: int | None = None,
+        win_rate: float | None = None,
+        daily_coins: int | None = None,
     ) -> str:
         current_cashout = current_cashout or 0
         next_reward = next_reward or (current_cashout * 2)

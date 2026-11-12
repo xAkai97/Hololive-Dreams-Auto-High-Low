@@ -7,9 +7,13 @@ Provides two Max Profit policies:
    to 19,900, then hunts Five of a Kind (7,000 -> 14,000) for a 33,900 daily finish,
    with configurable max attempts and live adaptive intercept fallback.
 """
-from typing import Optional
 
-from strategies.base import BaseStrategy, get_max_round_payout, TRUE_MAX_EARLY_BENCHMARK, normalize_play_style
+from strategies.base import (
+    TRUE_MAX_EARLY_BENCHMARK,
+    BaseStrategy,
+    get_max_round_payout,
+    normalize_play_style,
+)
 
 
 class MaxProfitStrategy(BaseStrategy):
@@ -32,23 +36,23 @@ class MaxProfitStrategy(BaseStrategy):
         self.reset_round()
 
     def reset_round(self) -> None:
-        self.base_cash: Optional[int] = None
-        self.last_cashout: Optional[int] = None
+        self.base_cash: int | None = None
+        self.last_cashout: int | None = None
         self.intent_to_fail: bool = False
 
     def start_round(self, base_cash: int, coins: int) -> None:
         self.base_cash = base_cash
 
     @property
-    def expected_cash(self) -> Optional[int]:
+    def expected_cash(self) -> int | None:
         return self.last_cashout
 
     def decide(
         self,
-        current_cashout: Optional[int] = None,
-        next_reward: Optional[int] = None,
-        win_rate: Optional[float] = None,
-        daily_coins: Optional[int] = None,
+        current_cashout: int | None = None,
+        next_reward: int | None = None,
+        win_rate: float | None = None,
+        daily_coins: int | None = None,
     ) -> str:
         current_cashout = current_cashout or 0
         next_reward = next_reward or (current_cashout * 2)
@@ -113,8 +117,8 @@ class TrueMaxCoinsStrategy(BaseStrategy):
         self.reset_round()
 
     def reset_round(self) -> None:
-        self.base_cash: Optional[int] = None
-        self.last_cashout: Optional[int] = None
+        self.base_cash: int | None = None
+        self.last_cashout: int | None = None
         self.intent_to_fail: bool = False
         self._in_sprint_round = False
 
@@ -128,22 +132,23 @@ class TrueMaxCoinsStrategy(BaseStrategy):
     def _is_adaptive_fallback(self) -> bool:
         if getattr(self, "force_adaptive_sprint", False):
             return True
-        if self.hunt_14k_attempts > 0 and self._sprint_attempts >= self.hunt_14k_attempts:
-            return True
-        return False
+        return bool(self.hunt_14k_attempts > 0 and self._sprint_attempts >= self.hunt_14k_attempts)
 
     def decide(
         self,
-        current_cashout: Optional[int] = None,
-        next_reward: Optional[int] = None,
-        win_rate: Optional[float] = None,
-        daily_coins: Optional[int] = None,
+        current_cashout: int | None = None,
+        next_reward: int | None = None,
+        win_rate: float | None = None,
+        daily_coins: int | None = None,
     ) -> str:
         current_cashout = current_cashout or 0
         next_reward = next_reward or (current_cashout * 2)
         win_rate = win_rate if win_rate is not None else 1.0
         daily_coins = daily_coins or 0
         self.intent_to_fail = False
+
+        style = normalize_play_style(getattr(self, "play_style", "default"))
+        min_rate = 0.55 if style == "aggressive" else (0.65 if style == "conservative" else 0.60)
 
         # Fallback to Adaptive Max Profit when Intercept is active or 5OAK attempts exhausted
         if self._is_adaptive_sprint_fallback(daily_coins):
@@ -161,7 +166,7 @@ class TrueMaxCoinsStrategy(BaseStrategy):
                 )
                 if guard is not None:
                     action = guard
-                elif win_rate < 0.60:
+                elif win_rate < min_rate:
                     action = 'cashout'
                 else:
                     action = 'challenge'
@@ -192,10 +197,13 @@ class TrueMaxCoinsStrategy(BaseStrategy):
             if guard is not None:
                 action = guard
                 # In True Max Profit, even an early Five of a Kind only sprints if daily + 14,000 >= TRUE_MAX_EARLY_BENCHMARK
-                if action == 'challenge' and not self.intent_to_fail:
-                    if daily_coins + get_max_round_payout(current_cashout) < TRUE_MAX_EARLY_BENCHMARK:
-                        self.intent_to_fail = True
-            elif win_rate < 0.60:
+                if (
+                    action == 'challenge'
+                    and not self.intent_to_fail
+                    and daily_coins + get_max_round_payout(current_cashout) < TRUE_MAX_EARLY_BENCHMARK
+                ):
+                    self.intent_to_fail = True
+            elif win_rate < min_rate:
                 action = 'cashout'
             else:
                 action = 'challenge'

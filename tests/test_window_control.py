@@ -65,6 +65,20 @@ class WindowControlTests(unittest.TestCase):
             self.assertFalse(res)
             mock_down.assert_not_called()
 
+    def test_safe_click_aborts_when_foreground_hwnd_is_null(self):
+        import contextlib
+        import io
+        window_control._capture_context = {"hwnd": 12345, "width": 1280, "height": 720}
+
+        with patch.object(window_control, "_bring_game_to_front", return_value=True), \
+             patch.object(window_control._user32, "GetForegroundWindow", return_value=0), \
+             patch("pydirectinput.mouseDown") as mock_down, \
+             contextlib.redirect_stdout(io.StringIO()):
+
+            res = window_control.safe_click(960, 540)
+            self.assertFalse(res)
+            mock_down.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()

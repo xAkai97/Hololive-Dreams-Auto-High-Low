@@ -26,7 +26,7 @@ An advanced automated assistant, card-counting engine, and simulation suite for 
   - **Field Box Opacity**: Real-time PIL alpha-blended frosted glass styling across stats, modifiers, and settings cards with customizable opacity (0% to 100%) and clean plain default background.
 - **Dual Modes: Auto Bot & Observer Mode**:
   - **Auto Bot (`▶ START BOT`)**: Fully autonomous play with optimal card holding, deck tracking, and strategy-driven High-Low doubling.
-  - **Observer Mode (`👁 OBSERVER MODE`)**: Zero-click real-time assistant for manual players. Calculates remaining deck odds, optimal poker holds, and doubling recommendations without sending any clicks.
+  - **Observer Mode (`👁 OBSERVER MODE`)**: Zero-click real-time assistant for manual players. Calculates remaining deck odds, logs both optimal poker holds and the EV/win rate of your manually selected holds, and provides doubling recommendations without sending any clicks.
   - **Live Mode Switching**: Switch between Auto Bot and Observer Mode on the fly with a single click or by pressing the Observer Mode hotkey (`F9`).
 - **Dual Hotkey Selectors**: Customizable hotkeys for Stop Bot (default `INSERT`) and Observer Mode (default `F9`) configured directly from the top card.
 - **Unified Start & Stop Control + Live Adaptive Intercept**: Two-column action button row (`▶ START BOT` and `👁 OBSERVER MODE`) with dynamic state updates, plus a live `⚡ Intercept: Adaptive` button to gracefully switch from 14k hunting to Adaptive Sprint mid-session.
@@ -84,7 +84,7 @@ An advanced automated assistant, card-counting engine, and simulation suite for 
 ├── docs/                      # Documentation and detailed technical guides
 │   ├── strategies.md          # Comprehensive 7-strategy guide, play styles & modifiers
 │   └── ALGORITHMS.md          # Mathematical formulas, probability models & Numba solver
-└── tests/                     # 20 unit, integration & fuzz test files (204 tests)
+└── tests/                     # 20 unit, integration & fuzz test files (219 tests)
 ```
 
 ---
@@ -192,7 +192,7 @@ The application operates in **Portable Mode** by default and automatically falls
 
 ## 📖 Instructions
 
-1. Launch *Hololive Dreams* and ensure the game window is not minimized to the taskbar (it can be obscured or running behind other windows).
+1. Launch *Hololive Dreams* and ensure the game window is not minimized to the taskbar. Vision/OCR works in the background when covered by other windows, while **Auto Bot** mode brings the game window to the foreground to click (avoid running another game in Exclusive Fullscreen during Auto Bot play).
 2. Set the in-game language to one of the 4 supported languages (**English**, **Japanese**, **Simplified Chinese**, or **Traditional Chinese**). Ensure the game runs in a standard **16:9 aspect ratio** (e.g. 1280x720, 1920x1080, 2560x1440, or 3840x2160 in windowed or fullscreen mode). Custom Windows DPI scaling (125%, 150%, 200%) is supported out of the box.
 3. Launch the bot and configure your preferred language and hotkeys (`Stop Key`: `INSERT`, `Observer Key`: `F9`).
 4. Select your desired strategy mode and click **"Start Bot"** for full automation, or **"Observer Mode"** (or press `F9`) for zero-click manual odds guidance.

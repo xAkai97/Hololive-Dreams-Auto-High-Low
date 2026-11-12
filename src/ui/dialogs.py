@@ -10,13 +10,13 @@ from __future__ import annotations
 import csv
 import json
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
-from typing import TYPE_CHECKING, Any, Optional
 import webbrowser
+from tkinter import filedialog, messagebox, ttk
+from typing import TYPE_CHECKING, Any
 
-import localization
 import auto_bot
-from src.ui.platform import set_window_dark_titlebar, get_available_ui_font_families
+import localization
+from src.ui.platform import get_available_ui_font_families, set_window_dark_titlebar
 
 if TYPE_CHECKING:
     import queue
@@ -27,12 +27,12 @@ def show_help_rules(app: Any):
     webbrowser.open("https://github.com/xAkai97/Hololive-Dreams-Auto-High-Low/blob/main/docs/strategies.md#game-rules")
 
 
-def show_help_strategies(app: Any, num_strategies: Optional[int] = None):
+def show_help_strategies(app: Any, num_strategies: int | None = None):
     """Open online strategy catalog and modifier system guide on GitHub in the default browser."""
     webbrowser.open("https://github.com/xAkai97/Hololive-Dreams-Auto-High-Low/blob/main/docs/strategies.md#available-strategies")
 
 
-def show_help_about(app: Any, num_strategies: Optional[int] = None):
+def show_help_about(app: Any, num_strategies: int | None = None):
     """Display application metadata, author acknowledgments, and repository link."""
     dialog = tk.Toplevel(app)
     dialog.title(localization.tr("menu_about", app.current_lang))
@@ -387,7 +387,7 @@ def open_custom_parametric_dialog(app: Any):
                 f"[Settings] Custom parametric parameters updated: WinRate={wr}%, Cushion={cush}, Sprint={sp}, MaxDoubles={md}, Hunt14kAttempts={ha}, Drop78={dp}"
             )
             dialog.destroy()
-        except Exception as e:
+        except (ValueError, TypeError, tk.TclError, OSError) as e:
             lbl_status.configure(text=f"Error: {e}", foreground="#cc0000")
 
     btn_save = ttk.Button(btn_box, text=localization.tr("btn_save_settings", app.current_lang), command=on_save)
@@ -490,7 +490,7 @@ def export_benchmark_csv(app: Any, results: list[dict]):
             writer.writerows(results)
         print(f"[Export] Benchmark exported to CSV: {path}")
         messagebox.showinfo("Export CSV", f"Successfully exported benchmark results to:\n{path}")
-    except Exception as e:
+    except (OSError, csv.Error) as e:
         messagebox.showerror("Export Error", f"Failed to export CSV: {e}")
 
 
@@ -512,11 +512,11 @@ def export_benchmark_json(app: Any, results: list[dict]):
             json.dump(results, f, ensure_ascii=False, indent=2)
         print(f"[Export] Benchmark exported to JSON: {path}")
         messagebox.showinfo("Export JSON", f"Successfully exported benchmark results to:\n{path}")
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
         messagebox.showerror("Export Error", f"Failed to export JSON: {e}")
 
 
-def show_settlement_modal(app: Any, expected: Optional[int], observed: Optional[str], res_queue: queue.Queue):
+def show_settlement_modal(app: Any, expected: int | None, observed: str | None, res_queue: queue.Queue):
     """Display interactive settlement payout verification modal."""
     dialog = tk.Toplevel(app)
     dialog.title(localization.tr("settlement_prompt_title", app.current_lang))
@@ -552,7 +552,7 @@ def show_settlement_modal(app: Any, expected: Optional[int], observed: Optional[
     def choose(val):
         try:
             dialog.destroy()
-        except Exception:
+        except tk.TclError:
             pass
         res_queue.put(val)
 

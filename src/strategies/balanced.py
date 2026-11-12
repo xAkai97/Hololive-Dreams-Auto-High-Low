@@ -5,7 +5,6 @@ Three phases based on daily coin total:
 - Push: raise threshold, more aggressive
 - Sprint: max double-up for final big win
 """
-from typing import Optional
 
 from strategies.base import BaseStrategy, normalize_play_style
 
@@ -35,23 +34,23 @@ class BalancedStrategy(BaseStrategy):
         self.reset_round()
 
     def reset_round(self) -> None:
-        self.base_cash: Optional[int] = None
-        self.last_cashout: Optional[int] = None
+        self.base_cash: int | None = None
+        self.last_cashout: int | None = None
         self.intent_to_fail: bool = False
 
     def start_round(self, base_cash: int, coins: int) -> None:
         self.base_cash = base_cash
 
     @property
-    def expected_cash(self) -> Optional[int]:
+    def expected_cash(self) -> int | None:
         return self.last_cashout
 
     def decide(
         self,
-        current_cashout: Optional[int] = None,
-        next_reward: Optional[int] = None,
-        win_rate: Optional[float] = None,
-        daily_coins: Optional[int] = None,
+        current_cashout: int | None = None,
+        next_reward: int | None = None,
+        win_rate: float | None = None,
+        daily_coins: int | None = None,
     ) -> str:
         current_cashout = current_cashout or 0
         next_reward = next_reward or (current_cashout * 2)

@@ -1,43 +1,49 @@
 """Strategy package providing modular doubling policies for Hololive Dreams Auto Bot."""
-from typing import Any, Callable, Optional, Union, Type
+from collections.abc import Callable
+from typing import Any
 
-from strategies.base import BaseStrategy, get_max_round_payout, normalize_play_style, VALID_PLAY_STYLES
-from strategies.max_profit import (
-    MaxProfitStrategy,
-    AdaptiveMaxProfitStrategy,
-    TrueMaxProfitStrategy,
-    TrueMaxCoinsStrategy,
-)
-from strategies.fastest_clear import FastestClearStrategy
-from strategies.balanced import BalancedStrategy
-from strategies.aggressive_balanced import AggressiveBalancedStrategy
 from strategies.adaptive_rush import AdaptiveRushStrategy
-from strategies.grinder import GrinderStrategy
+from strategies.aggressive_balanced import AggressiveBalancedStrategy
+from strategies.balanced import BalancedStrategy
+from strategies.base import (
+    VALID_PLAY_STYLES,
+    BaseStrategy,
+    get_max_round_payout,
+    normalize_play_style,
+)
 from strategies.custom_parametric import CustomParametricStrategy
+from strategies.fastest_clear import FastestClearStrategy
+from strategies.grinder import GrinderStrategy
+from strategies.max_profit import (
+    AdaptiveMaxProfitStrategy,
+    MaxProfitStrategy,
+    TrueMaxCoinsStrategy,
+    TrueMaxProfitStrategy,
+)
 from strategies.modifiers import apply_strategy_modifiers
 
 __all__ = [
-    "BaseStrategy",
-    "get_max_round_payout",
-    "normalize_play_style",
-    "VALID_PLAY_STYLES",
-    "MaxProfitStrategy",
-    "AdaptiveMaxProfitStrategy",
-    "TrueMaxProfitStrategy",
-    "TrueMaxCoinsStrategy",
-    "FastestClearStrategy",
-    "BalancedStrategy",
-    "AggressiveBalancedStrategy",
-    "AdaptiveRushStrategy",
-    "GrinderStrategy",
-    "CustomParametricStrategy",
-    "get_strategy",
-    "strategy_kwargs_from_config",
-    "apply_strategy_modifiers",
     "STRATEGY_REGISTRY",
+    "VALID_PLAY_STYLES",
+    "AdaptiveMaxProfitStrategy",
+    "AdaptiveRushStrategy",
+    "AggressiveBalancedStrategy",
+    "BalancedStrategy",
+    "BaseStrategy",
+    "CustomParametricStrategy",
+    "FastestClearStrategy",
+    "GrinderStrategy",
+    "MaxProfitStrategy",
+    "TrueMaxCoinsStrategy",
+    "TrueMaxProfitStrategy",
+    "apply_strategy_modifiers",
+    "get_max_round_payout",
+    "get_strategy",
+    "normalize_play_style",
+    "strategy_kwargs_from_config",
 ]
 
-STRATEGY_REGISTRY: dict[str, Type[BaseStrategy]] = {
+STRATEGY_REGISTRY: dict[str, type[BaseStrategy]] = {
     # Category A: Maximum Net Profit (~30k Wallet Gain)
     "balanced": BalancedStrategy,
     "max_profit": MaxProfitStrategy,

@@ -6,6 +6,7 @@ import ctypes
 from ctypes import wintypes
 import random
 import time
+import threading
 from typing import Optional
 import cv2
 import mss
@@ -33,24 +34,25 @@ init_dpi_awareness()
 _user32 = ctypes.windll.user32
 _gdi32 = ctypes.windll.gdi32
 _capture_context: Optional[dict] = None
-_sct_instance: Optional[mss.MSS] = None
+_thread_local = threading.local()
 
 
 def _get_mss_instance() -> mss.MSS:
-    global _sct_instance
-    if _sct_instance is None:
-        _sct_instance = mss.MSS()
-    return _sct_instance
+    sct = getattr(_thread_local, "sct_instance", None)
+    if sct is None:
+        sct = mss.MSS()
+        _thread_local.sct_instance = sct
+    return sct
 
 
 def _reset_mss_instance() -> None:
-    global _sct_instance
-    if _sct_instance is not None:
+    sct = getattr(_thread_local, "sct_instance", None)
+    if sct is not None:
         try:
-            _sct_instance.close()
+            sct.close()
         except Exception:
             pass
-        _sct_instance = None
+        _thread_local.sct_instance = None
 
 
 atexit.register(_reset_mss_instance)
@@ -158,6 +160,7 @@ def _bring_game_to_front(hwnd: int) -> bool:
     flags = 0x0001 | 0x0002 | 0x0040  # NOSIZE | NOMOVE | SHOWWINDOW
     _user32.SetWindowPos(hwnd, wintypes.HWND(-1), 0, 0, 0, 0, flags)
     _user32.SetWindowPos(hwnd, wintypes.HWND(-2), 0, 0, 0, 0, flags)
+    time.sleep(0.05)
     return True
 
 
@@ -165,6 +168,7 @@ def capture_game_window(
     game_title: str = GAME_TITLE,
     ref_width: int = REFERENCE_WIDTH,
     ref_height: int = REFERENCE_HEIGHT,
+    allow_foreground_fallback: bool = True,
 ) -> tuple[Optional[np.ndarray], int, int]:
     """Capture and normalize the game window client area to the reference size."""
     global _capture_context
@@ -174,6 +178,9 @@ def capture_game_window(
         return None, 0, 0
 
     if win.isMinimized:
+        if not allow_foreground_fallback:
+            _capture_context = None
+            return None, 0, 0
         win.restore()
         time.sleep(0.5)
 
@@ -198,6 +205,10 @@ def capture_game_window(
             img = _capture_client_with_printwindow(hwnd, width, height)
     except Exception as exc:
         print(tr('warn_background_capture_fail', error=exc))
+        if not allow_foreground_fallback:
+            _reset_mss_instance()
+            _capture_context = None
+            return None, 0, 0
         try:
             _bring_game_to_front(hwnd)
             time.sleep(0.2)
@@ -244,7 +255,7 @@ def safe_click(
         return False
 
     fg_hwnd = _user32.GetForegroundWindow()
-    if fg_hwnd and fg_hwnd != hwnd:
+    if not fg_hwnd or fg_hwnd != hwnd:
         print(tr('warn_window_lost'))
         return False
 

@@ -149,8 +149,7 @@ class CardRecognizer:
             if inter > 0:
                 union = a_sum + b_sum - inter
                 score = inter / union
-                if score > best:
-                    best = score
+                best = max(best, score)
         return best
 
     @staticmethod
@@ -259,8 +258,8 @@ class CardRecognizer:
 
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
         hue, sat, val = cv2.split(hsv)
-        purple = (((hue >= 125) & (hue <= 170) & (sat > 80) & (val > 120))).astype(np.uint8) * 255
-        white = (((sat < 75) & (val > 215))).astype(np.uint8) * 255
+        purple = ((hue >= 125) & (hue <= 170) & (sat > 80) & (val > 120)).astype(np.uint8) * 255
+        white = ((sat < 75) & (val > 215)).astype(np.uint8) * 255
         kernel = np.ones((5, 5), np.uint8)
         purple = cv2.morphologyEx(purple, cv2.MORPH_CLOSE, kernel)
         white = cv2.morphologyEx(white, cv2.MORPH_CLOSE, kernel)
@@ -274,12 +273,11 @@ class CardRecognizer:
                 wr = w / max(1, rw)
                 hr = h / max(1, rh)
                 ar = area / max(1, rw * rh)
-                if (wr, hr, ar) > best:
-                    best = (wr, hr, ar)
+                best = max(best, (wr, hr, ar))
             return best
 
         p_w, p_h, p_a = best_component(purple)
-        w_w, w_h, w_a = best_component(white)
+        w_w, w_h, _w_a = best_component(white)
         # The actual button forms one wide purple component and one wide white
         # border component. Result screens contain only small text/coin shapes.
         valid = p_w >= 0.66 and p_h >= 0.48 and p_a >= 0.22 and w_w >= 0.66 and w_h >= 0.45

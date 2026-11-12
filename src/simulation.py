@@ -462,6 +462,7 @@ class GameSimulator:
     ) -> DaySimulationResult:
         """Simulate a complete day until the target coin cap stops new games."""
         strategy = strategy_cls(**(strategy_kwargs or {}))
+        strategy.target_limit = target_limit
         if hasattr(strategy, "cushion_target") and strategy.__class__.__name__ not in ("TrueMaxCoinsStrategy", "TrueMaxProfitStrategy"):
             strategy.cushion_target = self.cushion_target
         if hasattr(strategy, "hunt_14k_attempts") and self.hunt_14k_attempts > 0 and getattr(strategy, "hunt_14k_attempts", 0) == 0:
@@ -535,6 +536,8 @@ class GameSimulator:
         target_limit: int = 20000,
     ) -> MonteCarloSummary:
         """Run Monte Carlo simulation over N days and produce aggregate metrics."""
+        if days < 1:
+            raise ValueError(f"days must be >= 1, got {days}")
         results = [
             self.simulate_day(
                 strategy_cls,

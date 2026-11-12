@@ -658,6 +658,140 @@ class TestCompanionMode(unittest.TestCase):
         auto_bot._TEMPLATE_ROI_CACHE.clear()
         auto_bot._DETECTED_GAME_LANG = None
 
+    def test_scan_user_selected_hand_tracks_selection_and_logs(self):
+        from types import SimpleNamespace
+        import io
+        import contextlib
+
+        mock_rec = MagicMock()
+        ctx = BotSessionState(
+            mode="max_profit",
+            strat_name="Adaptive Max Profit",
+            target_limit=20000,
+            cushion_val=19800,
+            ticket_cost=50,
+            daily_coins=5000,
+            daily_fails=0,
+            round_count=1,
+            net_profit=5000,
+            strategy=MagicMock(),
+            counter=HighLowCounter(),
+            card_rec=mock_rec,
+            reward_reader=MagicMock(),
+            settlement_mgr=None,
+            on_stats_update=None,
+            on_prompt_settlement=None,
+            scan_mode=True,
+        )
+        ctx.solved_hand_ids = [0, 4, 8, 12, 16]  # 2C, 3C, 4C, 5C, 6C (Straight Flush)
+        dummy_img = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        rects = [
+            (210, 350, 250, 360),
+            (510, 350, 250, 360),
+            (810, 350, 250, 360),
+            (1110, 350, 250, 360),
+            (1410, 350, 250, 360),
+        ]
+        cards = [
+            SimpleNamespace(card_id=0, rank="2", suit="♠", rank_score=0.99, rank_margin=0.5),
+            SimpleNamespace(card_id=4, rank="3", suit="♠", rank_score=0.99, rank_margin=0.5),
+            SimpleNamespace(card_id=8, rank="4", suit="♠", rank_score=0.99, rank_margin=0.5),
+            SimpleNamespace(card_id=12, rank="5", suit="♠", rank_score=0.99, rank_margin=0.5),
+            SimpleNamespace(card_id=16, rank="6", suit="♠", rank_score=0.99, rank_margin=0.5),
+        ]
+
+        # 1. Initially all unheld: first scan with 0 held does not prematurely log
+        with patch("auto_bot.get_currently_held_indices", return_value=set()):
+            with contextlib.redirect_stdout(io.StringIO()) as buf:
+                held = auto_bot.scan_user_selected_hand(ctx, dummy_img, rects, cards)
+                self.assertEqual(held, set())
+                self.assertEqual(ctx.target_held_indices, set())
+                self.assertFalse(ctx.has_logged_user_selected_hold)
+                self.assertEqual(buf.getvalue(), "")
+
+        # 2. User selects cards at slots 0 and 1
+        with patch("auto_bot.get_currently_held_indices", return_value={0, 1}):
+            with contextlib.redirect_stdout(io.StringIO()) as buf:
+                held = auto_bot.scan_user_selected_hand(ctx, dummy_img, rects, cards)
+                self.assertEqual(held, {0, 1})
+                self.assertEqual(ctx.target_held_indices, {0, 1})
+                self.assertTrue(ctx.has_logged_user_selected_hold)
+                output = buf.getvalue()
+                self.assertIn("Selected Hold", output)
+                self.assertIn("♠2", output)
+                self.assertIn("♠3", output)
+
+        # 3. Same hold in next frame: deduplicated, no duplicate logging
+        with patch("auto_bot.get_currently_held_indices", return_value={0, 1}):
+            with contextlib.redirect_stdout(io.StringIO()) as buf:
+                held = auto_bot.scan_user_selected_hand(ctx, dummy_img, rects, cards)
+                self.assertEqual(held, {0, 1})
+                self.assertEqual(buf.getvalue(), "")
+
+        # 4. User changes selection to slot 2 only
+        with patch("auto_bot.get_currently_held_indices", return_value={2}):
+            with contextlib.redirect_stdout(io.StringIO()) as buf:
+                held = auto_bot.scan_user_selected_hand(ctx, dummy_img, rects, cards)
+                self.assertEqual(held, {2})
+                self.assertEqual(ctx.target_held_indices, {2})
+                output = buf.getvalue()
+                self.assertIn("Selected Hold", output)
+                self.assertIn("♠4", output)
+
+    def test_handle_hold_cards_observer_mode_scans_and_zero_clicks(self):
+        from types import SimpleNamespace
+        import io
+        import contextlib
+
+        mock_rec = MagicMock()
+        cards = [
+            SimpleNamespace(card_id=0, rank="2", suit="♣", rank_score=0.99, rank_margin=0.5),
+            SimpleNamespace(card_id=4, rank="3", suit="♣", rank_score=0.99, rank_margin=0.5),
+            SimpleNamespace(card_id=8, rank="4", suit="♣", rank_score=0.99, rank_margin=0.5),
+            SimpleNamespace(card_id=12, rank="5", suit="♣", rank_score=0.99, rank_margin=0.5),
+            SimpleNamespace(card_id=16, rank="6", suit="♣", rank_score=0.99, rank_margin=0.5),
+        ]
+        rects = [(200 + 200 * i, 350, 150, 200) for i in range(5)]
+        mock_rec.recognize.return_value = (cards, rects)
+
+        ctx = BotSessionState(
+            mode="max_profit",
+            strat_name="Adaptive Max Profit",
+            target_limit=20000,
+            cushion_val=19800,
+            ticket_cost=50,
+            daily_coins=5000,
+            daily_fails=0,
+            round_count=1,
+            net_profit=5000,
+            strategy=MagicMock(),
+            counter=HighLowCounter(),
+            card_rec=mock_rec,
+            reward_reader=MagicMock(),
+            settlement_mgr=None,
+            on_stats_update=None,
+            on_prompt_settlement=None,
+            scan_mode=True,
+        )
+        dummy_img = np.zeros((1080, 1920, 3), dtype=np.uint8)
+
+        with patch("auto_bot.safe_click") as mock_safe_click, \
+             patch("auto_bot.find_and_click_icon") as mock_find_click, \
+             patch("auto_bot.get_currently_held_indices", return_value={0, 1}):
+            with contextlib.redirect_stdout(io.StringIO()) as buf:
+                handle_hold_cards(ctx, dummy_img, 0, 0)
+
+            # Observer invariant: MUST NEVER click mouse
+            mock_safe_click.assert_not_called()
+            mock_find_click.assert_not_called()
+
+            # Deal solved, optimal hold logged, and user selected hold tracked
+            self.assertTrue(ctx.poker_deal_solved)
+            self.assertEqual(ctx.target_held_indices, {0, 1})
+            output = buf.getvalue()
+            self.assertIn("Optimal Hold", output)
+            self.assertIn("Selected Hold", output)
+
 
 if __name__ == "__main__":
     unittest.main()

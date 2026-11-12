@@ -7,7 +7,7 @@ and canvas card compositing helpers.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Tuple
+
 from PIL import Image, ImageDraw
 
 
@@ -27,7 +27,7 @@ def discover_backgrounds(app_dir: Path, resource_dir: Path) -> list[Path]:
     return found
 
 
-def load_background_image(bg_path: Optional[Path], fallback_hex: str = "#0F172A") -> Tuple[Image.Image, bool]:
+def load_background_image(bg_path: Path | None, fallback_hex: str = "#0F172A") -> tuple[Image.Image, bool]:
     """Load background image from file or generate a fallback solid canvas.
 
     Returns:
@@ -37,16 +37,16 @@ def load_background_image(bg_path: Optional[Path], fallback_hex: str = "#0F172A"
         try:
             with Image.open(bg_path) as im:
                 return im.copy(), True
-        except Exception as e:
+        except (OSError, ValueError) as e:
             print(f"[Warning] Failed to open background image {bg_path}: {e}")
     return Image.new("RGB", (480, 850), color=fallback_hex), False
 
 
 def draw_glass_card(
     img: Image.Image,
-    bbox: Tuple[float, float, float, float],
-    fill: Tuple[int, int, int, int],
-    outline: Optional[Tuple[int, int, int, int]] = None,
+    bbox: tuple[float, float, float, float],
+    fill: tuple[int, int, int, int],
+    outline: tuple[int, int, int, int] | None = None,
     radius: int = 8,
 ) -> Image.Image:
     """Draw a rounded rectangle alpha composite card overlay over a PIL image."""

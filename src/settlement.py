@@ -1,7 +1,7 @@
 """Confirm result amounts after the count-up animation, without game strategy."""
 
 
-from typing import Any
+from typing import Any, Optional
 
 try:
     from auto_bot import SafeStop
