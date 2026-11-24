@@ -40,6 +40,7 @@ class AdaptiveRushStrategy(BaseStrategy):
         self.base_cash: int | None = None
         self.last_cashout: int | None = None
         self.intent_to_fail: bool = False
+        self.last_guard_reason: str | None = None
 
     def start_round(self, base_cash: int, coins: int) -> None:
         self.base_cash = base_cash
@@ -73,6 +74,7 @@ class AdaptiveRushStrategy(BaseStrategy):
         daily_coins = daily_coins or 0
         cushion = getattr(self, "cushion_target", 19800)
         self.intent_to_fail = False
+        self.last_guard_reason = None
 
         # Sprint: daily >= cushion (both modes)
         if daily_coins >= cushion:

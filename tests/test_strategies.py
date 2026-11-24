@@ -119,6 +119,37 @@ class TestStrategies(unittest.TestCase):
         score = CardRecognizer._shape_score(mask, shifts)
         self.assertEqual(score, 1.0)
 
+    def test_cushion_guard_reason_tracking(self):
+        strat = MaxProfitStrategy()
+        # 18,400 + 800 = 19,200 <= 19,900 and 18,400 + 1,600 = 20,000 > 19,900 -> cushion_guard
+        decision = strat.decide(current_cashout=800, next_reward=1600, win_rate=1.0, daily_coins=18400)
+        self.assertEqual(decision, "cashout")
+        self.assertEqual(strat.last_guard_reason, "cushion_guard")
+
+        # Subsequent low win-rate cashout resets last_guard_reason to None
+        decision_low = strat.decide(current_cashout=800, next_reward=1600, win_rate=0.55, daily_coins=5000)
+        self.assertEqual(decision_low, "cashout")
+        self.assertIsNone(strat.last_guard_reason)
+
+        # Subsequent sprint decision resets last_guard_reason to None
+        strat.decide(current_cashout=800, next_reward=1600, win_rate=1.0, daily_coins=18400)
+        self.assertEqual(strat.last_guard_reason, "cushion_guard")
+        decision_sprint = strat.decide(current_cashout=12800, next_reward=25600, win_rate=0.75, daily_coins=19800)
+        self.assertEqual(decision_sprint, "cashout")
+        self.assertIsNone(strat.last_guard_reason)
+
+    def test_true_max_coins_cushion_guard_reason(self):
+        strat = get_strategy("true_max_coins")
+        # Even daily + even cashout hitting even_cap (19,200): 18,400 + 800 = 19,200 <= 19,200, +1,600 > 19,200
+        decision = strat.decide(current_cashout=800, next_reward=1600, win_rate=1.0, daily_coins=18400)
+        self.assertEqual(decision, "cashout")
+        self.assertEqual(strat.last_guard_reason, "cushion_guard")
+
+        # Odd-parity lock-in (700 Flush at even daily 10,000) does NOT set cushion_guard
+        decision_odd = strat.decide(current_cashout=700, next_reward=1400, win_rate=1.0, daily_coins=10000)
+        self.assertEqual(decision_odd, "cashout")
+        self.assertIsNone(strat.last_guard_reason)
+
 
 if __name__ == "__main__":
     unittest.main()

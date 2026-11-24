@@ -628,6 +628,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--compare",
+        "--compare-all",
+        dest="compare",
         action="store_true",
         help="Benchmark and compare all registered strategies",
     )

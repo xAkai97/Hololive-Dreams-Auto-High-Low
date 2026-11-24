@@ -1,3 +1,10 @@
+[project]
+name = "hololive-dreams-auto-high-low"
+version = "1.1.1"
+description = "Automated 5-Card Draw poker solver, High-Low card-counting bot, Observer Mode companion, and Monte Carlo simulator for Hololive Dreams"
+readme = "README.md"
+requires-python = ">=3.10"
+
 [tool.coverage.run]
 source = ["src", "main_ui"]
 omit = [

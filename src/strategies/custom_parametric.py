@@ -51,6 +51,7 @@ class CustomParametricStrategy(BaseStrategy):
         self.base_cash: int | None = None
         self.last_cashout: int | None = None
         self.intent_to_fail: bool = False
+        self.last_guard_reason: str | None = None
         self._doubles_this_round = 0
 
     def start_round(self, base_cash: int, coins: int) -> None:
@@ -81,6 +82,7 @@ class CustomParametricStrategy(BaseStrategy):
         daily_coins = daily_coins or 0
         cushion = getattr(self, "cushion_target", self.sprint_threshold)
         self.intent_to_fail = False
+        self.last_guard_reason = None
 
         # 1. Sprint check
         if daily_coins >= cushion:

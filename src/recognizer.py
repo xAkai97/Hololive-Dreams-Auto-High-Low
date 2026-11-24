@@ -326,19 +326,36 @@ class CardRecognizer:
         return fallback if valid else []
 
     def _joker_similarity(self, card_crop: np.ndarray) -> float:
+        if card_crop is None or card_crop.size == 0:
+            return 0.0
         gray = cv2.cvtColor(card_crop, cv2.COLOR_BGR2GRAY)
         h, w = gray.shape
         inner = gray[int(0.02 * h) : int(0.98 * h), int(0.02 * w) : int(0.98 * w)]
+        if inner.size == 0:
+            inner = gray
         resized = cv2.resize(inner, (self.joker_card.shape[1], self.joker_card.shape[0]))
         a = cv2.equalizeHist(resized)
         b = cv2.equalizeHist(self.joker_card)
         return float(cv2.matchTemplate(a, b, cv2.TM_CCOEFF_NORMED)[0, 0])
 
     def recognize_card(self, screen: np.ndarray, rect: tuple[int, int, int, int]) -> RecognizedCard:
+        if screen is None or screen.size == 0:
+            return RecognizedCard(-1, "", "", 0.0, 0.0, 0.0)
+        sh, sw = screen.shape[:2]
         x, y, w, h = rect
-        card = screen[y : y + h, x : x + w]
-        rank_crop = card[int(0.015 * h) : int(0.11 * h), int(0.01 * w) : int(0.22 * w)]
-        suit_crop = card[int(0.10 * h) : int(0.23 * h), int(0.01 * w) : int(0.20 * w)]
+        x0 = max(0, x)
+        y0 = max(0, y)
+        x1 = min(sw, x + max(0, w))
+        y1 = min(sh, y + max(0, h))
+        if x1 - x0 < 10 or y1 - y0 < 10:
+            return RecognizedCard(-1, "", "", 0.0, 0.0, 0.0)
+        card = screen[y0:y1, x0:x1]
+        cw = x1 - x0
+        ch = y1 - y0
+        rank_crop = card[int(0.015 * ch) : int(0.11 * ch), int(0.01 * cw) : int(0.22 * cw)]
+        suit_crop = card[int(0.10 * ch) : int(0.23 * ch), int(0.01 * cw) : int(0.20 * cw)]
+        if rank_crop.size == 0 or suit_crop.size == 0:
+            return RecognizedCard(-1, "", "", 0.0, 0.0, 0.0)
 
         rank_foreground = self._foreground_mask(rank_crop)
         rank_foreground = self._remove_top_left_border_noise(rank_foreground)
@@ -352,7 +369,7 @@ class CardRecognizer:
         rank_margin = float(rank_score - second_rank_score)
 
         # Check joker only when ordinary-rank confidence is weak.
-        corner = card[0 : int(0.25 * h), 0 : int(0.25 * w)]
+        corner = card[0 : int(0.25 * ch), 0 : int(0.25 * cw)]
         joker_corner_mask = self._normalize(self._foreground_mask(corner))
         joker_corner_score = self._shape_score(joker_corner_mask, self.joker_corner)
         joker_card_score = self._joker_similarity(card)

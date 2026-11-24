@@ -7,7 +7,7 @@ import numpy as np
 from numba import njit
 
 ENTRY_FEE = 50.0
-ENGINE_VERSION = "1.1.0"
+ENGINE_VERSION = "1.1.1"
 CATEGORY_NAMES = (
     "No Win / One Pair",
     "Two Pair",

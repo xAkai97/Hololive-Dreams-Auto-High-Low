@@ -80,6 +80,9 @@ In a fresh remaining deck:
 $$P(\text{HIGH}) = P(\text{LOW}) = \frac{24}{48} = \mathbf{50.00\%}$$
 Under the game's tie-push rule (where drawing another 8 re-rolls rather than forfeiting), rank 8 is an exact **50/50 coin flip** rather than the legacy 47.1% (which assumed ties lose). However, because an exact 50.0% probability offers zero mathematical edge, doubling on 8 introduces high variance. The **Bailout on 8** modifier cashes out whenever rank 8 appears during bankroll construction to eliminate this coin-flip risk.
 
+### 2.4 Empirical Deck Fairness & Research
+For empirical telemetry verifying that card generation in *Hololive Dreams* is mathematically unbiased and non-skewed near the daily cap, see [Game Mechanics & Probability Research](game_mechanics_research.md).
+
 ---
 
 ## 3. Two-Phase Cushion & Sprint Optimization

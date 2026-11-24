@@ -53,7 +53,7 @@
     "state_settlement_wait": "[状態] リザルト画面。金額安定後に照合します...",
     "challenge_current": "[出納] 現在の手元資金: {cashout} | 勝利時: {reward}",
     "risk_prediction": "[リスク管理] 予測に基づく次回勝率: {rate:.2%}",
-    "risk_blind": "[リスク管理] 第1ラウンドまたはブラインド状態のため挑戦継続！",
+    "risk_blind": "[リスク管理] 第1ラウンドまたはブラインド状態（次カード不明・戦略ルールで判断）",
     "target_achieved": "🎉 最終目標達成！手元賞金が {cashout} (1万超) に達したため安全に利確！",
     "sprint_continue": "🚀 スプリント！手元 {cashout}、1万超を目指して {reward} に挑戦！",
     "cushion_warning": "🛑 警告：利確(+{cashout})は安全圏ですが、倍増(+{reward})すると合計 {total} で上限オーバー！利確します！",

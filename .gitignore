@@ -21,16 +21,13 @@ dist/
 
 # Runtime state & logs
 config.json
-config.json.bak
+*.tmp
 debug/
 log.txt
 log_*.txt
 debug_log.txt
 *.log
 logs/
-todo.md
-completed.md
-private/
 
 # IDE & OS configurations
 .vscode/

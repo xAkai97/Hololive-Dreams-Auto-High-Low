@@ -51,6 +51,7 @@ from strategies import (
     apply_strategy_modifiers,
     get_max_round_payout,
     get_strategy,
+    normalize_play_style,
     strategy_kwargs_from_config,
 )
 from window_control import capture_game_window as _win_capture_game_window
@@ -526,15 +527,24 @@ def is_success_prompt(screen_bgr):
         ]
     else:
         ordered = paths
+    scores = {"chance": -1.0, "success": -1.0}
     for path in ordered:
-        if "success_" not in os.path.basename(path):
+        kind = (
+            "success"
+            if "success_" in os.path.basename(path)
+            else ("chance" if "chance_" in os.path.basename(path) else None)
+        )
+        if kind is None:
             continue
         template = get_template(path)
         if template is not None:
             score, _ = _match_template_fast(gray, path, template, 0.85, roi_only_on_miss=True)
-            if score >= 0.85:
-                return True
-    return False
+            scores[kind] = max(scores[kind], score)
+
+    # Initial and success captions share glyphs in Japanese. A partial success match
+    # must not override a stronger full initial caption.
+    # Ties retain the conservative refusal to resume an untracked round.
+    return scores["success"] >= 0.85 and scores["success"] >= scores["chance"]
 
 
 STATE_TRANSITIONS: dict[str, str] = {
@@ -638,8 +648,12 @@ def detect_game_state(
 
 
 def find_all_card_rects(img, search_zone):
+    if img is None or img.size == 0:
+        return []
     sx, sy, sw, sh = search_zone
     roi = img[sy : sy + sh, sx : sx + sw]
+    if roi.size == 0:
+        return []
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
 
     # Extract all pure white regions (utilize purple-black face-down cards to ignore them)
@@ -797,7 +811,7 @@ _PNG_FAST_PARAMS = [int(cv2.IMWRITE_PNG_COMPRESSION), 1]
 
 def read_settlement_payout(img, search_zone, expected=None, base_prize=None):
     sx, sy, sw, sh = search_zone
-    if sw == 0 or sh == 0:
+    if img is None or img.size == 0 or sw <= 0 or sh <= 0:
         return 0
 
     # Primary pass: isolate cyan digits via HSV color segmentation
@@ -821,6 +835,8 @@ def read_settlement_payout(img, search_zone, expected=None, base_prize=None):
 
     # Fallback pass: grayscale OCR extraction
     roi = img[sy : sy + sh, sx : sx + sw]
+    if roi.size == 0:
+        return 0
     roi = cv2.resize(roi, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
@@ -891,6 +907,8 @@ CONFIG_CATEGORIES = {
         "background_index",
         "field_box_opacity",
         "show_log",
+        "custom_font_family",
+        "font_scale",
         "modifiers_expanded",
         "mod_cat_cards_expanded",
         "mod_cat_bail_expanded",
@@ -1975,6 +1993,9 @@ def handle_ask_challenge(ctx: BotSessionState, img: np.ndarray, win_left: int, w
         if is_success_prompt(img):
             if ctx.hand_base_prize > 0:
                 ctx.strategy.start_round(ctx.hand_base_prize, ctx.daily_coins)
+                ctx.last_known_cashout = ctx.hand_base_prize
+                ctx.last_known_next_reward = ctx.hand_base_prize * 2
+                ctx.reward_reader.last = ctx.hand_base_prize
             elif not ctx.scan_mode:
                 raise SafeStop("Currently mid-doubling, cannot recover win count. Please start from a fresh round.")
         if getattr(ctx.strategy, "base_cash", None) is None:
@@ -2087,15 +2108,15 @@ def handle_ask_challenge(ctx: BotSessionState, img: np.ndarray, win_left: int, w
     if hasattr(ctx.strategy, "hunt_14k_attempts"):
         ctx.strategy.hunt_14k_attempts = hunt_14k_attempts
     if "play_style" in runtime_config and hasattr(ctx.strategy, "play_style"):
-        ctx.strategy.play_style = str(runtime_config.get("play_style", "default")).strip().lower()
+        ctx.strategy.play_style = normalize_play_style(runtime_config.get("play_style", "default"))
 
     is_custom_parametric = getattr(ctx.strategy, "name", "") == "Custom Parametric"
-    user_cushion = runtime_config.get("param_cushion_target") if is_custom_parametric else None
     strat_cushion = getattr(ctx.strategy, "cushion_target", 19800)
+    default_cushion = int(strat_cushion) if isinstance(strat_cushion, (int, float)) else 19800
     cushion_target = (
-        int(user_cushion)
-        if user_cushion is not None
-        else (int(strat_cushion) if isinstance(strat_cushion, (int, float)) else 19800)
+        cfg_get_int(runtime_config, "param_cushion_target", default_cushion, min_val=1000, max_val=50000)
+        if is_custom_parametric
+        else default_cushion
     )
     if hasattr(ctx.strategy, "cushion_target"):
         ctx.strategy.cushion_target = cushion_target
@@ -2231,10 +2252,25 @@ def handle_ask_challenge(ctx: BotSessionState, img: np.ndarray, win_left: int, w
         ctx.strategy.intent_to_fail = False
 
     effective_cash = ctx.strategy.expected_cash or current_cashout
+    raw_guard_reason = getattr(ctx.strategy, "last_guard_reason", None)
+    guard_reason = raw_guard_reason if isinstance(raw_guard_reason, str) else None
     reason_str = mod_reason or ctx.strat_name
     if action == "cashout":
+        if not mod_reason and guard_reason == "cushion_guard":
+            print(
+                "  "
+                + tr(
+                    "cushion_warning",
+                    cashout=f"{current_cashout:,}",
+                    reward=f"{next_reward:,}",
+                    total=f"{ctx.daily_coins + next_reward:,}",
+                )
+            )
         print("  " + tr("challenge_decision_cashout", reason=reason_str))
-        log_debug(f"[Decision] CASHOUT (effective_cash={effective_cash}, daily={ctx.daily_coins}, mod={mod_reason})")
+        log_debug(
+            f"[Decision] CASHOUT (effective_cash={effective_cash}, daily={ctx.daily_coins}, "
+            f"mod={mod_reason}, guard={guard_reason})"
+        )
         if not ctx.scan_mode:
             ctx.request_cashout(img, win_left, win_top, effective_cash)
         else:
@@ -2675,8 +2711,13 @@ def auto_play_loop(
     idx = keys.index(mode) if mode in keys else -1
     strat_display = strat_labels[idx] if 0 <= idx < len(strat_labels) else strat_name
     is_custom_parametric = mode == "custom_parametric" or getattr(strategy, "name", "") == "Custom Parametric"
-    user_cushion = config.get("param_cushion_target") if is_custom_parametric else None
-    cushion_val = int(user_cushion) if user_cushion is not None else getattr(strategy, "cushion_target", 19800)
+    strat_cushion = getattr(strategy, "cushion_target", 19800)
+    default_cushion = int(strat_cushion) if isinstance(strat_cushion, (int, float)) else 19800
+    cushion_val = (
+        cfg_get_int(config, "param_cushion_target", default_cushion, min_val=1000, max_val=50000)
+        if is_custom_parametric
+        else default_cushion
+    )
     if hasattr(strategy, "cushion_target"):
         strategy.cushion_target = cushion_val  # type: ignore[attr-defined]
     mod_fast_build = config.get("mod_fast_build", False)

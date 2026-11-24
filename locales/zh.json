@@ -53,7 +53,7 @@
     "state_settlement_wait": "[状态] 结算界面，等待金额稳定后核对账目...",
     "challenge_current": "[账房] 当前在手现金: {cashout} | 挑战成功后将变为: {reward}",
     "risk_prediction": "[风控] 基于预判，下一轮真实胜率为: {rate:.2%}",
-    "risk_blind": "[风控] 第一轮或盲盒状态，默认直接挑战！",
+    "risk_blind": "[风控] 第一轮或盲盒状态（下一张牌未知，按策略规则判断）",
     "target_achieved": "🎉 终极目标达成！在手奖金已达 {cashout} (超1w)，安全提现大丰收！",
     "sprint_continue": "🚀 冲刺期继续追击（无视胜率，目标在手1w）！当前在手仅 {cashout}，冲刺 {reward}！",
     "cushion_warning": "🛑 警报：提现(+{cashout})在安全线内，但再翻倍(+{reward})总额将达 {total} 提前破限！果断收手垫刀！",

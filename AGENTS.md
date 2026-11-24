@@ -15,6 +15,7 @@ Automated 5-Card Draw poker solver, High-Low card-counting bot, zero-click Obser
 ## References (Progressive Disclosure)
 - **Game Mechanics, Strategies & Modifiers**: See `docs/strategies.md`.
 - **Combinatorial Poker Solver, Tie-Push Math & Vision Pipeline**: See `docs/ALGORITHMS.md`.
+- **Empirical Deck Fairness & Telemetry Verification**: See `docs/game_mechanics_research.md`.
 
 ## Code Standards
 - **Line Endings**: Enforce LF (`\n`) on all `.py` files (`.gitattributes`).

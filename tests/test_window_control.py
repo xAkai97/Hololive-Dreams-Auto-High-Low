@@ -109,6 +109,7 @@ class WindowControlTests(unittest.TestCase):
         # Valid hwnd background -> bring to front
         with (
             patch.object(window_control._user32, "IsWindow", return_value=True),
+            patch.object(window_control._user32, "IsIconic", return_value=False),
             patch.object(window_control._user32, "GetForegroundWindow", return_value=999),
             patch.object(window_control._user32, "ShowWindowAsync"),
             patch.object(window_control._user32, "BringWindowToTop"),
@@ -118,6 +119,26 @@ class WindowControlTests(unittest.TestCase):
         ):
             self.assertTrue(window_control._bring_game_to_front(123))
 
+        # Iconic (minimized) hwnd -> refuse to bring to front
+        with (
+            patch.object(window_control._user32, "IsWindow", return_value=True),
+            patch.object(window_control._user32, "IsIconic", return_value=True),
+        ):
+            self.assertFalse(window_control._bring_game_to_front(123))
+
+    def test_safe_click_aborts_on_collapsed_client_rect(self):
+        window_control._capture_context = {"hwnd": 12345, "width": 1280, "height": 720}
+        with (
+            patch.object(window_control, "_bring_game_to_front", return_value=True),
+            patch.object(window_control._user32, "GetForegroundWindow", return_value=12345),
+            patch.object(window_control, "_get_client_geometry", return_value=(-31991, -31962, 181, 0)),
+            patch("pydirectinput.mouseDown") as mock_down,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            res = window_control.safe_click(960, 540)
+            self.assertFalse(res)
+            mock_down.assert_not_called()
+
     def test_capture_game_window(self):
         # 1. No window found
         with patch.object(window_control, "find_game_window", return_value=None):
@@ -125,11 +146,47 @@ class WindowControlTests(unittest.TestCase):
             self.assertIsNone(frame)
             self.assertEqual((left, top), (0, 0))
 
-        # 2. Minimized window, restore disallowed
-        win_min = SimpleNamespace(title="hololive-Dreams", width=1920, height=1080, _hWnd=100, isMinimized=True)
+        # 2. Minimized window pauses capture without calling win.restore() even when fallback allowed
+        restore_mock = MagicMock()
+        win_min = SimpleNamespace(
+            title="hololive-Dreams",
+            width=1920,
+            height=1080,
+            _hWnd=100,
+            isMinimized=True,
+            restore=restore_mock,
+        )
+        window_control._capture_context = {"hwnd": 100, "width": 1920, "height": 1080}
         with patch.object(window_control, "find_game_window", return_value=win_min):
             frame, left, top = window_control.capture_game_window(allow_foreground_fallback=False)
             self.assertIsNone(frame)
+            self.assertEqual((left, top), (0, 0))
+            self.assertIsNone(window_control._capture_context)
+
+            window_control._capture_context = {"hwnd": 100, "width": 1920, "height": 1080}
+            frame, left, top = window_control.capture_game_window(allow_foreground_fallback=True)
+            self.assertIsNone(frame)
+            self.assertEqual((left, top), (0, 0))
+            self.assertIsNone(window_control._capture_context)
+            restore_mock.assert_not_called()
+
+        # 2b. IsIconic(hwnd) pauses capture even if isMinimized is False
+        win_iconic = SimpleNamespace(
+            title="hololive-Dreams",
+            width=1920,
+            height=1080,
+            _hWnd=100,
+            isMinimized=False,
+            restore=restore_mock,
+        )
+        with (
+            patch.object(window_control, "find_game_window", return_value=win_iconic),
+            patch.object(window_control._user32, "IsIconic", return_value=True),
+        ):
+            frame, left, top = window_control.capture_game_window(allow_foreground_fallback=True)
+            self.assertIsNone(frame)
+            self.assertEqual((left, top), (0, 0))
+            restore_mock.assert_not_called()
 
         # 3. Normal window foreground MSS capture
         fake_frame = np.full((1080, 1920, 4), 200, dtype=np.uint8)
@@ -139,6 +196,7 @@ class WindowControlTests(unittest.TestCase):
 
         with (
             patch.object(window_control, "find_game_window", return_value=win_normal),
+            patch.object(window_control._user32, "IsIconic", return_value=False),
             patch.object(window_control, "_get_client_geometry", return_value=(0, 0, 1920, 1080)),
             patch.object(window_control._user32, "GetForegroundWindow", return_value=100),
             patch.object(window_control, "_get_mss_instance", return_value=mock_mss),

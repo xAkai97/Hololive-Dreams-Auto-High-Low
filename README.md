@@ -52,8 +52,8 @@ An advanced automated assistant, card-counting engine, and simulation suite for 
 ├── requirements-dev.txt       # Development, testing, coverage, lint & pre-commit dependencies
 ├── pyproject.toml             # Unified Ruff, Pyright, and Coverage configuration
 ├── .pre-commit-config.yaml    # Automated Git pre-commit hooks (Ruff, line endings, locale parity)
-├── LICENSE                    # MIT License
-├── THIRD_PARTY_NOTICES.md     # Upstream open-source attribution
+├── licenses/                  # Retained third-party license notices (Oreki0504 MIT)
+├── THIRD_PARTY_NOTICES.md     # Upstream attribution, licensing scope & asset notices
 ├── Hololive Dreams-Auto.spec  # PyInstaller packaging configuration
 ├── src/                       # Core engine and decision-making logic
 │   ├── auto_bot.py            # Main automation loop and game control
@@ -86,8 +86,9 @@ An advanced automated assistant, card-counting engine, and simulation suite for 
 ├── tools/                     # Development utilities & calibration helpers
 ├── docs/                      # Documentation and detailed technical guides
 │   ├── strategies.md          # Comprehensive 7-strategy guide, play styles & modifiers
-│   └── ALGORITHMS.md          # Mathematical formulas, probability models & Numba solver
-└── tests/                     # 24 unit, integration & fuzz test files (242 tests)
+│   ├── ALGORITHMS.md          # Mathematical formulas, probability models & Numba solver
+│   └── game_mechanics_research.md # Empirical deck fairness & poker rule telemetry verification
+└── tests/                     # 25 unit, integration & fuzz test files (250 tests)
 ```
 
 ---
@@ -222,15 +223,17 @@ This project originated as an enhanced extension of foundational automation work
   - **Author**: [mwty-0415](https://github.com/mwty-0415) (Bilibili: [hmr0000](https://space.bilibili.com/519062381) / YouTube: [@hmr0000](https://www.youtube.com/@hmr0000))
   - **Notice**: Foundational game automation state machine and High-Low core recognition.
 - **Computer Vision & Strategy Insights**:
-  - **Repository**: [harrykuang-dev/Hololive-Dreams-Auto-High-Low](https://github.com/harrykuang-dev/Hololive-Dreams-Auto-High-Low)
+  - **Repositories**:
+    - [harrykuang-dev/Hololive-Dreams-Auto-High-Low](https://github.com/harrykuang-dev/Hololive-Dreams-Auto-High-Low)
+    - [harrykuang-dev/Hololive-Dreams-High-low-Auto-Personal](https://github.com/harrykuang-dev/Hololive-Dreams-High-low-Auto-Personal)
   - **Author**: [harrykuang-dev](https://github.com/harrykuang-dev)
-  - **Notice**: Enhanced OCR heuristics, settlement verification routines, and diagnostic insights.
+  - **Notice**: Enhanced OCR heuristics, settlement verification routines, minimized-window restore handling, overlapping double-up prompt recognition fixes, and diagnostic insights.
 - **Poker Card Recognition & Hand Solver**:
   - **Repository**: [Oreki0504/hololive-dreams-helper](https://github.com/Oreki0504/hololive-dreams-helper)
   - **Author**: [Oreki0504](https://github.com/Oreki0504)
   - **Notice**: Card template patterns and poker hand evaluation logic.
 
-All original copyrights, trademarks, and open-source licenses are respected and retained. For complete attribution notices, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Card recognition (`src/recognizer.py`) and hold-card evaluation (`src/poker_core.py`) are based on [Oreki0504/hololive-dreams-helper](https://github.com/Oreki0504/hololive-dreams-helper); its MIT notice is retained in [licenses/poker-core-MIT.txt](licenses/poker-core-MIT.txt). Because `mwty-0415/Hololive-Dreams-Auto-High-Low`, `harrykuang-dev/Hololive-Dreams-Auto-High-Low`, and `harrykuang-dev/Hololive-Dreams-High-low-Auto-Personal` currently publish no explicit root license, this repository does not apply a blanket repository-wide open-source license, and game assets/screenshots (`© COVER` / `© QualiArts, Inc.`) are not relicensed. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for full notices.
 
 ---
 

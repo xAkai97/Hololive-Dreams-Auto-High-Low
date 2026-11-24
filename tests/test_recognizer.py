@@ -83,6 +83,19 @@ class TestRecognizerComprehensive(unittest.TestCase):
         rects = self.rec.find_card_rects(white_screen)
         self.assertEqual(len(rects), 5)
 
+    def test_recognize_card_clamps_out_of_bounds_and_empty_crops(self):
+        screen = np.full((100, 100, 3), 240, dtype=np.uint8)
+        partial = self.rec.recognize_card(screen, (-50, -50, 200, 200))
+        self.assertIsNotNone(partial)
+
+        offscreen = self.rec.recognize_card(screen, (-50, -50, 10, 10))
+        self.assertEqual(offscreen.card_id, -1)
+        self.assertEqual(offscreen.rank_score, 0.0)
+
+        tiny = self.rec.recognize_card(screen, (95, 95, 20, 20))
+        self.assertEqual(tiny.card_id, -1)
+        self.assertEqual(self.rec._joker_similarity(np.zeros((0, 0, 3), dtype=np.uint8)), 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

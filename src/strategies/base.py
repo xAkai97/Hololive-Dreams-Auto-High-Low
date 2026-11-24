@@ -37,6 +37,7 @@ class BaseStrategy(ABC):
     base_cash: int | None = None
     last_cashout: int | None = None
     intent_to_fail: bool = False
+    last_guard_reason: str | None = None
     force_adaptive_sprint: bool = False
 
     def reset_round(self) -> None:
@@ -44,6 +45,7 @@ class BaseStrategy(ABC):
         self.base_cash = None
         self.last_cashout = None
         self.intent_to_fail = False
+        self.last_guard_reason = None
 
     def start_round(self, base_cash: int, coins: int) -> None:
         """Initialize round parameters upon detecting initial payout."""
@@ -66,6 +68,7 @@ class BaseStrategy(ABC):
             'challenge' if payout overshoots the ceiling (setting self.intent_to_fail when max_payout < benchmark),
             None if normal strategy phase rules should proceed.
         """
+        self.last_guard_reason = None
         if target_limit is None:
             target_limit = getattr(self, "target_limit", 20000)
         if target_limit is None:
@@ -86,6 +89,7 @@ class BaseStrategy(ABC):
                 if (current_cashout % 200) == 100 and daily_coins + current_cashout <= cushion_cap:
                     return "cashout"
                 if daily_coins + current_cashout <= even_cap and daily_coins + next_reward > even_cap:
+                    self.last_guard_reason = "cushion_guard"
                     return "cashout"
                 if daily_coins + current_cashout > even_cap and (daily_coins + current_cashout) % 200 == 0:
                     if current_cashout >= sprint_floor and daily_coins + current_cashout >= EARLY_MAX_PAYOUT_BENCHMARK:
@@ -111,6 +115,7 @@ class BaseStrategy(ABC):
                     return "challenge"
 
         if daily_coins + current_cashout <= cushion_cap and daily_coins + next_reward > cushion_cap:
+            self.last_guard_reason = "cushion_guard"
             return "cashout"
         if daily_coins + current_cashout > cushion_cap:
             near_cap = (daily_coins + current_cashout >= target_limit) or (cushion >= target_limit - 500)

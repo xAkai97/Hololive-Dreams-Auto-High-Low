@@ -833,6 +833,79 @@ class TestCompanionMode(unittest.TestCase):
             self.assertIn("Optimal Hold", output)
             self.assertIn("Selected Hold", output)
 
+    def test_handle_ask_challenge_logs_cushion_warning_and_neutral_blind_risk(self):
+        import contextlib
+        import io
+
+        import localization
+        from strategies.max_profit import MaxProfitStrategy
+
+        orig_lang = localization.get_lang()
+        localization.set_lang("en")
+        try:
+            mock_rec = MagicMock()
+            mock_rec.recognize.return_value = ([], [])
+            strat = MaxProfitStrategy()
+            ctx = BotSessionState(
+                mode="max_profit",
+                strat_name="Adaptive Max Profit (~29-33k)",
+                target_limit=20000,
+                cushion_val=19800,
+                ticket_cost=50,
+                daily_coins=18400,
+                daily_fails=0,
+                round_count=1,
+                net_profit=18400,
+                strategy=strat,
+                counter=HighLowCounter(),
+                card_rec=mock_rec,
+                reward_reader=MagicMock(),
+                settlement_mgr=None,
+                on_stats_update=None,
+                on_prompt_settlement=None,
+                scan_mode=True,
+            )
+            ctx.get_config = MagicMock(return_value={})
+            ctx.upcoming_card_val = None
+            ctx.reward_reader.observe.return_value = 1600
+            dummy_img = np.zeros((100, 100, 3), dtype=np.uint8)
+
+            with (
+                patch("auto_bot.save_pending_cashout"),
+                patch("auto_bot.is_success_prompt", return_value=False),
+                patch("auto_bot.read_challenge_payout", return_value=1600),
+                contextlib.redirect_stdout(io.StringIO()) as buf,
+            ):
+                handle_ask_challenge(ctx, dummy_img, 0, 0)
+
+            output = buf.getvalue()
+            self.assertIn("Round 1 or blind draw (next card unknown; strategy rules apply)", output)
+            self.assertNotIn("doubling by default", output)
+            self.assertIn("Cushion Alert", output)
+            self.assertIn("+800", output)
+            self.assertIn("+1,600", output)
+            self.assertIn("20,000", output)
+            self.assertIn("CASHOUT", output)
+
+            # Non-cushion cashout (e.g. low win-rate bailout at 5,000 coins on rank 8) should not print Cushion Alert
+            ctx.daily_coins = 5000
+            ctx.upcoming_card_val = 8
+            ctx.last_advised_challenge = None
+            strat.reset_round()
+            with (
+                patch("auto_bot.save_pending_cashout"),
+                patch("auto_bot.is_success_prompt", return_value=False),
+                patch("auto_bot.read_challenge_payout", return_value=1600),
+                contextlib.redirect_stdout(io.StringIO()) as buf_non_cushion,
+            ):
+                handle_ask_challenge(ctx, dummy_img, 0, 0)
+
+            non_cushion_out = buf_non_cushion.getvalue()
+            self.assertIn("CASHOUT", non_cushion_out)
+            self.assertNotIn("Cushion Alert", non_cushion_out)
+        finally:
+            localization.set_lang(orig_lang)
+
 
 if __name__ == "__main__":
     unittest.main()

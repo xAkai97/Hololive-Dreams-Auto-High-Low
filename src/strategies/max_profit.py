@@ -39,6 +39,7 @@ class MaxProfitStrategy(BaseStrategy):
         self.base_cash: int | None = None
         self.last_cashout: int | None = None
         self.intent_to_fail: bool = False
+        self.last_guard_reason: str | None = None
 
     def start_round(self, base_cash: int, coins: int) -> None:
         self.base_cash = base_cash
@@ -60,6 +61,7 @@ class MaxProfitStrategy(BaseStrategy):
         daily_coins = daily_coins or 0
         cushion = getattr(self, "cushion_target", 19800)
         self.intent_to_fail = False
+        self.last_guard_reason = None
 
         # Sprint: daily >= cushion (19,800-19,900) — chase 10k+ cashout
         if daily_coins >= cushion:
@@ -120,6 +122,7 @@ class TrueMaxCoinsStrategy(BaseStrategy):
         self.base_cash: int | None = None
         self.last_cashout: int | None = None
         self.intent_to_fail: bool = False
+        self.last_guard_reason: str | None = None
         self._in_sprint_round = False
 
     def start_round(self, base_cash: int, coins: int) -> None:
@@ -146,6 +149,7 @@ class TrueMaxCoinsStrategy(BaseStrategy):
         win_rate = win_rate if win_rate is not None else 1.0
         daily_coins = daily_coins or 0
         self.intent_to_fail = False
+        self.last_guard_reason = None
 
         style = normalize_play_style(getattr(self, "play_style", "default"))
         min_rate = 0.55 if style == "aggressive" else (0.65 if style == "conservative" else 0.60)

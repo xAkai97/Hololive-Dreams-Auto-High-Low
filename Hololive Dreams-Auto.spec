@@ -16,7 +16,7 @@ datas += [
     ('locales', 'locales'),
     ('backgrounds', 'backgrounds'),
     ('assets', 'assets'),
-    ('LICENSE', '.'),
+    ('licenses', 'licenses'),
     ('THIRD_PARTY_NOTICES.md', '.'),
 ]
 

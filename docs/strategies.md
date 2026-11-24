@@ -11,6 +11,8 @@
 | **Unlimited plays** | No limit on rounds, only on daily total |
 
 > **Optimal daily max:** ~32,600–33,900 coins — earn `19,800–19,900` in cushion cashouts, then max double-up (`12,800` or `14,000` on Five of a Kind) on the final round.
+>
+> For empirical verification of game rules, A-2-3-4-5 wheel straights, and deck fairness analysis, see [Game Mechanics & Probability Research](game_mechanics_research.md).
 
 ---
 
@@ -148,7 +150,7 @@ Fully user-configurable strategy. Set your own parameters via the GUI:
 | Cushion Target | `param_cushion_target` | 19,800 | Target cap room before switching to sprint |
 | Min Win Rate | `param_min_win_rate` | 60 (%) | Minimum win rate before forced cashout |
 | Sprint Target | `param_sprint_target` | 10,000 | Min cashout to accept during sprint |
-| Max Doubles | `param_max_doubles` | 10 | Max doubles per round |
+| Max Doubles | `param_max_doubles` | 10 | Max doubles per round (0 = unlimited) |
 | Max 14k Hunt Attempts | `hunt_14k_attempts` | 0 (Unlimited) | Max Five of a Kind sprint attempts before Adaptive fallback |
 | Drop on 7/8 | `param_drop_seven_eight` | false | Always cashout when facing a 7 or 8 |
 

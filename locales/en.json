@@ -53,7 +53,7 @@
     "state_settlement_wait": "[State] Result screen, waiting for amount to stabilize...",
     "challenge_current": "[Cashier] Current cash: {cashout} | On win: {reward}",
     "risk_prediction": "[Risk] Based on prediction, win rate: {rate:.2%}",
-    "risk_blind": "[Risk] Round 1 or blind draw, doubling by default!",
+    "risk_blind": "[Risk] Round 1 or blind draw (next card unknown; strategy rules apply)",
     "target_achieved": "🎉 Ultimate target reached! Cash reached {cashout} (>10k). Safe cashout!",
     "sprint_continue": "🚀 Sprint phase! Cash is {cashout}, pursuing {reward} (target >10k)!",
     "cushion_warning": "🛑 Cushion Alert: Cashout (+{cashout}) is safe, but doubling (+{reward}) would total {total}, exceeding limit! Cashing out!",

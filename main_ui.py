@@ -3874,9 +3874,11 @@ class HololiveBotUI(tk.Tk):
                     self.after_cancel(self._feedback_timer_id)
             self._feedback_timer_id = self.after(
                 3000,
-                lambda: self.canvas.itemconfig(self.settings_feedback_id, text="")
-                if not getattr(self, "_is_destroyed", False)
-                else None,
+                lambda: (
+                    self.canvas.itemconfig(self.settings_feedback_id, text="")
+                    if not getattr(self, "_is_destroyed", False)
+                    else None
+                ),
             )
             print(f"[Settings] {localization.tr('settings_saved_msg', self.current_lang)}")
         except Exception as e:  # noqa: BLE001

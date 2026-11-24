@@ -458,7 +458,7 @@ def open_custom_parametric_dialog(app: Any):
             wr = max(10, min(95, int(ent_winrate.get().strip())))
             cush = max(1000, min(50000, int(ent_cushion.get().strip())))
             sp = max(1000, min(100000, int(ent_sprint.get().strip())))
-            md = max(1, min(20, int(ent_doubles.get().strip())))
+            md = max(0, min(20, int(ent_doubles.get().strip())))
             ha = max(0, min(10000, int(ent_hunt_attempts.get().strip())))
             dp = bool(var_drop.get())
 

@@ -71,6 +71,8 @@ _user32.PrintWindow.argtypes = [wintypes.HWND, wintypes.HDC, wintypes.UINT]
 _user32.PrintWindow.restype = wintypes.BOOL
 _user32.IsWindow.argtypes = [wintypes.HWND]
 _user32.IsWindow.restype = wintypes.BOOL
+_user32.IsIconic.argtypes = [wintypes.HWND]
+_user32.IsIconic.restype = wintypes.BOOL
 _user32.ShowWindowAsync.argtypes = [wintypes.HWND, ctypes.c_int]
 _user32.SetForegroundWindow.argtypes = [wintypes.HWND]
 _user32.GetForegroundWindow.argtypes = []
@@ -157,7 +159,7 @@ def _capture_client_with_printwindow(hwnd: int, width: int, height: int) -> np.n
 
 
 def _bring_game_to_front(hwnd: int) -> bool:
-    if not hwnd or not _user32.IsWindow(hwnd):
+    if not hwnd or not _user32.IsWindow(hwnd) or _user32.IsIconic(hwnd):
         return False
     if _user32.GetForegroundWindow() == hwnd:
         return True
@@ -184,14 +186,12 @@ def capture_game_window(
         _capture_context = None
         return None, 0, 0
 
-    if win.isMinimized:
-        if not allow_foreground_fallback:
-            _capture_context = None
-            return None, 0, 0
-        win.restore()
-        time.sleep(0.5)
-
-    hwnd = win._hWnd
+    hwnd = getattr(win, "_hWnd", 0)
+    if getattr(win, "isMinimized", False) or (hwnd and _user32.IsIconic(hwnd)):
+        # Forcing Unity to restore during capture can leave a collapsed title-only window.
+        # Wait for the user to restore a usable client area instead.
+        _capture_context = None
+        return None, 0, 0
     try:
         left, top, width, height = _get_client_geometry(hwnd)
         if width < 640 or height < 360:
@@ -212,12 +212,16 @@ def capture_game_window(
             img = _capture_client_with_printwindow(hwnd, width, height)
     except (RuntimeError, OSError, cv2.error) as exc:
         print(tr("warn_background_capture_fail", error=exc))
-        if not allow_foreground_fallback:
+        if (
+            not allow_foreground_fallback
+            or getattr(win, "isMinimized", False)
+            or (hwnd and _user32.IsIconic(hwnd))
+            or not _bring_game_to_front(hwnd)
+        ):
             _reset_mss_instance()
             _capture_context = None
             return None, 0, 0
         try:
-            _bring_game_to_front(hwnd)
             time.sleep(0.2)
             left, top, width, height = _get_client_geometry(hwnd)
             if width < 640 or height < 360:
@@ -270,6 +274,9 @@ def safe_click(
         client_left, client_top, client_width, client_height = _get_client_geometry(hwnd)
     except (RuntimeError, OSError) as exc:
         print(tr("warn_cannot_read_coords", error=exc))
+        return False
+    if client_width < 640 or client_height < 360:
+        print(tr("warn_window_lost"))
         return False
 
     offset_x = random.randint(-4, 4)
